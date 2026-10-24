@@ -37,7 +37,7 @@ async fn valid_computation_requests_return_explicit_501_errors() {
         ("/api/simulate", building()),
         (
             "/api/stress-test",
-            json!({"building": building(), "config": {"max_scenarios": 10, "block_each_exit": true, "blocked_cell_candidates": []}}),
+            json!({"building": building(), "config": {"max_scenarios": 10, "block_each_exit": true, "obstruction_candidates": []}}),
         ),
         (
             "/api/optimize",
@@ -59,7 +59,7 @@ async fn validation_precedes_not_implemented_for_all_computation_routes() {
         ("/api/simulate", invalid.clone()),
         (
             "/api/stress-test",
-            json!({"building": invalid.clone(), "config": {"max_scenarios": 1, "block_each_exit": true, "blocked_cell_candidates": []}}),
+            json!({"building": invalid.clone(), "config": {"max_scenarios": 1, "block_each_exit": true, "obstruction_candidates": []}}),
         ),
         (
             "/api/optimize",
@@ -67,11 +67,11 @@ async fn validation_precedes_not_implemented_for_all_computation_routes() {
         ),
         (
             "/api/stress-test",
-            json!({"building": building(), "config": {"max_scenarios": 0, "block_each_exit": true, "blocked_cell_candidates": []}}),
+            json!({"building": building(), "config": {"max_scenarios": 0, "block_each_exit": true, "obstruction_candidates": []}}),
         ),
         (
             "/api/stress-test",
-            json!({"building": building(), "config": {"max_scenarios": 1, "block_each_exit": false, "blocked_cell_candidates": []}}),
+            json!({"building": building(), "config": {"max_scenarios": 1, "block_each_exit": false, "obstruction_candidates": []}}),
         ),
         (
             "/api/optimize",

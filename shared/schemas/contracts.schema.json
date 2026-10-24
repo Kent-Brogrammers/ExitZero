@@ -4,27 +4,10 @@
   "title": "ExitZero API contracts",
   "$ref": "#/$defs/BuildingScenario",
   "$defs": {
-    "Cell": {
+    "SpawnZone": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["x", "y"],
-      "properties": {
-        "x": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 511
-        },
-        "y": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 511
-        }
-      }
-    },
-    "Exit": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "x", "y"],
+      "required": ["id", "x", "y", "width", "height", "count"],
       "properties": {
         "id": {
           "type": "string",
@@ -33,41 +16,24 @@
           "pattern": "\\S"
         },
         "x": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 511
+          "type": "number",
+          "maximum": 1000,
+          "minimum": 0
         },
         "y": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 511
-        }
-      }
-    },
-    "SpawnZone": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["x", "y", "width", "height", "count"],
-      "properties": {
-        "x": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 511
-        },
-        "y": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 511
+          "type": "number",
+          "maximum": 1000,
+          "minimum": 0
         },
         "width": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 512
+          "type": "number",
+          "maximum": 1000,
+          "exclusiveMinimum": 0
         },
         "height": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 512
+          "type": "number",
+          "maximum": 1000,
+          "exclusiveMinimum": 0
         },
         "count": {
           "type": "integer",
@@ -87,52 +53,50 @@
         "exits",
         "spawn_zones",
         "blocked_exit_ids",
-        "blocked_cells",
+        "obstructions",
+        "agent_radius",
+        "time_step_seconds",
         "seed",
         "max_steps"
       ],
       "properties": {
         "width": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 512
+          "type": "number",
+          "maximum": 1000,
+          "exclusiveMinimum": 0
         },
         "height": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 512
+          "type": "number",
+          "maximum": 1000,
+          "exclusiveMinimum": 0
         },
         "walls": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/Cell"
+            "$ref": "#/$defs/Wall"
           },
-          "uniqueItems": true,
-          "maxItems": 262144
+          "maxItems": 500
         },
         "doors": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/Cell"
+            "$ref": "#/$defs/Opening"
           },
-          "uniqueItems": true,
-          "maxItems": 262144
+          "maxItems": 1000
         },
         "exits": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/Exit"
+            "$ref": "#/$defs/Opening"
           },
-          "minItems": 1,
-          "maxItems": 2044
+          "maxItems": 1000
         },
         "spawn_zones": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/SpawnZone"
           },
-          "minItems": 1,
-          "maxItems": 10000
+          "maxItems": 100
         },
         "blocked_exit_ids": {
           "type": "array",
@@ -143,15 +107,24 @@
             "pattern": "\\S"
           },
           "uniqueItems": true,
-          "maxItems": 2044
+          "maxItems": 1000
         },
-        "blocked_cells": {
+        "obstructions": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/Cell"
+            "$ref": "#/$defs/Obstruction"
           },
-          "uniqueItems": true,
-          "maxItems": 262144
+          "maxItems": 100
+        },
+        "agent_radius": {
+          "type": "number",
+          "maximum": 2,
+          "exclusiveMinimum": 0
+        },
+        "time_step_seconds": {
+          "type": "number",
+          "maximum": 1,
+          "exclusiveMinimum": 0
         },
         "seed": {
           "type": "integer",
@@ -257,14 +230,14 @@
           "maximum": 4294967295
         },
         "x": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 511
+          "type": "number",
+          "maximum": 1000,
+          "minimum": 0
         },
         "y": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 511
+          "type": "number",
+          "maximum": 1000,
+          "minimum": 0
         }
       }
     },
@@ -298,9 +271,10 @@
         "remaining",
         "clearance_steps",
         "frames",
-        "cell_visits",
         "width",
-        "height"
+        "height",
+        "traffic_samples",
+        "time_step_seconds"
       ],
       "properties": {
         "status": {
@@ -337,24 +311,27 @@
             "$ref": "#/$defs/AnimationFrame"
           }
         },
-        "cell_visits": {
-          "type": "array",
-          "items": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 4294967295
-          },
-          "maxItems": 262144
-        },
         "width": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 512
+          "type": "number",
+          "maximum": 1000,
+          "exclusiveMinimum": 0
         },
         "height": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 512
+          "type": "number",
+          "maximum": 1000,
+          "exclusiveMinimum": 0
+        },
+        "traffic_samples": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TrafficSample"
+          },
+          "maxItems": 100000
+        },
+        "time_step_seconds": {
+          "type": "number",
+          "maximum": 1,
+          "exclusiveMinimum": 0
         }
       },
       "allOf": [
@@ -403,7 +380,7 @@
       "required": [
         "max_scenarios",
         "block_each_exit",
-        "blocked_cell_candidates"
+        "obstruction_candidates"
       ],
       "properties": {
         "max_scenarios": {
@@ -414,13 +391,12 @@
         "block_each_exit": {
           "type": "boolean"
         },
-        "blocked_cell_candidates": {
+        "obstruction_candidates": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/Cell"
+            "$ref": "#/$defs/Obstruction"
           },
-          "maxItems": 100,
-          "uniqueItems": true
+          "maxItems": 100
         }
       }
     },
@@ -440,7 +416,7 @@
     "ScenarioModifications": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["blocked_exit_ids", "blocked_cells"],
+      "required": ["blocked_exit_ids", "added_obstructions"],
       "properties": {
         "blocked_exit_ids": {
           "type": "array",
@@ -452,12 +428,12 @@
           },
           "uniqueItems": true
         },
-        "blocked_cells": {
+        "added_obstructions": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/Cell"
+            "$ref": "#/$defs/Obstruction"
           },
-          "uniqueItems": true
+          "maxItems": 100
         }
       }
     },
@@ -593,6 +569,131 @@
               "type": "string"
             }
           }
+        }
+      }
+    },
+    "Point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y"],
+      "properties": {
+        "x": {
+          "type": "number",
+          "maximum": 1000,
+          "minimum": 0
+        },
+        "y": {
+          "type": "number",
+          "maximum": 1000,
+          "minimum": 0
+        }
+      }
+    },
+    "Wall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "start", "end", "thickness"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "\\S"
+        },
+        "start": {
+          "$ref": "#/$defs/Point"
+        },
+        "end": {
+          "$ref": "#/$defs/Point"
+        },
+        "thickness": {
+          "type": "number",
+          "maximum": 2,
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "Opening": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "wall_id", "offset", "width"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "\\S"
+        },
+        "wall_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "\\S"
+        },
+        "offset": {
+          "type": "number",
+          "maximum": 1000,
+          "minimum": 0
+        },
+        "width": {
+          "type": "number",
+          "maximum": 1000,
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "Obstruction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "x", "y", "width", "height"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "\\S"
+        },
+        "x": {
+          "type": "number",
+          "maximum": 1000,
+          "minimum": 0
+        },
+        "y": {
+          "type": "number",
+          "maximum": 1000,
+          "minimum": 0
+        },
+        "width": {
+          "type": "number",
+          "maximum": 1000,
+          "exclusiveMinimum": 0
+        },
+        "height": {
+          "type": "number",
+          "maximum": 1000,
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "TrafficSample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "visits"],
+      "properties": {
+        "x": {
+          "type": "number",
+          "maximum": 1000,
+          "minimum": 0
+        },
+        "y": {
+          "type": "number",
+          "maximum": 1000,
+          "minimum": 0
+        },
+        "visits": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
         }
       }
     }

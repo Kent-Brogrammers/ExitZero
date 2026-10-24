@@ -121,7 +121,9 @@ export function createApiClient(
       const result = await request("/simulate", validateSimulation, building);
       checkMetrics(result);
       if (
-        result.cell_visits.length !== result.width * result.height ||
+        result.traffic_samples.some(
+          (sample) => sample.x > result.width || sample.y > result.height,
+        ) ||
         result.frames.some(
           (frame, index) =>
             (index > 0 && frame.step <= result.frames[index - 1]!.step) ||
@@ -129,7 +131,7 @@ export function createApiClient(
             new Set(frame.agents.map((agent) => agent.id)).size !==
               frame.agents.length ||
             frame.agents.some(
-              (agent) => agent.x >= result.width || agent.y >= result.height,
+              (agent) => agent.x > result.width || agent.y > result.height,
             ),
         )
       ) {

@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import example from "../../shared/examples/building.json";
+import { buildingError } from "./editor/geometry";
 import { BuildingEditor } from "./editor/BuildingEditor";
 import { api } from "./services/api";
 import { SimulationView } from "./simulation/SimulationView";
@@ -9,10 +10,19 @@ import type {
   StressTestResult,
 } from "./types/simulation";
 
-const building: BuildingScenario = example;
 const AnalyticsDashboard = lazy(() => import("./analytics/AnalyticsDashboard"));
 
 export default function App() {
+  const [building, setBuilding] = useState<BuildingScenario>(() =>
+    structuredClone(example),
+  );
+  const layoutProblem = buildingError(building);
+  function changeBuilding(next: BuildingScenario) {
+    setBuilding(next);
+    setResult(null);
+    setStressResult(null);
+    setMessage("Layout updated. Export JSON to save your work.");
+  }
   const [connection, setConnection] = useState<
     "checking" | "online" | "offline"
   >("checking");
@@ -53,7 +63,7 @@ export default function App() {
             config: {
               max_scenarios: 10,
               block_each_exit: true,
-              blocked_cell_candidates: [],
+              obstruction_candidates: [],
             },
           }),
         );
@@ -114,10 +124,10 @@ export default function App() {
         </div>
         <section className="controls panel" aria-label="Simulation controls">
           <div className="scenario-summary">
-            <strong>Example building</strong>
+            <strong>Current layout</strong>
             <span>
-              {building.width} × {building.height} cells ·{" "}
-              {building.exits.length} exits ·{" "}
+              {building.width} × {building.height} m · {building.exits.length}{" "}
+              exits ·{" "}
               {building.spawn_zones.reduce(
                 (total, zone) => total + zone.count,
                 0,
@@ -128,19 +138,19 @@ export default function App() {
           <div className="control-buttons">
             <button
               className="primary"
-              disabled={busy || connection !== "online"}
+              disabled={busy || connection !== "online" || !!layoutProblem}
               onClick={() => void run("simulate")}
             >
               Run simulation
             </button>
             <button
-              disabled={busy || connection !== "online"}
+              disabled={busy || connection !== "online" || !!layoutProblem}
               onClick={() => void run("stress")}
             >
               Stress test
             </button>
             <button
-              disabled={busy || connection !== "online"}
+              disabled={busy || connection !== "online" || !!layoutProblem}
               onClick={() => void run("optimize")}
             >
               Optimize
@@ -148,10 +158,14 @@ export default function App() {
           </div>
         </section>
         <p className="request-message" role="status">
-          {message}
+          {layoutProblem ?? message}
         </p>
         <div className="workspace-grid">
-          <BuildingEditor building={building} />
+          <BuildingEditor
+            building={building}
+            onChange={changeBuilding}
+            disabled={busy}
+          />
           <SimulationView result={result} />
         </div>
         <div className="preview-control">

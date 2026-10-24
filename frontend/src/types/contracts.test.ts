@@ -14,8 +14,8 @@ const validateSimulation = ajv.getSchema<SimulationResult>(
   `${contracts.$id}#/$defs/SimulationResult`,
 )!;
 
-describe("shared JSON schemas", () => {
-  it("validates the 30 × 20 example used by both Rust and TypeScript", () => {
+describe("shared continuous geometry schemas", () => {
+  it("validates the shared 30 × 20 metre example", () => {
     const typedBuilding: BuildingScenario = building;
     expect(
       validateBuilding(typedBuilding),
@@ -27,27 +27,34 @@ describe("shared JSON schemas", () => {
       typedBuilding.exits.length,
     ]).toEqual([30, 20, 2]);
   });
-
-  it("validates the explicitly synthetic animation fixture", () => {
+  it("accepts decimal positions and world-space traffic samples", () => {
     expect(
       validateSimulation(mock),
       ajv.errorsText(validateSimulation.errors),
     ).toBe(true);
-    expect(mock.cell_visits.length).toBe(mock.width * mock.height);
+    expect(mock.frames[0]!.agents[0]!.x % 1).not.toBe(0);
   });
-
-  it("rejects wrong casing, fractional coordinates, unsafe seeds, and empty zones", () => {
+  it("rejects legacy cells, non-finite coordinates, unsafe seeds, and missing references", () => {
     for (const invalid of [
-      { ...building, spawnZones: [] },
+      { ...building, blocked_cells: [] },
       { ...building, width: 0 },
-      { ...building, walls: [{ x: 0.5, y: 1 }] },
+      {
+        ...building,
+        walls: [
+          {
+            id: "bad",
+            start: { x: NaN, y: 1 },
+            end: { x: 2, y: 2 },
+            thickness: 0.2,
+          },
+        ],
+      },
       { ...building, seed: Number.MAX_SAFE_INTEGER + 1 },
-      { ...building, spawn_zones: [] },
+      { ...building, exits: [{ id: "a", x: 1, y: 1 }] },
       { ...building, max_steps: 0 },
     ])
       expect(validateBuilding(invalid)).toBe(false);
   });
-
   it("requires remaining occupants and null clearance on unfinished results", () => {
     expect(validateSimulation({ ...mock, clearance_steps: 1 })).toBe(false);
     expect(validateSimulation({ ...mock, remaining: 0 })).toBe(false);
