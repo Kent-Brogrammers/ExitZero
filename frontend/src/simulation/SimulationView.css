@@ -365,3 +365,10 @@
     margin-bottom: 16px;
   }
 }
+.live-trails-note {
+  padding: 8px 16px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--cad-muted);
+  background: var(--cad-surface);
+}
