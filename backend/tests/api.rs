@@ -2,7 +2,11 @@ use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode},
 };
-use exitzero::api::router;
+use exitzero::{
+    api::router,
+    models::{BuildingScenario, OptimizationResult, SimulationResult, StressTestResult},
+    simulation::simulate,
+};
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
@@ -32,22 +36,68 @@ async fn health_returns_expected_contract() {
 }
 
 #[tokio::test]
-async fn valid_computation_requests_return_explicit_501_errors() {
+async fn valid_computation_requests_return_real_results_matching_the_simulator() {
+    let building: BuildingScenario = serde_json::from_value(building()).unwrap();
+    let baseline = simulate(&building).unwrap();
+    baseline.validate().unwrap();
+    // Normalize the direct result through the same JSON parsing used by HTTP.
+    // Default JSON float parsing can round a coordinate by one ULP; this is
+    // separate from exact in-process spawning/fairness checks in the modules.
+    let transported_baseline: SimulationResult =
+        serde_json::from_slice(&serde_json::to_vec(&baseline).unwrap()).unwrap();
+    let expected = serde_json::to_value(&baseline.metrics).unwrap();
     for (path, payload) in [
-        ("/api/simulate", building()),
+        ("/api/simulate", serde_json::to_value(&building).unwrap()),
         (
             "/api/stress-test",
-            json!({"building": building(), "config": {"max_scenarios": 10, "block_each_exit": true, "obstruction_candidates": []}}),
+            json!({"building": building, "config": {"max_scenarios": 10, "block_each_exit": true, "obstruction_candidates": []}}),
         ),
         (
             "/api/optimize",
-            json!({"building": building(), "max_candidates": 10}),
+            json!({"building": building, "max_candidates": 10}),
         ),
     ] {
         let (status, body) = request(path, Some(payload)).await;
-        assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
-        assert_eq!(body["error"]["code"], "not_implemented");
-        assert!(body.get("frames").is_none());
+        assert_eq!(status, StatusCode::OK, "{path}: {body}");
+        assert!(body.get("error").is_none());
+        match path {
+            "/api/simulate" => {
+                let result: SimulationResult = serde_json::from_value(body).unwrap();
+                result.validate().unwrap();
+                assert_eq!(serde_json::to_value(result.metrics).unwrap(), expected);
+                assert_eq!(result.frames.len(), transported_baseline.frames.len());
+                for (actual, expected) in result.frames.iter().zip(&transported_baseline.frames) {
+                    assert_eq!(actual.step, expected.step);
+                    assert_eq!(actual.agents.len(), expected.agents.len());
+                    for (actual, expected) in actual.agents.iter().zip(&expected.agents) {
+                        assert_eq!(
+                            (actual.id, actual.x, actual.y),
+                            (expected.id, expected.x, expected.y)
+                        );
+                    }
+                }
+            }
+            "/api/stress-test" => {
+                let result: StressTestResult = serde_json::from_value(body).unwrap();
+                assert_eq!(serde_json::to_value(result.baseline).unwrap(), expected);
+                assert_eq!(result.scenarios.len(), building.exits.len());
+                for scenario in result.scenarios {
+                    scenario.metrics.validate().unwrap();
+                    assert!(scenario.description.contains("fairness verified"));
+                }
+            }
+            "/api/optimize" => {
+                let result: OptimizationResult = serde_json::from_value(body).unwrap();
+                assert_eq!(serde_json::to_value(&result.baseline).unwrap(), expected);
+                assert!(result.candidates.len() <= 10);
+                for candidate in result.candidates {
+                    candidate.building.validate().unwrap();
+                    candidate.metrics.validate().unwrap();
+                    assert!(candidate.metrics.compare_severity(&result.baseline).is_lt());
+                }
+            }
+            _ => unreachable!(),
+        }
     }
 }
 
