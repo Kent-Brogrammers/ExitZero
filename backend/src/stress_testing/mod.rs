@@ -1,12 +1,980 @@
 use crate::{
-    models::{StressTestRequest, StressTestResult},
+    models::{
+        BuildingScenario, ScenarioModifications, Severity, SimulationMetrics, SimulationResult,
+        StressScenarioResult, StressTestRequest, StressTestResult,
+    },
     simulation::SimulationError,
 };
+use std::{cmp::Ordering, collections::HashMap};
 
-// TODO(Nick): generate scenarios and call crate::simulation::simulate for each.
+/// Run independent, bounded experiments through the shared simulation engine.
+/// Descriptions disclose unverified initial placement; equal seeds alone are not proof.
 pub fn stress_test(request: &StressTestRequest) -> Result<StressTestResult, SimulationError> {
+    stress_test_with(request, crate::simulation::simulate)
+}
+
+// The private runner permits explicitly synthetic unit tests, never a production fallback.
+fn stress_test_with(
+    request: &StressTestRequest,
+    mut simulate: impl FnMut(&BuildingScenario) -> Result<SimulationResult, SimulationError>,
+) -> Result<StressTestResult, SimulationError> {
     request
         .validate()
         .map_err(SimulationError::InvalidScenario)?;
-    Err(SimulationError::NotImplemented)
+    let (baseline, baseline_positions) = {
+        let run = simulate(&request.building)?;
+        validate_run(&run, &request.building)?;
+        let positions = initial_positions(&run);
+        (run.metrics, positions)
+    }; // Release baseline playback/traffic data before running modified scenarios.
+    let mut scenarios = Vec::new();
+
+    for planned in generate_scenarios(request) {
+        let mut building = request.building.clone();
+        building
+            .blocked_exit_ids
+            .extend(planned.modifications.blocked_exit_ids.iter().cloned());
+        building
+            .obstructions
+            .extend(planned.modifications.added_obstructions.iter().cloned());
+        building
+            .validate()
+            .map_err(SimulationError::InvalidScenario)?;
+        let run = simulate(&building)?;
+        validate_run(&run, &building)?;
+        let positions = initial_positions(&run);
+        let fairness = match (&baseline_positions, &positions) {
+            (Some(original), Some(modified)) if original != modified => {
+                return Err(SimulationError::InvalidScenario(format!(
+                    "{}: initial occupant positions differ from baseline; Connor's simulator must reuse deterministic initial placement across modifications",
+                    planned.scenario_id
+                )));
+            }
+            (Some(_), Some(_)) => "Starting-position fairness verified by agent ID.",
+            _ => {
+                // TODO(Connor integration): expose complete pre-movement step-zero frames,
+                // and keep placement independent of exit closures and added obstructions.
+                // The shared contract currently allows missing or partial frames.
+                "Starting-position fairness UNVERIFIED: baseline or scenario lacks a complete step-zero frame; Connor's simulator must provide complete initial positions to verify comparability."
+            }
+        };
+        let comparison = match run.metrics.compare_severity(&baseline) {
+            Ordering::Greater => "worse",
+            Ordering::Equal => "equal",
+            Ordering::Less => "improved",
+        };
+        scenarios.push(StressScenarioResult {
+            scenario_id: planned.scenario_id,
+            description: format!(
+                "{} Outcome compared with baseline: {comparison}. {fairness}",
+                planned.description
+            ),
+            modifications: planned.modifications,
+            severity: severity(&baseline, &run.metrics),
+            metrics: run.metrics,
+            rank: 0, // Assigned after all successful runs are collected.
+        });
+    }
+    rank_scenarios(&mut scenarios);
+    Ok(StressTestResult {
+        baseline,
+        scenarios,
+    })
+}
+
+struct PlannedScenario {
+    scenario_id: String,
+    description: String,
+    modifications: ScenarioModifications,
+}
+
+fn generate_scenarios(request: &StressTestRequest) -> Vec<PlannedScenario> {
+    let exits = request
+        .building
+        .exits
+        .iter()
+        .filter(|exit| {
+            request.config.block_each_exit && !request.building.blocked_exit_ids.contains(&exit.id)
+        })
+        .map(|exit| PlannedScenario {
+            scenario_id: format!("block-exit:{}", exit.id),
+            description: format!("Block exit '{}'.", exit.id),
+            modifications: ScenarioModifications {
+                blocked_exit_ids: vec![exit.id.clone()],
+                added_obstructions: vec![],
+            },
+        });
+    let obstructions = request
+        .config
+        .obstruction_candidates
+        .iter()
+        .map(|obstruction| PlannedScenario {
+            scenario_id: format!("add-obstruction:{}", obstruction.id),
+            description: format!("Add obstruction '{}'.", obstruction.id),
+            modifications: ScenarioModifications {
+                blocked_exit_ids: vec![],
+                added_obstructions: vec![obstruction.clone()],
+            },
+        });
+    exits
+        .chain(obstructions)
+        .take(request.config.max_scenarios as usize)
+        .collect()
+}
+
+fn validate_run(
+    run: &SimulationResult,
+    building: &BuildingScenario,
+) -> Result<(), SimulationError> {
+    run.validate().map_err(|message| {
+        SimulationError::InvalidScenario(format!("invalid simulation output: {message}"))
+    })?;
+    let population: u32 = building.spawn_zones.iter().map(|zone| zone.count).sum();
+    if run.metrics.total_population != population
+        || run.width != building.width
+        || run.height != building.height
+        || run.time_step_seconds != building.time_step_seconds
+        || run
+            .metrics
+            .clearance_steps
+            .is_some_and(|steps| steps > building.max_steps)
+        || run
+            .frames
+            .iter()
+            .any(|frame| frame.step > building.max_steps)
+    {
+        return Err(SimulationError::InvalidScenario(
+            "simulation output does not match the requested population, workspace, time step, or step limit"
+                .into(),
+        ));
+    }
+    Ok(())
+}
+
+// Only complete, validated pre-movement snapshots can establish comparability.
+fn initial_positions(run: &SimulationResult) -> Option<HashMap<u32, (f64, f64)>> {
+    let frame = run.frames.first()?;
+    if frame.step != 0 || frame.agents.len() != run.metrics.total_population as usize {
+        return None;
+    }
+    Some(
+        frame
+            .agents
+            .iter()
+            .map(|agent| (agent.id, (agent.x, agent.y)))
+            .collect(),
+    )
+}
+
+/// Exploratory labels for validated metrics, not life-safety thresholds.
+fn severity(baseline: &SimulationMetrics, metrics: &SimulationMetrics) -> Severity {
+    if metrics.remaining > 0 {
+        return Severity::Critical;
+    }
+    if metrics.compare_severity(baseline) != Ordering::Greater {
+        return Severity::Low;
+    }
+    // Integer cross-multiplication avoids division by a zero-step baseline.
+    // None is never substituted with zero; a completed run improves on an
+    // incomplete baseline and has already returned Low above.
+    match (baseline.clearance_steps, metrics.clearance_steps) {
+        (Some(original), Some(modified)) if u64::from(modified) * 2 >= u64::from(original) * 3 => {
+            Severity::High
+        }
+        _ => Severity::Moderate,
+    }
+}
+
+fn rank_scenarios(scenarios: &mut [StressScenarioResult]) {
+    // Stable sort preserves generation order for equal outcomes.
+    scenarios.sort_by(|a, b| b.metrics.compare_severity(&a.metrics));
+    let mut rank = 1;
+    for index in 0..scenarios.len() {
+        if index > 0
+            && scenarios[index]
+                .metrics
+                .compare_severity(&scenarios[index - 1].metrics)
+                != Ordering::Equal
+        {
+            rank = index as u32 + 1;
+        }
+        scenarios[index].rank = rank;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{
+        AgentPosition, AnimationFrame, Obstruction, Opening, Point, SimulationStatus, SpawnZone,
+        StressTestConfig, Wall,
+    };
+    use serde_json::{Value, to_value};
+
+    // All buildings, positions, and simulation results below are synthetic unit-test data.
+    // These tests exercise Nick's experiment logic, not Connor's evacuation engine.
+    fn request() -> StressTestRequest {
+        StressTestRequest {
+            building: BuildingScenario {
+                width: 20.0,
+                height: 10.0,
+                walls: vec![Wall {
+                    id: "north".into(),
+                    start: Point { x: 0.0, y: 0.0 },
+                    end: Point { x: 20.0, y: 0.0 },
+                    thickness: 0.2,
+                }],
+                doors: vec![],
+                exits: vec![
+                    Opening {
+                        id: "left".into(),
+                        wall_id: "north".into(),
+                        offset: 1.0,
+                        width: 2.0,
+                    },
+                    Opening {
+                        id: "right".into(),
+                        wall_id: "north".into(),
+                        offset: 16.0,
+                        width: 2.0,
+                    },
+                ],
+                spawn_zones: vec![SpawnZone {
+                    id: "occupants".into(),
+                    x: 2.0,
+                    y: 3.0,
+                    width: 6.0,
+                    height: 4.0,
+                    count: 4,
+                }],
+                blocked_exit_ids: vec![],
+                obstructions: vec![],
+                agent_radius: 0.25,
+                time_step_seconds: 0.25,
+                seed: 42,
+                max_steps: 1000,
+            },
+            config: StressTestConfig {
+                max_scenarios: 10,
+                block_each_exit: true,
+                obstruction_candidates: vec![
+                    obstruction("first", 11.0),
+                    obstruction("second", 13.0),
+                ],
+            },
+        }
+    }
+
+    fn obstruction(id: &str, x: f64) -> Obstruction {
+        Obstruction {
+            id: id.into(),
+            x,
+            y: 3.0,
+            width: 1.0,
+            height: 1.0,
+        }
+    }
+
+    fn completed(steps: u32) -> SimulationMetrics {
+        SimulationMetrics {
+            status: SimulationStatus::Completed,
+            total_population: 4,
+            evacuated: 4,
+            trapped: 0,
+            remaining: 0,
+            clearance_steps: Some(steps),
+        }
+    }
+
+    fn unfinished(remaining: u32, trapped: u32, status: SimulationStatus) -> SimulationMetrics {
+        SimulationMetrics {
+            status,
+            total_population: 4,
+            evacuated: 4 - remaining,
+            trapped,
+            remaining,
+            clearance_steps: None,
+        }
+    }
+
+    fn synthetic_run(building: &BuildingScenario, metrics: SimulationMetrics) -> SimulationResult {
+        SimulationResult {
+            metrics,
+            frames: vec![AnimationFrame {
+                step: 0,
+                agents: (0..4)
+                    .map(|id| AgentPosition {
+                        id,
+                        x: 3.0 + f64::from(id),
+                        y: 4.0,
+                    })
+                    .collect(),
+            }],
+            traffic_samples: vec![],
+            width: building.width,
+            height: building.height,
+            time_step_seconds: building.time_step_seconds,
+        }
+    }
+
+    fn ids(result: &StressTestResult) -> Vec<&str> {
+        result
+            .scenarios
+            .iter()
+            .map(|scenario| scenario.scenario_id.as_str())
+            .collect()
+    }
+
+    fn invalid_message<T: std::fmt::Debug>(result: Result<T, SimulationError>) -> String {
+        match result.unwrap_err() {
+            SimulationError::InvalidScenario(message) => message,
+            error => panic!("expected InvalidScenario, got {error:?}"),
+        }
+    }
+
+    #[test]
+    fn multiple_exits_and_obstructions_are_independent_and_preserve_the_request() {
+        let mut request = request();
+        request
+            .building
+            .obstructions
+            .push(obstruction("existing", 15.0));
+        let original = to_value(&request).unwrap();
+        let mut calls = vec![];
+        let result = stress_test_with(&request, |building| {
+            calls.push(building.clone());
+            Ok(synthetic_run(building, completed(100)))
+        })
+        .unwrap();
+
+        assert_eq!(to_value(&request).unwrap(), original);
+        assert_eq!(calls.len(), 5); // Baseline plus four independent modifications.
+        assert_eq!(to_value(&calls[0]).unwrap(), original["building"]);
+        assert_eq!(
+            ids(&result),
+            [
+                "block-exit:left",
+                "block-exit:right",
+                "add-obstruction:first",
+                "add-obstruction:second"
+            ]
+        );
+        assert_eq!(
+            to_value(&result.baseline).unwrap(),
+            to_value(completed(100)).unwrap()
+        );
+        for (index, scenario) in result.scenarios.iter().enumerate() {
+            let mut expected = original["building"].clone();
+            if index < 2 {
+                expected["blocked_exit_ids"] =
+                    to_value([if index == 0 { "left" } else { "right" }]).unwrap();
+                assert_eq!(
+                    scenario.modifications.blocked_exit_ids,
+                    calls[index + 1].blocked_exit_ids
+                );
+                assert!(scenario.modifications.added_obstructions.is_empty());
+            } else {
+                let candidate = &request.config.obstruction_candidates[index - 2];
+                expected["obstructions"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(to_value(candidate).unwrap());
+                assert_eq!(
+                    to_value(&scenario.modifications.added_obstructions).unwrap(),
+                    to_value([candidate]).unwrap()
+                );
+                assert!(scenario.modifications.blocked_exit_ids.is_empty());
+            }
+            // All other fields, including spawn zones, seed, and existing obstacles, stay identical.
+            assert_eq!(to_value(&calls[index + 1]).unwrap(), expected);
+            assert_eq!(scenario.rank, 1);
+            assert!(matches!(scenario.severity, Severity::Low));
+            assert!(scenario.description.contains("fairness verified"));
+            assert!(scenario.description.contains("baseline: equal"));
+        }
+    }
+
+    #[test]
+    fn one_budget_caps_generated_modifications_and_excludes_baseline() {
+        for budget in [1, 2, 3, 4, 100] {
+            let mut request = request();
+            request.config.max_scenarios = budget;
+            let mut calls = 0;
+            let result = stress_test_with(&request, |building| {
+                calls += 1;
+                Ok(synthetic_run(building, completed(100)))
+            })
+            .unwrap();
+            let expected = budget.min(4) as usize;
+            assert_eq!(result.scenarios.len(), expected);
+            assert_eq!(calls, expected + 1);
+            assert_eq!(
+                ids(&result),
+                [
+                    "block-exit:left",
+                    "block-exit:right",
+                    "add-obstruction:first",
+                    "add-obstruction:second"
+                ][..expected]
+            );
+        }
+    }
+
+    #[test]
+    fn blocked_exits_are_skipped_without_consuming_budget_or_losing_existing_blocks() {
+        let mut request = request();
+        request.building.blocked_exit_ids.push("left".into());
+        request.config.max_scenarios = 2;
+        let mut calls = vec![];
+        let result = stress_test_with(&request, |building| {
+            calls.push(building.clone());
+            Ok(synthetic_run(building, completed(100)))
+        })
+        .unwrap();
+        assert_eq!(ids(&result), ["block-exit:right", "add-obstruction:first"]);
+        assert_eq!(calls[1].blocked_exit_ids, ["left", "right"]);
+        assert_eq!(
+            result.scenarios[0].modifications.blocked_exit_ids,
+            ["right"]
+        );
+        assert_eq!(calls[2].blocked_exit_ids, ["left"]);
+        assert!(
+            result.scenarios[1]
+                .modifications
+                .blocked_exit_ids
+                .is_empty()
+        );
+        assert!(calls[1].obstructions.is_empty());
+        assert_eq!(calls[2].obstructions.len(), 1);
+    }
+
+    #[test]
+    fn all_exits_blocked_leaves_the_budget_available_for_obstructions() {
+        let mut request = request();
+        request.building.blocked_exit_ids = vec!["left".into(), "right".into()];
+        request.config.max_scenarios = 1;
+        let result = stress_test_with(&request, |building| {
+            Ok(synthetic_run(
+                building,
+                unfinished(4, 4, SimulationStatus::Incomplete),
+            ))
+        })
+        .unwrap();
+        assert_eq!(ids(&result), ["add-obstruction:first"]);
+    }
+
+    #[test]
+    fn all_exits_blocked_without_candidates_returns_only_the_baseline() {
+        let mut request = request();
+        request.building.blocked_exit_ids = vec!["left".into(), "right".into()];
+        request.config.obstruction_candidates.clear();
+        let mut calls = 0;
+        let result = stress_test_with(&request, |building| {
+            calls += 1;
+            Ok(synthetic_run(
+                building,
+                unfinished(4, 4, SimulationStatus::Incomplete),
+            ))
+        })
+        .unwrap();
+        assert_eq!(calls, 1);
+        assert!(result.scenarios.is_empty());
+        assert!(result.baseline.clearance_steps.is_none());
+    }
+
+    #[test]
+    fn each_scenario_source_can_be_used_alone() {
+        for exits_only in [true, false] {
+            let mut request = request();
+            if exits_only {
+                request.config.obstruction_candidates.clear();
+            } else {
+                request.config.block_each_exit = false;
+            }
+            let result = stress_test_with(&request, |building| {
+                Ok(synthetic_run(building, completed(100)))
+            })
+            .unwrap();
+            assert_eq!(result.scenarios.len(), 2);
+            assert!(ids(&result).iter().all(|id| id.starts_with(if exits_only {
+                "block-exit:"
+            } else {
+                "add-obstruction:"
+            })));
+        }
+    }
+
+    #[test]
+    fn invalid_requests_and_candidates_are_rejected_before_any_simulation() {
+        let mut cases = vec![];
+        let mut missing = request();
+        missing.config.block_each_exit = false;
+        missing.config.obstruction_candidates.clear();
+        cases.push(("missing sources", missing));
+        for budget in [0, 101] {
+            let mut invalid = request();
+            invalid.config.max_scenarios = budget;
+            cases.push(("invalid budget", invalid));
+        }
+        for candidate in [
+            obstruction("", 11.0),
+            obstruction("left", 11.0),
+            obstruction("outside", 20.0),
+            obstruction("spawn-overlap", 3.0),
+            obstruction("nan", f64::NAN),
+            Obstruction {
+                width: 0.0,
+                ..obstruction("zero-width", 11.0)
+            },
+        ] {
+            let mut invalid = request();
+            invalid.config.max_scenarios = 1; // Even candidates beyond the budget must validate.
+            invalid.config.obstruction_candidates.push(candidate);
+            cases.push(("invalid candidate", invalid));
+        }
+        let mut duplicate = request();
+        duplicate
+            .config
+            .obstruction_candidates
+            .push(obstruction("first", 15.0));
+        cases.push(("duplicate candidate ID", duplicate));
+        let mut too_many = request();
+        too_many.config.obstruction_candidates = (0..101)
+            .map(|i| obstruction(&format!("candidate-{i}"), 11.0))
+            .collect();
+        cases.push(("too many candidates", too_many));
+        let mut bad_building = request();
+        bad_building
+            .building
+            .blocked_exit_ids
+            .push("missing-exit".into());
+        cases.push(("invalid building", bad_building));
+        let mut obstruction_limit = request();
+        obstruction_limit.building.obstructions = (0..100)
+            .map(|i| obstruction(&format!("existing-{i}"), 15.0))
+            .collect();
+        cases.push((
+            "candidate exceeds building obstruction limit",
+            obstruction_limit,
+        ));
+
+        for (label, request) in cases {
+            let mut calls = 0;
+            let result = stress_test_with(&request, |_| {
+                calls += 1;
+                Err(SimulationError::NotImplemented)
+            });
+            assert!(
+                matches!(result, Err(SimulationError::InvalidScenario(_))),
+                "{label}: {result:?}"
+            );
+            assert_eq!(calls, 0, "{label}");
+        }
+    }
+
+    #[test]
+    fn generation_and_output_are_deterministic_and_follow_input_order() {
+        let mut request = request();
+        request.building.exits.reverse();
+        request.config.obstruction_candidates.reverse();
+        let run = || {
+            stress_test_with(&request, |building| {
+                Ok(synthetic_run(building, completed(100)))
+            })
+            .unwrap()
+        };
+        let first = run();
+        let second = run();
+        assert_eq!(
+            ids(&first),
+            [
+                "block-exit:right",
+                "block-exit:left",
+                "add-obstruction:second",
+                "add-obstruction:first"
+            ]
+        );
+        assert_eq!(to_value(first).unwrap(), to_value(second).unwrap());
+    }
+
+    #[test]
+    fn orchestration_collects_metrics_compares_to_baseline_and_ranks_worst_first() {
+        let request = request();
+        let metrics = [
+            completed(100),
+            completed(150),
+            unfinished(1, 0, SimulationStatus::Incomplete),
+            unfinished(2, 0, SimulationStatus::Timeout),
+            completed(120),
+        ];
+        let mut calls = 0;
+        let result = stress_test_with(&request, |building| {
+            let run = synthetic_run(building, metrics[calls].clone());
+            calls += 1;
+            Ok(run)
+        })
+        .unwrap();
+        assert_eq!(
+            ids(&result),
+            [
+                "add-obstruction:first",
+                "block-exit:right",
+                "block-exit:left",
+                "add-obstruction:second"
+            ]
+        );
+        for (index, (scenario, original_index)) in
+            result.scenarios.iter().zip([3, 2, 1, 4]).enumerate()
+        {
+            assert_eq!(scenario.rank, index as u32 + 1);
+            assert_eq!(
+                to_value(&scenario.metrics).unwrap(),
+                to_value(&metrics[original_index]).unwrap()
+            );
+            assert!(scenario.description.contains("baseline: worse"));
+        }
+        assert!(matches!(result.scenarios[0].severity, Severity::Critical));
+        assert!(matches!(result.scenarios[1].severity, Severity::Critical));
+        assert!(matches!(result.scenarios[2].severity, Severity::High));
+        assert!(matches!(result.scenarios[3].severity, Severity::Moderate));
+    }
+
+    #[test]
+    fn ranking_uses_remaining_then_trapped_then_clearance_with_stable_shared_ranks() {
+        let metrics = [
+            completed(100),
+            unfinished(1, 0, SimulationStatus::Timeout),
+            completed(200),
+            unfinished(1, 1, SimulationStatus::Incomplete),
+            unfinished(2, 0, SimulationStatus::Timeout),
+            unfinished(1, 0, SimulationStatus::Incomplete),
+        ];
+        let mut scenarios: Vec<_> = metrics
+            .into_iter()
+            .enumerate()
+            .map(|(index, metrics)| {
+                metrics.validate().unwrap();
+                StressScenarioResult {
+                    scenario_id: format!("synthetic-{index}"),
+                    description: "Synthetic metrics for ranking only".into(),
+                    modifications: ScenarioModifications {
+                        blocked_exit_ids: vec![],
+                        added_obstructions: vec![],
+                    },
+                    severity: severity(&completed(100), &metrics),
+                    metrics,
+                    rank: 0,
+                }
+            })
+            .collect();
+        rank_scenarios(&mut scenarios);
+        assert_eq!(
+            scenarios
+                .iter()
+                .map(|scenario| scenario.scenario_id.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "synthetic-4",
+                "synthetic-3",
+                "synthetic-1",
+                "synthetic-5",
+                "synthetic-2",
+                "synthetic-0"
+            ]
+        );
+        assert_eq!(
+            scenarios
+                .iter()
+                .map(|scenario| scenario.rank)
+                .collect::<Vec<_>>(),
+            [1, 2, 3, 3, 5, 6]
+        );
+        assert!(
+            scenarios[..4]
+                .iter()
+                .all(|scenario| scenario.metrics.clearance_steps.is_none())
+        );
+    }
+
+    #[test]
+    fn severity_handles_thresholds_incomplete_baselines_and_zero_clearance() {
+        use Severity::{Critical, High, Low, Moderate};
+        let incomplete = unfinished(2, 1, SimulationStatus::Incomplete);
+        for (baseline, metrics, expected) in [
+            (completed(100), completed(99), Low),
+            (completed(100), completed(100), Low),
+            (completed(100), completed(101), Moderate),
+            (completed(100), completed(149), Moderate),
+            (completed(100), completed(150), High),
+            (completed(100), completed(151), High),
+            (completed(3), completed(4), Moderate),
+            (completed(3), completed(5), High),
+            (completed(0), completed(0), Low),
+            (completed(0), completed(1), High),
+            (
+                completed(100),
+                unfinished(1, 0, SimulationStatus::Timeout),
+                Critical,
+            ),
+            (
+                completed(100),
+                unfinished(1, 1, SimulationStatus::Incomplete),
+                Critical,
+            ),
+            (incomplete.clone(), completed(0), Low),
+            (incomplete.clone(), completed(1000), Low),
+            (
+                incomplete.clone(),
+                unfinished(1, 0, SimulationStatus::Timeout),
+                Critical,
+            ),
+            (incomplete.clone(), incomplete.clone(), Critical),
+            (
+                incomplete,
+                unfinished(3, 0, SimulationStatus::Incomplete),
+                Critical,
+            ),
+        ] {
+            baseline.validate().unwrap();
+            metrics.validate().unwrap();
+            assert_eq!(
+                to_value(severity(&baseline, &metrics)).unwrap(),
+                to_value(expected).unwrap(),
+                "baseline={baseline:?}, metrics={metrics:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn incomplete_baselines_preserve_null_and_describe_improvements() {
+        let mut request = request();
+        request.config.max_scenarios = 2;
+        let metrics = [
+            unfinished(3, 1, SimulationStatus::Timeout),
+            completed(800),
+            unfinished(1, 0, SimulationStatus::Incomplete),
+        ];
+        let mut calls = 0;
+        let result = stress_test_with(&request, |building| {
+            let run = synthetic_run(building, metrics[calls].clone());
+            calls += 1;
+            Ok(run)
+        })
+        .unwrap();
+        assert!(result.baseline.clearance_steps.is_none());
+        assert_eq!(
+            to_value(&result).unwrap()["baseline"]["clearance_steps"],
+            Value::Null
+        );
+        assert_eq!(ids(&result), ["block-exit:right", "block-exit:left"]);
+        assert!(matches!(result.scenarios[0].severity, Severity::Critical));
+        assert!(matches!(result.scenarios[1].severity, Severity::Low));
+        assert!(
+            result
+                .scenarios
+                .iter()
+                .all(|scenario| scenario.description.contains("baseline: improved"))
+        );
+    }
+
+    #[test]
+    fn identical_initial_positions_are_matched_by_id_independent_of_frame_order() {
+        let result = stress_test_with(&request(), |building| {
+            let mut run = synthetic_run(building, completed(100));
+            if !building.blocked_exit_ids.is_empty() || !building.obstructions.is_empty() {
+                run.frames[0].agents.reverse();
+            }
+            Ok(run)
+        })
+        .unwrap();
+        assert!(
+            result
+                .scenarios
+                .iter()
+                .all(|scenario| scenario.description.contains("fairness verified"))
+        );
+    }
+
+    #[test]
+    fn changed_initial_positions_or_agent_ids_fail_even_with_the_same_seed() {
+        for change_id in [false, true] {
+            let request = request();
+            let original = to_value(&request).unwrap();
+            let mut calls = 0;
+            let error = stress_test_with(&request, |building| {
+                assert_eq!(building.seed, request.building.seed);
+                calls += 1;
+                let mut run = synthetic_run(building, completed(100));
+                if calls == 2 {
+                    if change_id {
+                        run.frames[0].agents[0].id = 99;
+                    } else {
+                        run.frames[0].agents[0].x += 0.25;
+                    }
+                }
+                Ok(run)
+            });
+            let message = invalid_message(error);
+            assert!(message.contains("block-exit:left"));
+            assert!(message.contains("initial occupant positions differ"));
+            assert_eq!(calls, 2);
+            assert_eq!(to_value(&request).unwrap(), original);
+        }
+    }
+
+    #[test]
+    fn absent_partial_or_later_initial_frames_are_explicitly_unverified() {
+        // A valid result need not contain a full step-zero frame, on either side.
+        for incomplete_baseline_frame in [true, false] {
+            for missing_kind in 0..3 {
+                let mut calls = 0;
+                let result = stress_test_with(&request(), |building| {
+                    calls += 1;
+                    let mut run = synthetic_run(building, completed(100));
+                    if (calls == 1) == incomplete_baseline_frame {
+                        match missing_kind {
+                            0 => run.frames.clear(),
+                            1 => {
+                                run.frames[0].agents.pop();
+                            }
+                            _ => run.frames[0].step = 1,
+                        }
+                    }
+                    Ok(run)
+                })
+                .unwrap();
+                assert!(result.scenarios.iter().all(|scenario| {
+                    scenario.description.contains("fairness UNVERIFIED")
+                        && scenario.description.contains("complete step-zero frame")
+                }));
+            }
+        }
+    }
+
+    #[test]
+    fn fairness_is_reported_per_comparison() {
+        let mut calls = 0;
+        let result = stress_test_with(&request(), |building| {
+            calls += 1;
+            let mut run = synthetic_run(building, completed(100));
+            if calls == 2 {
+                run.frames.clear();
+            }
+            Ok(run)
+        })
+        .unwrap();
+        assert!(
+            result.scenarios[0]
+                .description
+                .contains("fairness UNVERIFIED")
+        );
+        assert!(
+            result.scenarios[1..]
+                .iter()
+                .all(|scenario| scenario.description.contains("fairness verified"))
+        );
+    }
+
+    #[test]
+    fn invalid_simulation_metrics_and_duplicate_initial_ids_are_rejected() {
+        for invalid_kind in 0..4 {
+            for invalid_baseline in [true, false] {
+                let mut calls = 0;
+                let result = stress_test_with(&request(), |building| {
+                    calls += 1;
+                    let mut run = synthetic_run(building, completed(100));
+                    if (calls == 1) == invalid_baseline {
+                        match invalid_kind {
+                            0 => run.metrics.clearance_steps = None,
+                            1 => {
+                                run.metrics = SimulationMetrics {
+                                    clearance_steps: Some(0),
+                                    ..unfinished(1, 0, SimulationStatus::Timeout)
+                                }
+                            }
+                            2 => run.frames[0].agents[1].id = run.frames[0].agents[0].id,
+                            _ => run.metrics.trapped = 1,
+                        }
+                    }
+                    Ok(run)
+                });
+                assert!(invalid_message(result).contains("invalid simulation output"));
+                assert_eq!(calls, if invalid_baseline { 1 } else { 2 });
+            }
+        }
+    }
+
+    #[test]
+    fn simulation_output_must_match_the_requested_experiment() {
+        for invalid_kind in 0..6 {
+            let mut calls = 0;
+            let result = stress_test_with(&request(), |building| {
+                calls += 1;
+                let mut run = synthetic_run(building, completed(100));
+                if calls == 2 {
+                    match invalid_kind {
+                        0 => {
+                            run.metrics.total_population = 5;
+                            run.metrics.evacuated = 5;
+                        }
+                        1 => run.width += 1.0,
+                        2 => run.height += 1.0,
+                        3 => run.time_step_seconds /= 2.0,
+                        4 => run.metrics.clearance_steps = Some(building.max_steps + 1),
+                        _ => run.frames[0].step = building.max_steps + 1,
+                    }
+                }
+                Ok(run)
+            });
+            assert!(invalid_message(result).contains("does not match the requested"));
+            assert_eq!(calls, 2);
+        }
+    }
+
+    #[test]
+    fn simulation_errors_propagate_without_partial_results_or_further_runs() {
+        for failing_call in [1, 3] {
+            for not_implemented in [true, false] {
+                let request = request();
+                let original = to_value(&request).unwrap();
+                let mut calls = 0;
+                let result = stress_test_with(&request, |building| {
+                    calls += 1;
+                    if calls == failing_call {
+                        if not_implemented {
+                            Err(SimulationError::NotImplemented)
+                        } else {
+                            Err(SimulationError::InvalidScenario(
+                                "synthetic placement failure".into(),
+                            ))
+                        }
+                    } else {
+                        Ok(synthetic_run(building, completed(100)))
+                    }
+                });
+                if not_implemented {
+                    assert!(matches!(result, Err(SimulationError::NotImplemented)));
+                } else {
+                    assert_eq!(invalid_message(result), "synthetic placement failure");
+                }
+                assert_eq!(calls, failing_call);
+                assert_eq!(to_value(&request).unwrap(), original);
+            }
+        }
+    }
+
+    #[test]
+    fn production_entry_point_propagates_the_real_simulation_stub() {
+        // This is intentionally the actual engine: it must not return fabricated metrics.
+        assert!(matches!(
+            stress_test(&request()),
+            Err(SimulationError::NotImplemented)
+        ));
+        let mut invalid = request();
+        invalid.config.max_scenarios = 0;
+        assert!(matches!(
+            stress_test(&invalid),
+            Err(SimulationError::InvalidScenario(_))
+        ));
+    }
 }
