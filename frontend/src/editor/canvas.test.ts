@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import example from "../../../shared/examples/building.json";
-import { drawBuilding } from "./canvas";
+import { drawLayout } from "./draw";
 
-function canvasFixture(displayWidth: number) {
+function canvasFixture(width: number, height = (width * 2) / 3) {
   const context = {
     setTransform: vi.fn(),
     clearRect: vi.fn(),
@@ -13,44 +13,100 @@ function canvasFixture(displayWidth: number) {
     lineTo: vi.fn(),
     stroke: vi.fn(),
     strokeRect: vi.fn(),
+    arc: vi.fn(),
+    fill: vi.fn(),
+    setLineDash: vi.fn(),
     fillStyle: "",
     strokeStyle: "",
     lineWidth: 0,
+    lineCap: "",
     font: "",
   };
   const canvas = {
     width: 0,
     height: 0,
     getContext: vi.fn(() => context),
-    getBoundingClientRect: vi.fn(() => ({ width: displayWidth })),
+    getBoundingClientRect: vi.fn(() => ({ width, height })),
   };
   return { canvas, context, element: canvas as unknown as HTMLCanvasElement };
 }
 
-describe("Canvas drawing", () => {
-  it("scales the backing buffer for high-DPI displays using CSS dimensions", () => {
+describe("freeform Canvas drawing", () => {
+  it("scales the backing buffer for high-DPI displays while drawing metre coordinates", () => {
     const { canvas, context, element } = canvasFixture(360);
-    drawBuilding(element, example, { x: 4, y: 5 }, 2);
+    drawLayout(element, example, { kind: "walls", id: "angled" }, undefined, 2);
     expect([canvas.width, canvas.height]).toEqual([720, 480]);
     expect(context.setTransform).toHaveBeenCalledWith(1, 0, 0, 1, 0, 0);
-    expect(context.strokeRect).toHaveBeenCalledWith(98, 122, 20, 20);
-    expect(context.fillText).toHaveBeenCalledWith("18 occupants", 78, 92);
+    expect(context.setTransform).toHaveBeenLastCalledWith(24, 0, 0, 24, 0, 0);
+    expect(context.moveTo).toHaveBeenCalledWith(6.5, 11);
+    expect(context.lineTo).toHaveBeenCalledWith(11, 15.5);
+    expect(context.arc).toHaveBeenCalledWith(
+      6.5,
+      11,
+      expect.closeTo(5 / 12, 10),
+      0,
+      Math.PI * 2,
+    );
+    expect(context.fillText).toHaveBeenCalledWith(
+      "18 occupants",
+      expect.closeTo(5 + 6 / 12, 10),
+      expect.closeTo(5 + 17 / 12, 10),
+      expect.closeTo(5 - 8 / 12, 10),
+    );
   });
 
-  it("redraws at the resized display dimensions and the new building state", () => {
+  it("redraws at resized display dimensions with the current building", () => {
     const { canvas, context, element } = canvasFixture(360);
-    drawBuilding(element, example, null, 1);
-    canvas.getBoundingClientRect.mockReturnValue({ width: 540 });
-    drawBuilding(element, { ...example, walls: [{ x: 9, y: 8 }] }, null, 2);
+    drawLayout(element, example, null);
+    canvas.getBoundingClientRect.mockReturnValue({ width: 540, height: 360 });
+    const changed = structuredClone(example);
+    changed.walls[5]!.end = { x: 12.25, y: 16.5 };
+    drawLayout(element, changed, null, undefined, 2);
     expect([canvas.width, canvas.height]).toEqual([1080, 720]);
-    expect(context.setTransform).toHaveBeenLastCalledWith(1.5, 0, 0, 1.5, 0, 0);
-    expect(context.fillRect).toHaveBeenCalledWith(217, 193, 22, 22);
+    expect(context.setTransform).toHaveBeenLastCalledWith(36, 0, 0, 36, 0, 0);
+    expect(context.lineTo).toHaveBeenCalledWith(12.25, 16.5);
+    expect(example.walls[5]!.end).toEqual({ x: 11, y: 15.5 });
   });
 
-  it("does not allocate a backing buffer before the Canvas is visible", () => {
-    const { canvas, context, element } = canvasFixture(0);
-    drawBuilding(element, example, null, 2);
-    expect(canvas.width).toBe(0);
-    expect(context.setTransform).not.toHaveBeenCalled();
+  it("keeps labels and selection handles the same display size across pixel densities", () => {
+    const normal = canvasFixture(360);
+    const retina = canvasFixture(360);
+    const selection = { kind: "walls", id: "angled" } as const;
+    drawLayout(normal.element, example, selection, undefined, 1);
+    drawLayout(retina.element, example, selection, undefined, 2);
+    expect(retina.context.fillText.mock.calls).toEqual(
+      normal.context.fillText.mock.calls,
+    );
+    expect(retina.context.arc.mock.calls).toEqual(
+      normal.context.arc.mock.calls,
+    );
+  });
+
+  it.each([
+    [0, 0],
+    [360, 0],
+  ])(
+    "does not allocate a buffer for a hidden Canvas (%s × %s)",
+    (width, height) => {
+      const { canvas, context, element } = canvasFixture(width, height);
+      drawLayout(element, example, null, undefined, 2);
+      expect([canvas.width, canvas.height]).toEqual([0, 0]);
+      expect(context.setTransform).not.toHaveBeenCalled();
+    },
+  );
+
+  it("preserves world geometry when the workspace is letterboxed", () => {
+    const { context, element } = canvasFixture(600, 400);
+    drawLayout(element, { ...example, width: 20, height: 40 }, null);
+    expect(context.setTransform).toHaveBeenLastCalledWith(10, 0, 0, 10, 200, 0);
+  });
+
+  it("draws openings at their declared positions along the wall", () => {
+    const { context, element } = canvasFixture(600);
+    drawLayout(element, example, null);
+    expect(context.moveTo).toHaveBeenCalledWith(15, 5);
+    expect(context.lineTo).toHaveBeenCalledWith(15, 6.4);
+    expect(context.moveTo).toHaveBeenCalledWith(28, 9);
+    expect(context.lineTo).toHaveBeenCalledWith(28, 10.6);
   });
 });

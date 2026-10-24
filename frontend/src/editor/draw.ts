@@ -6,11 +6,19 @@ export function drawLayout(
   building: BuildingScenario,
   selected: Selection | null,
   draft?: { start: Point; end: Point; rectangle: boolean },
+  pixelRatio = 1,
 ) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
+  const display = canvas.getBoundingClientRect();
+  if (display.width <= 0 || display.height <= 0) return;
+  const ratio = Number.isFinite(pixelRatio) ? Math.max(1, pixelRatio) : 1;
+  const width = Math.max(1, Math.round(display.width * ratio));
+  const height = Math.max(1, Math.round(display.height * ratio));
+  if (canvas.width !== width) canvas.width = width;
+  if (canvas.height !== height) canvas.height = height;
   const { scale, x, y } = canvasView(canvas.width, canvas.height, building);
-  const px = 1 / scale;
+  const px = ratio / scale;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = "#edf2ee";
