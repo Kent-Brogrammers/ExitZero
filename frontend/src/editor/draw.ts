@@ -21,22 +21,22 @@ export function drawLayout(
   const px = ratio / scale;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "#edf2ee";
+  ctx.fillStyle = "#17191e";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.setTransform(scale, 0, 0, scale, x, y);
-  ctx.fillStyle = "#fcfdfb";
+  ctx.fillStyle = "#1d2026";
   ctx.fillRect(0, 0, building.width, building.height);
   ctx.lineCap = "round";
   const selectedId = selected?.id;
   for (const rectangle of [...building.spawn_zones, ...building.obstructions]) {
     const spawn = "count" in rectangle;
-    ctx.fillStyle = spawn ? "#dcefe5" : "#e4d9d3";
+    ctx.fillStyle = spawn ? "#243842" : "#39332c";
     ctx.strokeStyle =
-      rectangle.id === selectedId ? "#347cbe" : spawn ? "#8bb49f" : "#b49b90";
+      rectangle.id === selectedId ? "#5fa8f7" : spawn ? "#7293a9" : "#a18c73";
     ctx.lineWidth = (rectangle.id === selectedId ? 2 : 1) * px;
     ctx.fillRect(rectangle.x, rectangle.y, rectangle.width, rectangle.height);
     ctx.strokeRect(rectangle.x, rectangle.y, rectangle.width, rectangle.height);
-    ctx.fillStyle = spawn ? "#315d51" : "#785d52";
+    ctx.fillStyle = spawn ? "#afcbdc" : "#d7c2a6";
     ctx.font = `${12 * px}px system-ui`;
     ctx.fillText(
       spawn ? `${rectangle.count} occupants` : "Obstruction",
@@ -51,16 +51,16 @@ export function drawLayout(
     ctx.lineTo(wall.end.x, wall.end.y);
     if (wall.id === selectedId) {
       ctx.lineWidth = wall.thickness + 6 * px;
-      ctx.strokeStyle = "#8fbcdf";
+      ctx.strokeStyle = "#5fa8f7";
       ctx.stroke();
     }
     ctx.lineWidth = wall.thickness;
-    ctx.strokeStyle = "#405653";
+    ctx.strokeStyle = "#a8b3c1";
     ctx.stroke();
   }
   for (const [kind, openings, color] of [
-    ["doors", building.doors, "#b5843f"],
-    ["exits", building.exits, "#2b9272"],
+    ["doors", building.doors, "#cbb68b"],
+    ["exits", building.exits, "#38c99b"],
   ] as const) {
     for (const opening of openings) {
       const wall = building.walls.find((v) => v.id === opening.wall_id);
@@ -70,11 +70,11 @@ export function drawLayout(
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
       ctx.lineWidth = wall.thickness + 2 * px;
-      ctx.strokeStyle = "#fcfdfb";
+      ctx.strokeStyle = "#1d2026";
       ctx.stroke();
       ctx.lineWidth = opening.id === selectedId ? 5 * px : 3 * px;
       ctx.strokeStyle = building.blocked_exit_ids.includes(opening.id)
-        ? "#b6574b"
+        ? "#e39486"
         : color;
       ctx.stroke();
       ctx.font = `${11 * px}px system-ui`;
@@ -92,15 +92,15 @@ export function drawLayout(
       for (const point of [wall.start, wall.end]) {
         ctx.beginPath();
         ctx.arc(point.x, point.y, 5 * px, 0, Math.PI * 2);
-        ctx.fillStyle = "#fff";
-        ctx.strokeStyle = "#347cbe";
+        ctx.fillStyle = "#1d2026";
+        ctx.strokeStyle = "#5fa8f7";
         ctx.lineWidth = 2 * px;
         ctx.fill();
         ctx.stroke();
       }
   }
   if (draft) {
-    ctx.strokeStyle = "#347cbe";
+    ctx.strokeStyle = "#5fa8f7";
     ctx.lineWidth = 2 * px;
     ctx.setLineDash([6 * px, 4 * px]);
     if (draft.rectangle)
@@ -118,7 +118,7 @@ export function drawLayout(
     }
     ctx.setLineDash([]);
   }
-  ctx.fillStyle = "#7a8d80";
+  ctx.fillStyle = "#96a1b0";
   ctx.font = `${12 * px}px system-ui`;
   ctx.fillText(`${building.width} × ${building.height} m`, 12 * px, 20 * px);
 }
