@@ -175,9 +175,11 @@ export function BuildingEditor({
   }
   const preview = gesture?.selection ? moved(gesture) : building;
   useEffect(() => {
-    if (canvas.current)
+    const element = canvas.current;
+    if (!element) return;
+    const redraw = () =>
       drawLayout(
-        canvas.current,
+        element,
         preview,
         selected,
         gesture && !gesture.selection
@@ -187,7 +189,16 @@ export function BuildingEditor({
               rectangle: tool !== "wall",
             }
           : undefined,
+        window.devicePixelRatio,
       );
+    redraw();
+    const observer = new ResizeObserver(redraw);
+    observer.observe(element);
+    window.addEventListener("resize", redraw);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", redraw);
+    };
   }, [preview, selected, gesture, tool]);
 
   function pointerDown(event: PointerEvent<HTMLCanvasElement>) {
@@ -479,6 +490,7 @@ export function BuildingEditor({
               role="img"
               aria-label={`Editable floor plan, ${building.width} by ${building.height} metres. ${building.walls.length} walls, ${building.doors.length} doors, ${building.exits.length} exits, ${building.spawn_zones.length} spawn zones. Use layout tools to draw or the element inspector to edit.`}
               style={{
+                aspectRatio: "3 / 2",
                 cursor:
                   tool === "select"
                     ? gesture
