@@ -6,6 +6,11 @@ import { BuildingWorkspace } from "./editor/BuildingWorkspace";
 import { StudioPopover } from "./ui/StudioPopover";
 import { AppearanceSelector } from "./styles/StudioAppearance";
 import { StudioWelcome } from "./studio/StudioWelcome";
+import { loadOfficeDemo, officeDemoBuilding } from "./studio/officeDemo";
+import {
+  OfficeDemoNotice,
+  type OfficeDemoSource,
+} from "./studio/OfficeDemoNotice";
 import { api } from "./services/api";
 import type {
   BuildingScenario,
@@ -58,6 +63,7 @@ export default function App() {
     if (namesOnly) return;
     setResult(null);
     setStressResult(null);
+    if (officeDemo) setOfficeDemo("edited");
     setMessage("");
   }
   const [connection, setConnection] = useState<
@@ -74,6 +80,61 @@ export default function App() {
   const [stressResult, setStressResult] = useState<StressTestResult | null>(
     null,
   );
+
+  const [officeDemo, setOfficeDemo] = useState<OfficeDemoSource | null>(null);
+  const previousWorkspace = useRef<{
+    building: BuildingScenario;
+    result: SimulationResult | null;
+    stressResult: StressTestResult | null;
+  } | null>(null);
+
+  async function openOfficeDemo() {
+    if (busy) return;
+    if (
+      officeDemo &&
+      JSON.stringify(building) !== JSON.stringify(officeDemoBuilding) &&
+      !window.confirm(
+        "Reload the office demo? Export any demo edits first to keep them.",
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      const recording = await loadOfficeDemo();
+      previousWorkspace.current ??= { building, result, stressResult };
+      setBuilding(structuredClone(officeDemoBuilding));
+      setResult(recording);
+      setStressResult(null);
+      setOfficeDemo("recorded");
+      setMessage("");
+      navigate("simulation");
+    } catch {
+      setMessage(
+        "The office demo could not be loaded. Your layout is unchanged; try opening it again.",
+      );
+      navigate("edit");
+    } finally {
+      setBusy(false);
+    }
+  }
+  function returnFromOfficeDemo() {
+    const previous = previousWorkspace.current;
+    if (busy || !previous) return;
+    if (
+      JSON.stringify(building) !== JSON.stringify(officeDemoBuilding) &&
+      !window.confirm(
+        "Return to your previous layout? Export any demo edits first to keep them.",
+      )
+    )
+      return;
+    setBuilding(previous.building);
+    setResult(previous.result);
+    setStressResult(previous.stressResult);
+    previousWorkspace.current = null;
+    setOfficeDemo(null);
+    setMessage("");
+    navigate("edit");
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -92,6 +153,7 @@ export default function App() {
     setMessage("Sending request to the backend…");
     try {
       if (action === "simulate") {
+        if (officeDemo) setOfficeDemo("live");
         const controller = new AbortController();
         liveRequest.current = controller;
         setResult(null);
@@ -146,7 +208,8 @@ export default function App() {
     <div className={`workspace-app${view === "welcome" ? " is-welcome" : ""}`}>
       <div className="welcome-view" hidden={view !== "welcome"}>
         <StudioWelcome
-          building={example}
+          building={officeDemoBuilding}
+          onOpenDemo={() => void openOfficeDemo()}
           disabled={busy}
           onOpen={() => navigate("edit")}
           onLoadExample={() => {
@@ -294,14 +357,24 @@ export default function App() {
             </button>
           </div>
         </header>
-        <main className="studio-main">
+        <main className={`studio-main${officeDemo ? " has-office-demo" : ""}`}>
           <h1 className="sr-only">ExitZero Studio</h1>
+          {officeDemo && (
+            <OfficeDemoNotice
+              source={officeDemo}
+              result={result}
+              busy={busy}
+              onEdit={() => navigate("edit")}
+              onReturn={returnFromOfficeDemo}
+            />
+          )}
           <div className="studio-viewport" hidden={view === "analytics"}>
             <BuildingWorkspace
               building={building}
               onChange={changeBuilding}
               result={result}
               live={live}
+              allowSyntheticPreview={!officeDemo}
               disabled={busy}
               mode={view === "simulation" ? "simulation" : "edit"}
               active={view === "edit" || view === "simulation"}

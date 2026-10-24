@@ -1,0 +1,399 @@
+{
+  "width": 36,
+  "height": 24,
+  "walls": [
+    {
+      "id": "demo-north",
+      "name": "North facade",
+      "start": {
+        "x": 1,
+        "y": 1
+      },
+      "end": {
+        "x": 35,
+        "y": 1
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "demo-east",
+      "name": "East facade",
+      "start": {
+        "x": 35,
+        "y": 1
+      },
+      "end": {
+        "x": 35,
+        "y": 23
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "demo-south",
+      "name": "South facade",
+      "start": {
+        "x": 35,
+        "y": 23
+      },
+      "end": {
+        "x": 1,
+        "y": 23
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "demo-west",
+      "name": "West facade",
+      "start": {
+        "x": 1,
+        "y": 23
+      },
+      "end": {
+        "x": 1,
+        "y": 1
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "demo-hall-north",
+      "name": "Open workspace / corridor",
+      "start": {
+        "x": 1,
+        "y": 10
+      },
+      "end": {
+        "x": 35,
+        "y": 10
+      },
+      "thickness": 0.15
+    },
+    {
+      "id": "demo-hall-south",
+      "name": "South rooms / corridor",
+      "start": {
+        "x": 1,
+        "y": 14
+      },
+      "end": {
+        "x": 35,
+        "y": 14
+      },
+      "thickness": 0.15
+    },
+    {
+      "id": "demo-meeting-partition",
+      "name": "Meeting room partition",
+      "start": {
+        "x": 21,
+        "y": 1
+      },
+      "end": {
+        "x": 21,
+        "y": 10
+      },
+      "thickness": 0.15
+    },
+    {
+      "id": "demo-office-partition",
+      "name": "Focus office partition",
+      "start": {
+        "x": 13,
+        "y": 14
+      },
+      "end": {
+        "x": 13,
+        "y": 23
+      },
+      "thickness": 0.15
+    },
+    {
+      "id": "demo-break-partition",
+      "name": "Break room partition",
+      "start": {
+        "x": 23,
+        "y": 14
+      },
+      "end": {
+        "x": 23,
+        "y": 23
+      },
+      "thickness": 0.15
+    }
+  ],
+  "doors": [
+    {
+      "id": "demo-team-door",
+      "name": "Open workspace entrance",
+      "wall_id": "demo-hall-north",
+      "offset": 13,
+      "width": 1.6
+    },
+    {
+      "id": "demo-meeting-door",
+      "name": "Meeting room entrance",
+      "wall_id": "demo-hall-north",
+      "offset": 27,
+      "width": 1.4
+    },
+    {
+      "id": "demo-focus-door",
+      "name": "Focus offices entrance",
+      "wall_id": "demo-hall-south",
+      "offset": 6,
+      "width": 1.5
+    },
+    {
+      "id": "demo-break-door",
+      "name": "Break room entrance",
+      "wall_id": "demo-hall-south",
+      "offset": 17,
+      "width": 1.4
+    },
+    {
+      "id": "demo-quiet-door",
+      "name": "Quiet workspace entrance",
+      "wall_id": "demo-hall-south",
+      "offset": 28,
+      "width": 1.5
+    }
+  ],
+  "exits": [
+    {
+      "id": "demo-east-exit",
+      "name": "East emergency exit",
+      "wall_id": "demo-east",
+      "offset": 10,
+      "width": 2
+    },
+    {
+      "id": "demo-west-exit",
+      "name": "West emergency exit",
+      "wall_id": "demo-west",
+      "offset": 10,
+      "width": 2
+    }
+  ],
+  "spawn_zones": [
+    {
+      "id": "demo-design",
+      "name": "Design team",
+      "x": 2.5,
+      "y": 2,
+      "width": 2.5,
+      "height": 6,
+      "count": 14
+    },
+    {
+      "id": "demo-engineering",
+      "name": "Engineering team",
+      "x": 18,
+      "y": 2,
+      "width": 2.4,
+      "height": 6,
+      "count": 12
+    },
+    {
+      "id": "demo-meeting",
+      "name": "Meeting room",
+      "x": 24,
+      "y": 7.5,
+      "width": 7,
+      "height": 1.4,
+      "count": 8
+    },
+    {
+      "id": "demo-focus",
+      "name": "Focus offices",
+      "x": 2.5,
+      "y": 16,
+      "width": 3,
+      "height": 4.5,
+      "count": 8
+    },
+    {
+      "id": "demo-break",
+      "name": "Break room",
+      "x": 14.5,
+      "y": 15.5,
+      "width": 6,
+      "height": 1.5,
+      "count": 6
+    },
+    {
+      "id": "demo-quiet",
+      "name": "Quiet workspace",
+      "x": 28,
+      "y": 16,
+      "width": 2,
+      "height": 5.5,
+      "count": 8
+    }
+  ],
+  "obstructions": [
+    {
+      "id": "demo-desk-0-0",
+      "name": "Desk 1",
+      "x": 6,
+      "y": 3,
+      "width": 1.6,
+      "height": 0.8
+    },
+    {
+      "id": "demo-desk-0-1",
+      "name": "Desk 2",
+      "x": 6,
+      "y": 5.8,
+      "width": 1.6,
+      "height": 0.8
+    },
+    {
+      "id": "demo-desk-0-2",
+      "name": "Desk 3",
+      "x": 6,
+      "y": 8,
+      "width": 1.6,
+      "height": 0.8
+    },
+    {
+      "id": "demo-desk-1-0",
+      "name": "Desk 4",
+      "x": 11,
+      "y": 3,
+      "width": 1.6,
+      "height": 0.8
+    },
+    {
+      "id": "demo-desk-1-1",
+      "name": "Desk 5",
+      "x": 11,
+      "y": 5.8,
+      "width": 1.6,
+      "height": 0.8
+    },
+    {
+      "id": "demo-desk-1-2",
+      "name": "Desk 6",
+      "x": 11,
+      "y": 8,
+      "width": 1.6,
+      "height": 0.8
+    },
+    {
+      "id": "demo-desk-2-0",
+      "name": "Desk 7",
+      "x": 16,
+      "y": 3,
+      "width": 1.6,
+      "height": 0.8
+    },
+    {
+      "id": "demo-desk-2-1",
+      "name": "Desk 8",
+      "x": 16,
+      "y": 5.8,
+      "width": 1.6,
+      "height": 0.8
+    },
+    {
+      "id": "demo-desk-2-2",
+      "name": "Desk 9",
+      "x": 16,
+      "y": 8,
+      "width": 1.6,
+      "height": 0.8
+    },
+    {
+      "id": "demo-meeting-table",
+      "name": "Conference table",
+      "x": 24,
+      "y": 4,
+      "width": 7,
+      "height": 2.2
+    },
+    {
+      "id": "demo-focus-desk-0",
+      "name": "Focus desk 1",
+      "x": 7,
+      "y": 16,
+      "width": 2,
+      "height": 0.8
+    },
+    {
+      "id": "demo-focus-desk-1",
+      "name": "Focus desk 2",
+      "x": 7,
+      "y": 19,
+      "width": 2,
+      "height": 0.8
+    },
+    {
+      "id": "demo-files",
+      "name": "File cabinets",
+      "x": 2,
+      "y": 21.5,
+      "width": 4,
+      "height": 0.6
+    },
+    {
+      "id": "demo-break-table",
+      "name": "Break room table",
+      "x": 16,
+      "y": 18,
+      "width": 3,
+      "height": 1.5
+    },
+    {
+      "id": "demo-kitchen",
+      "name": "Kitchen cabinets",
+      "x": 14,
+      "y": 21.5,
+      "width": 7,
+      "height": 0.6
+    },
+    {
+      "id": "demo-quiet-desk-0-0",
+      "name": "Quiet desk 1",
+      "x": 25,
+      "y": 16,
+      "width": 2,
+      "height": 0.8
+    },
+    {
+      "id": "demo-quiet-desk-0-1",
+      "name": "Quiet desk 2",
+      "x": 25,
+      "y": 19,
+      "width": 2,
+      "height": 0.8
+    },
+    {
+      "id": "demo-quiet-desk-1-0",
+      "name": "Quiet desk 3",
+      "x": 31,
+      "y": 16,
+      "width": 2,
+      "height": 0.8
+    },
+    {
+      "id": "demo-quiet-desk-1-1",
+      "name": "Quiet desk 4",
+      "x": 31,
+      "y": 19,
+      "width": 2,
+      "height": 0.8
+    },
+    {
+      "id": "demo-bookshelf",
+      "name": "Bookshelf",
+      "x": 25,
+      "y": 21.5,
+      "width": 2,
+      "height": 0.6
+    }
+  ],
+  "blocked_exit_ids": [],
+  "agent_radius": 0.25,
+  "time_step_seconds": 0.1,
+  "seed": 42,
+  "max_steps": 1500
+}
