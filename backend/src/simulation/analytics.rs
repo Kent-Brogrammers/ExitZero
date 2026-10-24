@@ -2,8 +2,14 @@ use crate::models::{AgentStatistics, SimulationAnalytics};
 
 /// Summaries are calculated from full-resolution simulation counters, even when
 /// animation frames are sampled. Remaining occupants are excluded from median.
-pub(super) fn summarize(agents: Vec<AgentStatistics>, simulated_seconds: f64) -> SimulationAnalytics {
-    let mut times: Vec<f64> = agents.iter().filter_map(|agent| agent.evacuation_seconds).collect();
+pub(super) fn summarize(
+    agents: Vec<AgentStatistics>,
+    simulated_seconds: f64,
+) -> SimulationAnalytics {
+    let mut times: Vec<f64> = agents
+        .iter()
+        .filter_map(|agent| agent.evacuation_seconds)
+        .collect();
     times.sort_by(f64::total_cmp);
     let median_evacuation_seconds = if times.is_empty() {
         None

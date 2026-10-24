@@ -1,7 +1,7 @@
 use self::agent::Agent;
 use crate::models::{
-    AgentPosition, AgentStatistics, AnimationFrame, BuildingScenario, Point, SimulationMetrics, SimulationResult,
-    SimulationStatus, TrafficSample,
+    AgentPosition, AgentStatistics, AnimationFrame, BuildingScenario, Point, SimulationMetrics,
+    SimulationResult, SimulationStatus, TrafficSample,
 };
 use std::{collections::BTreeMap, fmt};
 mod agent;
@@ -68,17 +68,21 @@ pub fn simulate_with_emergencies(
         .map(|agent| navigation.find_route(agent.position, &geometry))
         .collect();
     let mut next_waypoint = vec![0; agents.len()];
-    let mut statistics: Vec<_> = agents.iter().zip(&routes).map(|(agent, route)| AgentStatistics {
-        id: agent.id,
-        distance_metres: 0.0,
-        waiting_steps: 0,
-        waiting_seconds: 0.0,
-        elapsed_seconds: 0.0,
-        evacuation_step: None,
-        evacuation_seconds: None,
-        exit_id: None,
-        route_found: route.is_some(),
-    }).collect();
+    let mut statistics: Vec<_> = agents
+        .iter()
+        .zip(&routes)
+        .map(|(agent, route)| AgentStatistics {
+            id: agent.id,
+            distance_metres: 0.0,
+            waiting_steps: 0,
+            waiting_seconds: 0.0,
+            elapsed_seconds: 0.0,
+            evacuation_step: None,
+            evacuation_seconds: None,
+            exit_id: None,
+            route_found: route.is_some(),
+        })
+        .collect();
     let mut evacuated = vec![false; agents.len()];
     let total_population = agents.len() as u32;
     let mut evacuated_count = 0;
@@ -200,7 +204,8 @@ pub fn simulate_with_emergencies(
         .all(|exit| scenario.blocked_exit_ids.contains(&exit.id));
     let remaining = total_population - evacuated_count;
     for agent in &mut statistics {
-        agent.elapsed_seconds = f64::from(agent.evacuation_step.unwrap_or(step)) * scenario.time_step_seconds;
+        agent.elapsed_seconds =
+            f64::from(agent.evacuation_step.unwrap_or(step)) * scenario.time_step_seconds;
         agent.waiting_seconds = f64::from(agent.waiting_steps) * scenario.time_step_seconds;
     }
     let analytics = analytics::summarize(statistics, f64::from(step) * scenario.time_step_seconds);
