@@ -279,7 +279,6 @@ export default function App() {
               mode={view === "simulation" ? "simulation" : "edit"}
               active={view === "edit" || view === "simulation"}
               onOpenAnalytics={() => {
-                setShowMock(false);
                 navigate("analytics");
               }}
             />
@@ -320,7 +319,11 @@ export default function App() {
               </div>
             </div>
             <Suspense fallback={<p role="status">Loading analytics…</p>}>
-              <AnalyticsDashboard result={result} stressResult={stressResult} />
+              <AnalyticsDashboard
+                building={building}
+                result={result}
+                stressResult={stressResult}
+              />
             </Suspense>
           </section>
         </main>
