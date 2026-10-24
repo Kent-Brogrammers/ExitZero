@@ -140,6 +140,17 @@ npm run verify
 
 This checks formatting, ESLint, mocked API/schema tests, strict TypeScript, and the production build. `npm run typecheck`, `npm test`, and `npm run lint` also run separately. Format changes with `cargo fmt` and `npm run format`. Commit `Cargo.lock` and `package-lock.json` for reproducible installs. Build outputs and installed dependencies are ignored.
 
+## Simulation analytics handoff
+
+Real simulation responses include optional `analytics` (older saved results and synthetic fixtures may omit it). The matching interfaces are `AgentStatistics` and `SimulationAnalytics` in `frontend/src/types/simulation.ts`.
+
+- `analytics.agents` includes every initial occupant, joined to animation frames by `id`. `distance_metres` sums actual accepted movement at every physics tick, including detours, independently of sampled playback frames.
+- `evacuation_step`, `evacuation_seconds`, and successful `exit_id` are null for occupants that did not evacuate. `elapsed_seconds` stops at evacuation or at the end of the run. Simulated seconds use `step * time_step_seconds`, not server runtime.
+- `waiting_steps` counts ticks where collision checks rejected the proposed movement; `waiting_seconds` converts those ticks to seconds. Waiting can be caused by another agent or static geometry. An occupant with no route does not accumulate collision waiting. `route_found: false` describes failure of the sampled navigation graph, not proof of entrapment.
+- `median_evacuation_seconds` summarizes **evacuated occupants only**, including on incomplete runs; it is null if nobody evacuated. Display it alongside evacuated/remaining counts. `simulated_seconds`, `total_distance_metres`, and `total_waiting_seconds` provide run totals. These counters are not inferred from animation frames or traffic samples.
+
+The analytics team can use these fields for distance/wait distributions and evacuation-time charts without changing simulation logic. Stress-test responses currently retain their existing aggregate metric contract; adding per-scenario analytics requires coordination with that workstream.
+
 ## Next work
 
 | Developer   | First feature                                                         | Following feature                                               |

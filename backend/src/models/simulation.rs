@@ -91,6 +91,39 @@ pub struct TrafficSample {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentStatistics {
+    /// Same stable ID used in animation frames.
+    pub id: u32,
+    /// Actual accepted movement, including detours; never inferred from frames.
+    pub distance_metres: f64,
+    /// Full ticks where a proposed movement was rejected by collision checks.
+    /// Agents without a route do not accumulate waiting time.
+    pub waiting_steps: u32,
+    pub waiting_seconds: f64,
+    /// Time until evacuation, or until the run ended for remaining occupants.
+    pub elapsed_seconds: f64,
+    pub evacuation_step: Option<u32>,
+    pub evacuation_seconds: Option<f64>,
+    /// Successful exit ID, null for occupants that did not evacuate.
+    pub exit_id: Option<String>,
+    /// False means the sampled navigation graph found no route, not proven trapped.
+    pub route_found: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SimulationAnalytics {
+    pub agents: Vec<AgentStatistics>,
+    pub simulated_seconds: f64,
+    /// Median among evacuated occupants ONLY, including on incomplete runs.
+    /// Null when nobody evacuated; never treat remaining occupants as zero time.
+    pub median_evacuation_seconds: Option<f64>,
+    pub total_distance_metres: f64,
+    pub total_waiting_seconds: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SimulationResult {
     #[serde(flatten)]
     pub metrics: SimulationMetrics,
@@ -99,6 +132,9 @@ pub struct SimulationResult {
     pub width: f64,
     pub height: f64,
     pub time_step_seconds: f64,
+    /// Optional for compatibility with older saved results and synthetic fixtures.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub analytics: Option<SimulationAnalytics>,
 }
 
 impl SimulationResult {
@@ -113,6 +149,55 @@ impl SimulationResult {
 
     pub fn validate(&self) -> Result<(), String> {
         self.metrics.validate()?;
+        if let Some(analytics) = &self.analytics {
+            let nonnegative = |value: f64| value.is_finite() && value >= 0.0;
+            let mut ids = std::collections::HashSet::new();
+            if analytics.agents.len() != self.metrics.total_population as usize
+                || !nonnegative(analytics.simulated_seconds)
+                || !nonnegative(analytics.total_distance_metres)
+                || !nonnegative(analytics.total_waiting_seconds)
+                || analytics
+                    .median_evacuation_seconds
+                    .is_some_and(|value| !nonnegative(value))
+                || analytics.agents.iter().any(|agent| {
+                    let did_evacuate = agent.evacuation_step.is_some();
+                    !ids.insert(agent.id)
+                        || !nonnegative(agent.distance_metres)
+                        || !nonnegative(agent.waiting_seconds)
+                        || !nonnegative(agent.elapsed_seconds)
+                        || agent.waiting_seconds > agent.elapsed_seconds + 1e-6
+                        || agent.elapsed_seconds > analytics.simulated_seconds + 1e-6
+                        || agent.waiting_steps > 100_000
+                        || (agent.waiting_seconds
+                            - f64::from(agent.waiting_steps) * self.time_step_seconds)
+                            .abs()
+                            > 1e-6
+                        || agent
+                            .evacuation_step
+                            .is_some_and(|step| step > 100_000 || !agent.route_found)
+                        || agent.evacuation_seconds.is_some_and(|value| {
+                            !nonnegative(value) || (value - agent.elapsed_seconds).abs() > 1e-6
+                        })
+                        || did_evacuate != agent.evacuation_seconds.is_some()
+                        || did_evacuate != agent.exit_id.is_some()
+                        || agent
+                            .evacuation_step
+                            .zip(agent.evacuation_seconds)
+                            .is_some_and(|(step, seconds)| {
+                                (seconds - f64::from(step) * self.time_step_seconds).abs() > 1e-6
+                            })
+                })
+                || analytics
+                    .agents
+                    .iter()
+                    .filter(|agent| agent.evacuation_step.is_some())
+                    .count()
+                    != self.metrics.evacuated as usize
+                || analytics.median_evacuation_seconds.is_some() != (self.metrics.evacuated > 0)
+            {
+                return Err("invalid per-agent analytics, times, or population accounting".into());
+            }
+        }
         if !self.width.is_finite()
             || self.width <= 0.0
             || self.width > 1000.0

@@ -332,6 +332,9 @@
           "type": "number",
           "maximum": 1,
           "exclusiveMinimum": 0
+        },
+        "analytics": {
+          "$ref": "#/$defs/SimulationAnalytics"
         }
       },
       "allOf": [
@@ -694,6 +697,141 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 4294967295
+        }
+      }
+    },
+    "AgentStatistics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "distance_metres",
+        "waiting_steps",
+        "waiting_seconds",
+        "elapsed_seconds",
+        "evacuation_step",
+        "evacuation_seconds",
+        "exit_id",
+        "route_found"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "distance_metres": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Actual accepted movement distance in metres, including detours."
+        },
+        "waiting_steps": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100000
+        },
+        "waiting_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Collision-rejected ticks times time_step_seconds; excludes occupants without routes."
+        },
+        "elapsed_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100000
+        },
+        "evacuation_step": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 100000
+        },
+        "evacuation_seconds": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 100000
+        },
+        "exit_id": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "route_found": {
+          "type": "boolean"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "evacuation_step": {
+                "type": "null"
+              }
+            },
+            "required": ["evacuation_step"]
+          },
+          "then": {
+            "properties": {
+              "evacuation_seconds": {
+                "type": "null"
+              },
+              "exit_id": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "evacuation_seconds": {
+                "type": "number"
+              },
+              "exit_id": {
+                "type": "string"
+              },
+              "route_found": {
+                "const": true
+              }
+            }
+          }
+        }
+      ]
+    },
+    "SimulationAnalytics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "agents",
+        "simulated_seconds",
+        "median_evacuation_seconds",
+        "total_distance_metres",
+        "total_waiting_seconds"
+      ],
+      "properties": {
+        "agents": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10000,
+          "items": {
+            "$ref": "#/$defs/AgentStatistics"
+          }
+        },
+        "simulated_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100000
+        },
+        "median_evacuation_seconds": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 100000,
+          "description": "Median among evacuated occupants only, even on incomplete runs. Null if nobody evacuated."
+        },
+        "total_distance_metres": {
+          "type": "number",
+          "minimum": 0
+        },
+        "total_waiting_seconds": {
+          "type": "number",
+          "minimum": 0
         }
       }
     }

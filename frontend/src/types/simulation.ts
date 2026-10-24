@@ -62,7 +62,36 @@ export interface AnimationFrame {
   agents: AgentPosition[];
 }
 
+export interface AgentStatistics {
+  /** Same ID as animation frames. */
+  id: number;
+  /** Actual accepted travel, including detours, in metres. */
+  distance_metres: number;
+  /** Collision-rejected ticks; occupants without routes do not accumulate waits. */
+  waiting_steps: number;
+  waiting_seconds: number;
+  /** Time until evacuation, or until the run ended for remaining occupants. */
+  elapsed_seconds: number;
+  evacuation_step: number | null;
+  evacuation_seconds: number | null;
+  /** Successful exit; null if this occupant did not evacuate. */
+  exit_id: string | null;
+  /** Graph search found a route; false does not prove physical entrapment. */
+  route_found: boolean;
+}
+
+export interface SimulationAnalytics {
+  agents: AgentStatistics[];
+  simulated_seconds: number;
+  /** Evacuated occupants only; null when none evacuated. */
+  median_evacuation_seconds: number | null;
+  total_distance_metres: number;
+  total_waiting_seconds: number;
+}
+
 export interface SimulationResult extends SimulationMetrics {
+  /** Absent in older saved results and synthetic fixtures. */
+  analytics?: SimulationAnalytics;
   frames: AnimationFrame[];
   /** Weighted world positions representing accumulated traffic, not density. */
   traffic_samples: TrafficSample[];
