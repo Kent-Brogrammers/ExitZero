@@ -1,5 +1,8 @@
 import type { Ref } from "react";
+import { buildingPresets, type BuildingPreset } from "./presets";
 import { StudioPopover } from "../ui/StudioPopover";
+import { DraftingControls } from "./DraftingControls";
+import type { DraftingPreferences } from "./drafting";
 import { ToolIcon } from "./ToolIcon";
 
 interface EditorUtilityRailProps {
@@ -12,9 +15,12 @@ interface EditorUtilityRailProps {
   onRedo: () => void;
   onNew: () => void;
   onExample: () => void;
+  onPreset: (preset: BuildingPreset) => void;
   onImport: () => void;
   onExport: () => void;
   onProperties: () => void;
+  drafting: DraftingPreferences;
+  onDrafting: (p: DraftingPreferences) => void;
 }
 const content = (name: string, label: string) => (
   <>
@@ -82,7 +88,39 @@ export function EditorUtilityRail(props: EditorUtilityRailProps) {
                 {label}
               </button>
             ))}
+            <details className="file-presets">
+              <summary>Building presets</summary>
+              {buildingPresets.map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  className="studio-control"
+                  onClick={() => {
+                    close();
+                    props.onPreset(preset);
+                  }}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </details>
           </div>
+        )}
+      </StudioPopover>
+      <StudioPopover
+        label="Grid & snap"
+        side="left"
+        className="editor-shapes"
+        disabled={props.disabled}
+        triggerClassName="rail-button"
+        triggerContent={content("grid", "Grid")}
+        indicator={false}
+      >
+        {() => (
+          <DraftingControls
+            preferences={props.drafting}
+            onChange={props.onDrafting}
+          />
         )}
       </StudioPopover>
       <button

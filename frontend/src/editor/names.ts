@@ -8,16 +8,17 @@ const prefixes: Record<Selection["kind"], string> = {
   exits: "Exit",
   spawn_zones: "Spawn zone",
   obstructions: "Obstruction",
+  stair_areas: "Stair area",
 };
 
 export function objectName(
   building: BuildingScenario,
   selection: Selection,
 ): string {
-  const index = building[selection.kind].findIndex(
+  const index = (building[selection.kind] ?? []).findIndex(
     (item) => item.id === selection.id,
   );
-  const element = building[selection.kind][index];
+  const element = (building[selection.kind] ?? [])[index];
   return element?.name ?? `${prefixes[selection.kind]} ${index + 1}`;
 }
 
@@ -27,7 +28,9 @@ export function nextObjectName(
   prefix = prefixes[kind],
 ): string {
   const used = new Set(
-    building[kind].map((item) => objectName(building, { kind, id: item.id })),
+    (building[kind] ?? []).map((item) =>
+      objectName(building, { kind, id: item.id }),
+    ),
   );
   let number = 1;
   while (used.has(`${prefix} ${number}`)) number++;
@@ -55,7 +58,9 @@ export function renameObject(
   const problem = nameProblem(value);
   if (problem) throw new Error(problem);
   const next = structuredClone(building);
-  const element = next[selection.kind].find((item) => item.id === selection.id);
+  const element = (next[selection.kind] ?? []).find(
+    (item) => item.id === selection.id,
+  );
   if (element) element.name = normalizeObjectName(value);
   return next;
 }
@@ -66,6 +71,6 @@ export function withoutObjectNames(
 ): BuildingScenario {
   const next = structuredClone(building);
   for (const kind of Object.keys(prefixes) as Selection["kind"][])
-    for (const element of next[kind]) delete element.name;
+    for (const element of next[kind] ?? []) delete element.name;
   return next;
 }

@@ -77,13 +77,13 @@ describe("contract-compatible drawing shapes", () => {
     expect(next.walls[0]!.end).toEqual({ x: 8.7, y: 12.2 });
     expect(buildingError(next, false)).toBeNull();
   });
-  it("saves a circular perimeter honestly as 24 connected straight walls", () => {
+  it("saves a circular perimeter honestly as 32 connected straight walls", () => {
     const original = draft(),
       next = addWallShape(
         original,
         "wall-circle",
-        { x: 15, y: 10 },
-        { x: 19, y: 10 },
+        { x: 11, y: 6 },
+        { x: 19, y: 14 },
         ids(),
       );
     expect(next.walls).toHaveLength(CIRCLE_WALL_SEGMENTS);
@@ -107,16 +107,47 @@ describe("contract-compatible drawing shapes", () => {
     expect(JSON.parse(JSON.stringify(next))).toEqual(next);
     expect(original.walls).toHaveLength(0);
   });
-  it("uses identical circle vertices for preview and persisted geometry and clamps radius to the workspace", () => {
+  it("uses identical bounding ellipse vertices for preview and persistence with independent radii", () => {
     const b = draft(),
       start = { x: 2, y: 3 },
-      end = { x: 20, y: 3 };
+      end = { x: 20, y: 9 };
     const points = wallShapePoints("wall-circle", start, end, b),
       next = addWallShape(b, "wall-circle", start, end, ids());
     expect(next.walls.map((w) => w.start)).toEqual(points.slice(0, -1));
-    expect(Math.max(...points.map((p) => p.x))).toBeCloseTo(4);
-    expect(Math.min(...points.map((p) => p.x))).toBeCloseTo(0);
+    expect(Math.max(...points.map((p) => p.x))).toBeCloseTo(20);
+    expect(Math.min(...points.map((p) => p.y))).toBeCloseTo(3);
+    expect(Math.max(...points.map((p) => p.y))).toBeCloseTo(9);
     expect(buildingError(next, false)).toBeNull();
+  });
+  it("constrains perimeters only when Shift is requested", () => {
+    const b = draft();
+    const free = wallShapePoints(
+      "wall-rectangle",
+      { x: 2, y: 2 },
+      { x: 10, y: 5 },
+      b,
+    );
+    expect(free[2]).toEqual({ x: 10, y: 5 });
+    const square = wallShapePoints(
+      "wall-rectangle",
+      { x: 2, y: 2 },
+      { x: 10, y: 5 },
+      b,
+      true,
+    );
+    expect(square[2]).toEqual({ x: 10, y: 10 });
+    const circle = wallShapePoints(
+      "wall-circle",
+      { x: 2, y: 2 },
+      { x: 10, y: 5 },
+      b,
+      true,
+    );
+    expect(
+      Math.max(...circle.map((p) => p.x)) - Math.min(...circle.map((p) => p.x)),
+    ).toBeCloseTo(
+      Math.max(...circle.map((p) => p.y)) - Math.min(...circle.map((p) => p.y)),
+    );
   });
   it.each(["wall-rectangle", "wall-circle"] as const)(
     "rejects degenerate %s and preserves the original draft",

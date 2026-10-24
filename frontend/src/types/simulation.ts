@@ -32,6 +32,10 @@ export interface Obstruction {
 export interface SpawnZone extends Obstruction {
   count: number;
 }
+/** Walkable, nonblocking architectural annotation; no inter-floor transport. */
+export interface StairArea extends Obstruction {
+  orientation_degrees?: 0 | 90 | 180 | 270;
+}
 export interface BuildingScenario {
   width: number;
   height: number;
@@ -41,6 +45,7 @@ export interface BuildingScenario {
   spawn_zones: SpawnZone[];
   blocked_exit_ids: string[];
   obstructions: Obstruction[];
+  stair_areas?: StairArea[];
   agent_radius: number;
   time_step_seconds: number;
   seed: number;

@@ -11,7 +11,13 @@ const validateShape = new Ajv({ allErrors: true }).compile<BuildingScenario>(
   schema,
 );
 export type Selection = {
-  kind: "walls" | "doors" | "exits" | "spawn_zones" | "obstructions";
+  kind:
+    | "walls"
+    | "doors"
+    | "exits"
+    | "spawn_zones"
+    | "obstructions"
+    | "stair_areas";
   id: string;
 };
 export const distance = (a: Point, b: Point) =>
@@ -112,6 +118,7 @@ export function buildingError(
     ...b.exits,
     ...b.spawn_zones,
     ...b.obstructions,
+    ...(b.stair_areas ?? []),
   ]) {
     if (ids.has(element.id)) return "Every layout element needs a unique ID.";
     ids.add(element.id);
@@ -142,7 +149,11 @@ export function buildingError(
   }
   if (b.blocked_exit_ids.some((id) => !b.exits.some((exit) => exit.id === id)))
     return "Blocked exit IDs must reference existing exits.";
-  for (const rectangle of [...b.obstructions, ...b.spawn_zones]) {
+  for (const rectangle of [
+    ...b.obstructions,
+    ...b.spawn_zones,
+    ...(b.stair_areas ?? []),
+  ]) {
     if (
       !inside(rectangle) ||
       !inside({
@@ -191,6 +202,11 @@ export function removeElement(
     case "spawn_zones":
       next.spawn_zones = next.spawn_zones.filter((v) => v.id !== selection.id);
       break;
+    case "stair_areas":
+      next.stair_areas = (next.stair_areas ?? []).filter(
+        (v) => v.id !== selection.id,
+      );
+      break;
     case "obstructions":
       next.obstructions = next.obstructions.filter(
         (v) => v.id !== selection.id,
@@ -228,7 +244,9 @@ export function translateElement(
     wall.start = { x: wall.start.x + dx, y: wall.start.y + dy };
     wall.end = { x: wall.end.x + dx, y: wall.end.y + dy };
   } else if (selection.kind === "doors" || selection.kind === "exits") {
-    const opening = next[selection.kind].find((v) => v.id === selection.id)!;
+    const opening = (next[selection.kind] ?? []).find(
+      (v) => v.id === selection.id,
+    )!;
     const wall = next.walls.find((v) => v.id === opening.wall_id)!;
     const [a, b] = openingSegment(opening, wall);
     opening.offset = clamp(
@@ -241,7 +259,9 @@ export function translateElement(
       wallLength(wall) - opening.width,
     );
   } else {
-    const rectangle = next[selection.kind].find((v) => v.id === selection.id)!;
+    const rectangle = (next[selection.kind] ?? []).find(
+      (v) => v.id === selection.id,
+    )!;
     rectangle.x = clamp(rectangle.x + delta.x, 0, next.width - rectangle.width);
     rectangle.y = clamp(
       rectangle.y + delta.y,
