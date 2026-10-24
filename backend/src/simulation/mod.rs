@@ -20,6 +20,7 @@ mod tests;
 pub enum SimulationError {
     InvalidScenario(String),
     NotImplemented,
+    Cancelled,
 }
 
 impl fmt::Display for SimulationError {
@@ -27,6 +28,7 @@ impl fmt::Display for SimulationError {
         match self {
             Self::InvalidScenario(message) => write!(f, "{message}"),
             Self::NotImplemented => write!(f, "simulation engine is not implemented"),
+            Self::Cancelled => write!(f, "simulation cancelled"),
         }
     }
 }
@@ -45,6 +47,23 @@ pub fn simulate(scenario: &BuildingScenario) -> Result<SimulationResult, Simulat
 pub fn simulate_with_emergencies(
     scenario: &BuildingScenario,
     emergencies: &[Emergency],
+) -> Result<SimulationResult, SimulationError> {
+    run(scenario, emergencies, None)
+}
+
+/// Observe actual physics frames before completion. Returning false cancels the
+/// run, allowing a disconnected live viewer to release the simulation worker.
+pub fn simulate_live(
+    scenario: &BuildingScenario,
+    on_frame: &mut dyn FnMut(&AnimationFrame) -> bool,
+) -> Result<SimulationResult, SimulationError> {
+    run(scenario, &[], Some(on_frame))
+}
+
+fn run(
+    scenario: &BuildingScenario,
+    emergencies: &[Emergency],
+    mut on_frame: Option<&mut dyn FnMut(&AnimationFrame) -> bool>,
 ) -> Result<SimulationResult, SimulationError> {
     scenario
         .validate()
@@ -107,6 +126,13 @@ pub fn simulate_with_emergencies(
         .div_ceil(200_000))
     .max(1) as u32;
     let mut frames = vec![frame(0, &agents, &evacuated)];
+    let live_stride = (0.05 / scenario.time_step_seconds).ceil().max(1.0) as u32;
+    let mut last_live_step = 0;
+    if let Some(emit) = &mut on_frame
+        && !emit(&frames[0])
+    {
+        return Err(SimulationError::Cancelled);
+    }
     let mut traffic = BTreeMap::new();
     record_traffic(scenario, &agents, &evacuated, &mut traffic);
 
@@ -403,6 +429,14 @@ pub fn simulate_with_emergencies(
         if step % frame_stride == 0 {
             frames.push(frame(step, &agents, &evacuated));
         }
+        if step.is_multiple_of(live_stride)
+            && let Some(emit) = &mut on_frame
+        {
+            if !emit(&frame(step, &agents, &evacuated)) {
+                return Err(SimulationError::Cancelled);
+            }
+            last_live_step = step;
+        }
         idle_steps = if progress { 0 } else { idle_steps + 1 };
         // Allow rerouting before reporting a stalled run. Local avoidance has
         // already run on every tick; a stall still does not prove entrapment.
@@ -413,6 +447,12 @@ pub fn simulate_with_emergencies(
 
     if frames.last().is_none_or(|last| last.step != step) {
         frames.push(frame(step, &agents, &evacuated));
+    }
+    if last_live_step != step
+        && let Some(emit) = &mut on_frame
+        && !emit(frames.last().unwrap())
+    {
+        return Err(SimulationError::Cancelled);
     }
     // Graph-search failure alone is not proof of entrapment. We only classify
     // trapped occupants when every exit is explicitly disabled.

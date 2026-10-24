@@ -16,6 +16,7 @@ fn room() -> BuildingScenario {
         ]
         .into_iter()
         .map(|(id, x, y, end_x, end_y)| Wall {
+            name: None,
             id: id.into(),
             start: Point { x, y },
             end: Point { x: end_x, y: end_y },
@@ -24,6 +25,7 @@ fn room() -> BuildingScenario {
         .collect(),
         doors: vec![],
         exits: vec![Opening {
+            name: None,
             id: "north_exit".into(),
             wall_id: "north".into(),
             offset: 3.0,
@@ -37,6 +39,7 @@ fn room() -> BuildingScenario {
         ],
         blocked_exit_ids: vec![],
         obstructions: vec![],
+        stair_areas: vec![],
         agent_radius: 0.2,
         time_step_seconds: 0.1,
         seed: 42,
@@ -44,8 +47,40 @@ fn room() -> BuildingScenario {
     }
 }
 
+#[test]
+fn live_frames_arrive_during_physics_and_preserve_the_recording() {
+    let scenario = room();
+    let expected = simulate(&scenario).unwrap();
+    let mut streamed = Vec::new();
+    let result = super::simulate_live(&scenario, &mut |frame| {
+        streamed.push(frame.clone());
+        true
+    })
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(&result).unwrap(),
+        serde_json::to_value(expected).unwrap()
+    );
+    assert_eq!(
+        serde_json::to_value(streamed).unwrap(),
+        serde_json::to_value(result.frames).unwrap()
+    );
+}
+
+#[test]
+fn disconnecting_a_live_view_stops_the_simulation() {
+    let mut steps = Vec::new();
+    let result = super::simulate_live(&room(), &mut |frame| {
+        steps.push(frame.step);
+        frame.step == 0
+    });
+    assert!(matches!(result, Err(super::SimulationError::Cancelled)));
+    assert_eq!(steps, vec![0, 1]);
+}
+
 fn pinned_zone(id: &str, center_x: f64, center_y: f64) -> SpawnZone {
     SpawnZone {
+        name: None,
         id: id.into(),
         x: center_x - 0.2,
         y: center_y - 0.2,
@@ -214,6 +249,7 @@ fn inset_exit_keeps_waiting_agents_inside_the_room() {
         wall.end.y += 2.0;
     }
     scenario.spawn_zones = vec![SpawnZone {
+        name: None,
         id: "crowd".into(),
         x: 3.0,
         y: 4.0,
@@ -304,6 +340,7 @@ fn obstruction_detour_respects_solid_walls_and_body_clearance() {
     let mut scenario = room();
     scenario.spawn_zones = vec![pinned_zone("south_spawn", 5.0, 8.0)];
     scenario.obstructions.push(crate::models::Obstruction {
+        name: None,
         id: "barrier".into(),
         x: 4.0,
         y: 1.5,
@@ -326,12 +363,14 @@ fn obstruction_detour_respects_solid_walls_and_body_clearance() {
 fn diagonal_exit_targets_respect_wall_geometry() {
     let mut scenario = room();
     scenario.walls.push(Wall {
+        name: None,
         id: "diagonal".into(),
         start: Point { x: 0.0, y: 0.0 },
         end: Point { x: 10.0, y: 10.0 },
         thickness: 0.2,
     });
     scenario.exits[0] = Opening {
+        name: None,
         id: "diagonal_exit".into(),
         wall_id: "diagonal".into(),
         offset: 7.0,
@@ -533,6 +572,7 @@ fn crowded_open_room_keeps_flowing_across_seeds() {
         for seed in 0..4 {
             let mut scenario = room();
             scenario.spawn_zones = vec![SpawnZone {
+                name: None,
                 id: "crowd".into(),
                 x: 1.0,
                 y: 2.0,
