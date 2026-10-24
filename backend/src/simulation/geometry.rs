@@ -1,14 +1,29 @@
-use super::math;
+use super::{Emergency, math};
 use crate::models::{BuildingScenario, Point, Wall};
 
 pub(super) struct Geometry<'a> {
     scenario: &'a BuildingScenario,
+    emergencies: &'a [Emergency],
 }
 
 // Create geometry operations for a borrowed building scenario.
 impl<'a> Geometry<'a> {
     pub(super) fn new(scenario: &'a BuildingScenario) -> Self {
-        Self { scenario }
+        Self::with_emergencies(scenario, &[])
+    }
+
+    pub(super) fn with_emergencies(
+        scenario: &'a BuildingScenario,
+        emergencies: &'a [Emergency],
+    ) -> Self {
+        Self {
+            scenario,
+            emergencies,
+        }
+    }
+
+    pub(super) fn emergencies(&self) -> &[Emergency] {
+        self.emergencies
     }
 
     // Check a point against the workspace extent, without agent-radius clearance.
@@ -22,6 +37,12 @@ impl<'a> Geometry<'a> {
     }
     pub(super) fn can_stand_at(&self, pos: Point) -> bool {
         if !self.is_within_workspace(pos) {
+            return false;
+        }
+        if self.emergencies.iter().any(|emergency| {
+            math::distance_to_point(pos, emergency.center)
+                <= emergency.radius + self.scenario.agent_radius
+        }) {
             return false;
         }
 
@@ -96,6 +117,12 @@ impl<'a> Geometry<'a> {
 
     pub(super) fn can_move(&self, from: Point, to: Point) -> bool {
         if !self.can_stand_at(from) || !self.can_stand_at(to) {
+            return false;
+        }
+        if self.emergencies.iter().any(|emergency| {
+            math::distance_to_segment(emergency.center, from, to)
+                <= emergency.radius + self.scenario.agent_radius
+        }) {
             return false;
         }
         //Checking path against all walls
