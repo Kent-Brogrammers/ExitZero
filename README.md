@@ -33,6 +33,28 @@ Open [http://127.0.0.1:5173](http://127.0.0.1:5173). The header should show **Ba
 
 **Run simulation** opens a live first run at normal speed. It shows elapsed simulation time and occupant counts without a predicted finish time. When the run ends, the recorded timeline opens at the end; rewind, step, or replay to review what happened.
 
+Under **Settings → Agent awareness**, adjust sight range (default 8 m) and communication/yelling range (default 3 m). These settings are saved with the building. A range of 0 disables that behavior. Agents start with exit locations and assume doors and exits are open, including initially blocked exits. Their route maps do not start with the complete wall layout. They learn an opening's state by seeing it or receiving a nearby person's report.
+
+Wall memory records only observed portions within sight range and clear sight lines. Seeing a sliver does not reveal the wall's hidden extent or endpoints, and separate visible patches do not fill an occluded gap. These fragments accumulate as people move; yelling shares the same observed fragments. Near occlusion boundaries, uncertain portions below a centimetre may be omitted rather than revealing hidden material. Route graphs use only remembered fragments and are rebuilt when new knowledge invalidates the current route or an opening changes.
+
+Rectangular obstructions and circular emergency zones also enter each person's route map only after discovery. Visibility uses the nearest surface of an obstruction or hazard, so a large hazard can be noticed without seeing its centre. Yelling requires both range and a clear path: walls, closed doors, and obstructions block reports. Reports travel one hop per physics tick, and newer opening-state reports supersede stale ones. Dijkstra searches each person's belief map again when new information changes it. Actual collision checks always enforce the real world, even for an unseen blockage.
+
+The Rust `simulate_with_emergencies` entry point accepts static circular exclusion zones. This discovery model does not add a fire creation/spread system; future hazard logic can supply door/exit closures through the runtime changes below. Obstructions and circular hazard geometry currently remain fixed for each run.
+
+Building JSON can schedule runtime changes before the catastrophe system supplies them:
+
+```json
+{
+  "awareness": { "sight_range_metres": 8, "communication_range_metres": 3 },
+  "opening_events": [
+    { "step": 100, "opening_id": "door_north", "blocked": true },
+    { "step": 150, "opening_id": "door_north", "blocked": false }
+  ]
+}
+```
+
+These are optional fields on the existing `BuildingScenario`, not a separate request. Events reference door or exit IDs, are ordered by step, and occur before `max_steps`. Changes take effect at tick boundaries; a closure waits until occupants clear the opening rather than creating a wall inside them. Actual states are recorded in each frame's `blocked_opening_ids`, so live viewing and rewind display closures and reopenings at the corresponding time. Older recordings without this field retain their original layout behavior.
+
 The API binds to `127.0.0.1:3001`. Vite proxies `/api` to it and requires port `5173` to be available. The frontend defaults to `/api`; override its public API base URL when needed:
 
 ```sh
@@ -150,7 +172,7 @@ Real simulation responses include optional `analytics` (older saved results and 
 
 - `analytics.agents` includes every initial occupant, joined to animation frames by `id`. `distance_metres` sums actual accepted movement at every physics tick, including detours, independently of sampled playback frames.
 - `evacuation_step`, `evacuation_seconds`, and successful `exit_id` are null for occupants that did not evacuate. `elapsed_seconds` stops at evacuation or at the end of the run. Simulated seconds use `step * time_step_seconds`, not server runtime.
-- `waiting_steps` counts ticks where collision checks rejected the proposed movement; `waiting_seconds` converts those ticks to seconds. Waiting can be caused by another agent or static geometry. An occupant with no route does not accumulate collision waiting. `route_found: false` describes failure of the sampled navigation graph, not proof of entrapment.
+- `waiting_steps` counts ticks where collision checks rejected the proposed movement; `waiting_seconds` converts those ticks to seconds. Waiting can be caused by another agent or static geometry. An occupant with no route does not accumulate collision waiting. `route_found` reflects the most recent route search using that agent's opening knowledge; false describes failure of the sampled navigation graph, not proof of entrapment.
 - `median_evacuation_seconds` summarizes **evacuated occupants only**, including on incomplete runs; it is null if nobody evacuated. Display it alongside evacuated/remaining counts. `simulated_seconds`, `total_distance_metres`, and `total_waiting_seconds` provide run totals. These counters are not inferred from animation frames or traffic samples.
 
 The analytics team can use these fields for distance/wait distributions and evacuation-time charts without changing simulation logic. Stress-test responses currently retain their existing aggregate metric contract; adding per-scenario analytics requires coordination with that workstream.

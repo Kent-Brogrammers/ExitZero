@@ -46,7 +46,7 @@ struct ExitTarget {
     position: Point,
 }
 
-/// Exit targets are built once and shared across agents in a simulation.
+/// A graph is shared by agents with the same discovered openings and blockers.
 pub(super) struct Navigation {
     exits: Vec<ExitTarget>,
     points: Vec<Point>,
@@ -55,12 +55,12 @@ pub(super) struct Navigation {
 }
 
 impl Navigation {
-    /// Build from a validated scenario. Rebuild if exit geometry or blockers change.
+    /// Build for the supplied geometry, which may represent an agent's beliefs.
     pub(super) fn new(scenario: &BuildingScenario, geometry: &Geometry<'_>) -> Self {
         let exits: Vec<ExitTarget> = scenario
             .exits
             .iter()
-            .filter(|exit| !scenario.blocked_exit_ids.contains(&exit.id))
+            .filter(|exit| !geometry.opening_is_blocked(&exit.id))
             .filter_map(|exit| {
                 let wall = scenario.walls.iter().find(|wall| wall.id == exit.wall_id)?;
                 let length = wall.length();
@@ -96,21 +96,24 @@ impl Navigation {
             }
         };
 
-        for wall in &scenario.walls {
-            let length = wall.length();
-            let tangent = Point {
-                x: (wall.end.x - wall.start.x) / length,
-                y: (wall.end.y - wall.start.y) / length,
+        // Only remembered fragments supply endpoints. A frontier of observed
+        // space is a tentative detour, not knowledge of a hidden wall's end.
+        for (start, end, half_thickness) in geometry.wall_fragments() {
+            let length = math::distance_to_point(start, end);
+            let tangent = if length <= math::EPSILON {
+                Point { x: 1.0, y: 0.0 }
+            } else {
+                Point {
+                    x: (end.x - start.x) / length,
+                    y: (end.y - start.y) / length,
+                }
             };
             let normal = Point {
                 x: -tangent.y,
                 y: tangent.x,
             };
-            let clearance = scenario.agent_radius + wall.thickness / 2.0 + 1e-6;
-
-            // Four corners of an expanded wall rectangle allow safe detours
-            // around the solid wall endpoints with body clearance.
-            for (endpoint, direction) in [(wall.start, -1.0), (wall.end, 1.0)] {
+            let clearance = scenario.agent_radius + half_thickness + 1e-6;
+            for (endpoint, direction) in [(start, -1.0), (end, 1.0)] {
                 for side in [-1.0, 1.0] {
                     add_point(Point {
                         x: endpoint.x + clearance * (direction * tangent.x + side * normal.x),
@@ -118,35 +121,42 @@ impl Navigation {
                     });
                 }
             }
-
-            // Approach each opening from both sides of its supporting wall.
-            for opening in scenario
-                .doors
+        }
+        for opening in scenario
+            .doors
+            .iter()
+            .chain(&scenario.exits)
+            .filter(|opening| {
+                !geometry.opening_is_blocked(&opening.id)
+                    && geometry.opening_was_observed(&opening.id)
+            })
+        {
+            let wall = scenario
+                .walls
                 .iter()
-                .chain(
-                    scenario
-                        .exits
-                        .iter()
-                        .filter(|exit| !scenario.blocked_exit_ids.contains(&exit.id)),
-                )
-                .filter(|opening| opening.wall_id == wall.id)
-            {
-                let center = math::interpolate(
-                    wall.start,
-                    wall.end,
-                    (opening.offset + opening.width / 2.0) / length,
-                );
-                add_point(center);
-                for side in [-1.0, 1.0] {
-                    add_point(Point {
-                        x: center.x + side * clearance * normal.x,
-                        y: center.y + side * clearance * normal.y,
-                    });
-                }
+                .find(|wall| wall.id == opening.wall_id)
+                .unwrap();
+            let length = wall.length();
+            let normal = Point {
+                x: -(wall.end.y - wall.start.y) / length,
+                y: (wall.end.x - wall.start.x) / length,
+            };
+            let center = math::interpolate(
+                wall.start,
+                wall.end,
+                (opening.offset + opening.width / 2.0) / length,
+            );
+            let clearance = scenario.agent_radius + wall.thickness / 2.0 + 1e-6;
+            add_point(center);
+            for side in [-1.0, 1.0] {
+                add_point(Point {
+                    x: center.x + side * clearance * normal.x,
+                    y: center.y + side * clearance * normal.y,
+                });
             }
         }
 
-        for obstacle in &scenario.obstructions {
+        for obstacle in geometry.obstructions() {
             let margin = scenario.agent_radius + 1e-6;
             for x in [obstacle.x - margin, obstacle.x + obstacle.width + margin] {
                 for y in [obstacle.y - margin, obstacle.y + obstacle.height + margin] {
