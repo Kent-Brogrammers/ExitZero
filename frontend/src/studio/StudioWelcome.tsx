@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import type { BuildingScenario } from "../types/simulation";
 import { drawLayout } from "../editor/draw";
 import { useStudioTheme } from "../styles/appearance";
+import { repositoryUrl } from "./credits";
 import "./StudioWelcome.css";
 
 interface StudioWelcomeProps {
@@ -45,19 +46,18 @@ export function StudioWelcome({
           </span>{" "}
           ExitZero <span>Studio</span>
         </div>
-        <span className="welcome-edition">A space to explore the way out.</span>
+        <span className="welcome-edition">Stark State Hackathon 2026</span>
       </header>
       <div className="welcome-composition">
         <div className="welcome-copy">
-          <p className="welcome-kicker">SPACE. PEOPLE. POSSIBILITY.</p>
+          <p className="welcome-kicker">BUILDING EVACUATION SIMULATOR</p>
           <h1>
             Design for
             <br />
             the unexpected<span>.</span>
           </h1>
           <p className="welcome-description">
-            Shape a floor plan. Explore an evacuation. See where a better way
-            out begins.
+            Design a floor plan. Run an evacuation. Examine the traffic.
           </p>
           <div className="welcome-actions">
             <button className="entry-action" onClick={onOpen}>
@@ -72,7 +72,7 @@ export function StudioWelcome({
             </button>
           </div>
           <p className="welcome-footnote">
-            Continuous 2D geometry · An exploratory engineering prototype
+            2D simulation · Experimental prototype
           </p>
         </div>
         <div className="welcome-drawing">
@@ -108,17 +108,19 @@ export function StudioWelcome({
               >
                 View office demo <span aria-hidden="true">→</span>
               </button>
-              <span>Includes a saved Rust run and real recorded traffic.</span>
+              <span>Saved Rust simulation with recorded traffic.</span>
             </div>
           ) : (
             <p>Illustrative floor plan · No simulation running</p>
           )}
         </div>
       </div>
-      <div className="welcome-bottom">
-        <span>ExitZero Studio / Local prototype</span>
-        <span>Design · Simulate · Understand</span>
-      </div>
+      <footer className="welcome-bottom">
+        <span>© 2026 Kent Brogrammers</span>
+        <a href={repositoryUrl} target="_blank" rel="noreferrer">
+          GitHub <span aria-hidden="true">↗</span>
+        </a>
+      </footer>
     </section>
   );
 }

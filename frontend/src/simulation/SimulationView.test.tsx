@@ -20,7 +20,7 @@ describe("live first run and recorded review", () => {
     expect(html).toContain("LIVE · RECORDING");
     expect(html).toContain("1.00 s");
     expect(html).toContain(
-      "Rewind and replay become available when it finishes",
+      "Rewind, replay and peak crowding snapshots are available after the run",
     );
     expect(html).not.toContain('type="range"');
     expect(html).not.toContain("(end)");
@@ -39,5 +39,39 @@ describe("live first run and recorded review", () => {
     expect(html).toContain('value="4"');
     expect(html).toContain("8.00 s");
     expect(html).not.toContain("LIVE · RECORDING");
+  });
+  it("offers synthetic playback only when the current workspace permits it", () => {
+    const standard = renderToStaticMarkup(
+      <SimulationView building={building} result={null} />,
+    );
+    expect(standard).toContain(
+      "No recording yet. Run Simulation or try the synthetic preview.",
+    );
+    const demo = renderToStaticMarkup(
+      <SimulationView
+        building={building}
+        result={null}
+        allowSyntheticPreview={false}
+      />,
+    );
+    expect(demo).toContain("No recording yet. Run Simulation.");
+    expect(demo).not.toContain("or try the synthetic preview");
+    expect(demo).not.toContain("Recorded outcome");
+  });
+
+  it("distinguishes absent frames and layout mismatches from an unstarted run", () => {
+    const empty = renderToStaticMarkup(
+      <SimulationView building={building} result={{ ...result, frames: [] }} />,
+    );
+    expect(empty).toContain("No recorded frames. Playback is unavailable.");
+    const mismatch = renderToStaticMarkup(
+      <SimulationView
+        building={building}
+        result={{ ...result, width: result.width + 1 }}
+      />,
+    );
+    expect(mismatch).toContain('role="alert"');
+    expect(mismatch).toContain("dimensions do not match the current layout");
+    expect(mismatch).not.toContain("Recorded outcome");
   });
 });

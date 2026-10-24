@@ -6,6 +6,7 @@ import { BuildingWorkspace } from "./editor/BuildingWorkspace";
 import { StudioPopover } from "./ui/StudioPopover";
 import { AppearanceSelector } from "./styles/StudioAppearance";
 import { StudioWelcome } from "./studio/StudioWelcome";
+import { StudioAbout } from "./studio/StudioAbout";
 import { loadOfficeDemo, officeDemoBuilding } from "./studio/officeDemo";
 import {
   OfficeDemoNotice,
@@ -150,7 +151,7 @@ export default function App() {
   async function run(action: "simulate" | "stress" | "optimize") {
     if (busy) return;
     setBusy(true);
-    setMessage("Sending request to the backend…");
+    setMessage("Sending request…");
     try {
       if (action === "simulate") {
         if (officeDemo) setOfficeDemo("live");
@@ -173,9 +174,7 @@ export default function App() {
         );
         if (!controller.signal.aborted) {
           setResult(recording);
-          setMessage(
-            "Run finished. Rewind the timeline or replay to review it.",
-          );
+          setMessage("Recording ready.");
         }
       } else if (action === "stress") {
         setStressResult(
@@ -188,11 +187,11 @@ export default function App() {
             },
           }),
         );
-        setMessage("Stress-test result received.");
+        setMessage("Stress test ready.");
       } else {
         await api.optimize({ building, max_candidates: 10 });
         setMessage(
-          "Optimization result received. Candidate visualization is pending.",
+          "Optimization finished. Candidate visualization is not available yet.",
         );
       }
     } catch (error) {
@@ -385,6 +384,7 @@ export default function App() {
                   {layoutProblem && (
                     <p className="settings-warning">{layoutProblem}</p>
                   )}
+                  <StudioAbout />
                 </div>
               )}
             </StudioPopover>
@@ -399,7 +399,7 @@ export default function App() {
               }
               onClick={() => void run("simulate")}
             >
-              {busy ? "Working…" : "Run simulation"}
+              {busy ? "Working…" : "Run Simulation"}
               <span aria-hidden="true">↗</span>
             </button>
           </div>
@@ -439,12 +439,8 @@ export default function App() {
           >
             <div className="analysis-heading">
               <div>
-                <p className="eyebrow">THE RECORD / ANALYTICS</p>
-                <h2>
-                  Every outcome.
-                  <br />
-                  <span>A clearer picture.</span>
-                </h2>
+                <p className="eyebrow">ANALYTICS</p>
+                <h2>Simulation results.</h2>
               </div>
               <div
                 className="control-buttons"
@@ -455,7 +451,7 @@ export default function App() {
                   disabled={busy || connection !== "online" || !!layoutProblem}
                   onClick={() => void run("stress")}
                 >
-                  Stress test
+                  Stress Test
                 </button>
                 <button
                   disabled={busy || connection !== "online" || !!layoutProblem}

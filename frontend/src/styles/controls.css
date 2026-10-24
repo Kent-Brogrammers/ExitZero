@@ -61,6 +61,7 @@
   position: relative;
 }
 .studio-popover-panel {
+  --popover-padding: 14px;
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
@@ -68,7 +69,7 @@
   max-width: calc(100vw - 24px);
   max-height: min(500px, calc(100dvh - 140px));
   overflow-y: auto;
-  padding: 14px;
+  padding: var(--popover-padding);
   background: var(--cad-panel);
   border: 1px solid var(--cad-border);
   border-radius: var(--radius-control);
@@ -134,4 +135,14 @@
   background: var(--cad-surface);
   padding: 0 8px;
   font-size: var(--text-control);
+}
+
+.note > summary,
+.shape-note > summary {
+  width: fit-content;
+  cursor: pointer;
+}
+.note > summary:hover,
+.shape-note > summary:hover {
+  color: var(--cad-text);
 }

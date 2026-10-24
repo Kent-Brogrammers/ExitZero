@@ -31,10 +31,7 @@ export default function ScenarioComparison({
     return (
       <div className="empty-state compact">
         <h3>No scenarios evaluated</h3>
-        <p>
-          Run Stress test to compare computed scenarios for the current
-          building.
-        </p>
+        <p>Run Stress Test to compare scenarios.</p>
       </div>
     );
   const scenarios = [...result.scenarios].sort((a, b) => a.rank - b.rank);

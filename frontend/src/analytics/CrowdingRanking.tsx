@@ -137,12 +137,11 @@ function Cards({
       className="panel crowding-panel"
       aria-label="Peak crowding rankings"
     >
-      <h2>Most crowded spots · peak snapshots</h2>
+      <h2>Peak crowding</h2>
       <p className="note">
-        Top three distinct 2 × 2 m zones by simultaneous occupants in observed
-        frames. Includes initial occupancy. Boundary zones may be smaller;
-        ranking compares counts, not density. This indicates crowding, not
-        proven congestion.
+        Three busiest 2 × 2 m zones in recorded frames, including initial
+        occupancy. Ranked by occupant count, not density or proven congestion;
+        boundary zones may be smaller.
       </p>
       <div className="crowding-legend">
         <span>Fewer occupants</span>
@@ -150,12 +149,14 @@ function Cards({
         <span>More occupants</span>
         <span>Outlined zone = ranked spot</span>
       </div>
-      <p className="note">
-        Each image shows crowding at its own peak timestamp, using the same
-        color scale across these snapshots. Heat is smoothed from per-zone
-        counts; colors may spread beyond zone edges. The occupant count, not
-        color, determines rank.
-      </p>
+      <details className="note">
+        <summary>How to read these snapshots</summary>
+        <p>
+          Each snapshot shows its zone's peak timestamp on a shared color scale.
+          Smoothed colors may spread beyond zone edges. Occupant count
+          determines rank.
+        </p>
+      </details>
       {spots.length ? (
         <div className="crowding-cards">
           {spots.map((spot, i) => (
