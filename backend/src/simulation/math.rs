@@ -35,45 +35,6 @@ pub(super) fn closest_point_on_segment(point: Point, start: Point, end: Point) -
     interpolate(start, end, t)
 }
 
-/// Whether segments cross, overlap, or touch within EPSILON metres.
-pub(super) fn segments_intersect(
-    a_start: Point,
-    a_end: Point,
-    b_start: Point,
-    b_end: Point,
-) -> bool {
-    distance_between_segments(a_start, a_end, b_start, b_end) <= EPSILON
-}
-
-/// Length of an open polyline. Empty and single-point paths have length zero.
-pub(super) fn polyline_length(points: &[Point]) -> f64 {
-    points
-        .windows(2)
-        .map(|edge| distance_to_point(edge[0], edge[1]))
-        .sum()
-}
-
-/// Point at an arc-length offset along a polyline, clamped to its ends.
-/// Returns None for an empty path and skips repeated vertices.
-pub(super) fn point_along_polyline(points: &[Point], offset: f64) -> Option<Point> {
-    let first = *points.first()?;
-    if offset <= 0.0 {
-        return Some(first);
-    }
-    let mut remaining = offset;
-    for edge in points.windows(2) {
-        let length = distance_to_point(edge[0], edge[1]);
-        if length == 0.0 {
-            continue;
-        }
-        if remaining <= length {
-            return Some(interpolate(edge[0], edge[1], remaining / length));
-        }
-        remaining -= length;
-    }
-    points.last().copied()
-}
-
 /// Corners of a rectangle rotated around its centre by angle_radians.
 /// In screen coordinates (y down), positive angles appear clockwise.
 pub(super) fn rectangle_vertices(
@@ -166,8 +127,13 @@ pub(super) fn moving_circles_overlap(
         x: a_end.x - b_end.x,
         y: a_end.y - b_end.y,
     };
+    let combined_radius = a_radius + b_radius;
+    // Tangent contacts can round a few ulps inside the boundary after their
+    // endpoints are stored. Without a scale-aware tolerance, that tick-zero
+    // artefact rejects every future move in a touching queue.
+    let tolerance = EPSILON.min(combined_radius * 1e-7);
     distance_to_segment(Point { x: 0.0, y: 0.0 }, relative_start, relative_end)
-        < a_radius + b_radius
+        < combined_radius - tolerance
 }
 
 /// Shortest distance between two finite segments with finite coordinates.

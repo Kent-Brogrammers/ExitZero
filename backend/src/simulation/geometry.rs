@@ -7,6 +7,8 @@ const OPENING_EPSILON: f64 = 1e-8;
 pub(super) struct Geometry<'a> {
     scenario: &'a BuildingScenario,
     emergencies: &'a [Emergency],
+    // Centreline pieces with rounded caps, plus their physical half-thickness.
+    solid_walls: Vec<(Point, Point, f64)>,
 }
 
 // Create geometry operations for a borrowed building scenario.
@@ -19,14 +21,148 @@ impl<'a> Geometry<'a> {
         scenario: &'a BuildingScenario,
         emergencies: &'a [Emergency],
     ) -> Self {
-        Self {
+        let mut geometry = Self {
             scenario,
             emergencies,
-        }
+            solid_walls: Vec::new(),
+        };
+        // Match the rounded-wall clearance used by playback and integration
+        // checks. Cache the pieces rather than rebuilding them for every move.
+        geometry.solid_walls = scenario
+            .walls
+            .iter()
+            .flat_map(|wall| {
+                geometry
+                    .solid_wall_segments(wall)
+                    .into_iter()
+                    .map(|(start, end)| (start, end, wall.thickness / 2.0))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        geometry
     }
 
     pub(super) fn emergencies(&self) -> &[Emergency] {
         self.emergencies
+    }
+
+    /// Centre-arrival evacuation requires approaching the exit without walking
+    /// through it first. Keep avoidance and joint corrections on the current
+    /// side of its wall, while allowing tangential movement to the target.
+    pub(super) fn exit_approach_limits(
+        &self,
+        position: Point,
+        exit_id: &str,
+        dt: f64,
+        clearance: f64,
+    ) -> Vec<super::motion::VelocityLimit> {
+        use super::motion::VelocityLimit;
+        let Some(exit) = self.scenario.exits.iter().find(|exit| exit.id == exit_id) else {
+            return Vec::new();
+        };
+        let Some(wall) = self
+            .scenario
+            .walls
+            .iter()
+            .find(|wall| wall.id == exit.wall_id)
+        else {
+            return Vec::new();
+        };
+        let normal = Point {
+            x: -(wall.end.y - wall.start.y) / wall.length(),
+            y: (wall.end.x - wall.start.x) / wall.length(),
+        };
+        let distance =
+            (position.x - wall.start.x) * normal.x + (position.y - wall.start.y) * normal.y;
+        let opposite = Point {
+            x: -normal.x,
+            y: -normal.y,
+        };
+        if distance.abs() <= 1e-9 {
+            // At the plane there is no approach side. Stay on it and slide
+            // toward the centre, including when roundoff changes the sign.
+            vec![
+                VelocityLimit {
+                    normal,
+                    offset: -distance / dt,
+                },
+                VelocityLimit {
+                    normal: opposite,
+                    offset: distance / dt,
+                },
+            ]
+        } else {
+            vec![VelocityLimit {
+                normal: if distance > 0.0 { normal } else { opposite },
+                offset: -(distance.abs() - clearance.min(distance.abs())) / dt,
+            }]
+        }
+    }
+
+    /// Supporting tangent planes keep the next velocity outside rounded walls,
+    /// rectangles and hazards. Exact swept geometry remains the final authority.
+    pub(super) fn velocity_limits(
+        &self,
+        position: Point,
+        dt: f64,
+    ) -> Vec<super::motion::VelocityLimit> {
+        use super::motion::VelocityLimit;
+        let horizon = dt.max(0.3);
+        let mut limits = vec![
+            VelocityLimit {
+                normal: Point { x: 1.0, y: 0.0 },
+                offset: -position.x / dt,
+            },
+            VelocityLimit {
+                normal: Point { x: -1.0, y: 0.0 },
+                offset: -(self.scenario.width - position.x) / dt,
+            },
+            VelocityLimit {
+                normal: Point { x: 0.0, y: 1.0 },
+                offset: -position.y / dt,
+            },
+            VelocityLimit {
+                normal: Point { x: 0.0, y: -1.0 },
+                offset: -(self.scenario.height - position.y) / dt,
+            },
+        ];
+        let mut add = |nearest: Point, clearance: f64| {
+            let dx = position.x - nearest.x;
+            let dy = position.y - nearest.y;
+            let distance = dx.hypot(dy);
+            let gap = distance - clearance;
+            if distance > 1e-12 && gap < super::motion::WALKING_SPEED * horizon {
+                limits.push(VelocityLimit {
+                    normal: Point {
+                        x: dx / distance,
+                        y: dy / distance,
+                    },
+                    offset: -gap.max(0.0) / horizon,
+                });
+            }
+        };
+        for &(start, end, half_thickness) in &self.solid_walls {
+            add(
+                math::closest_point_on_segment(position, start, end),
+                self.scenario.agent_radius + half_thickness,
+            );
+        }
+        for obstacle in &self.scenario.obstructions {
+            add(
+                Point {
+                    x: position.x.clamp(obstacle.x, obstacle.x + obstacle.width),
+                    y: position.y.clamp(obstacle.y, obstacle.y + obstacle.height),
+                },
+                self.scenario.agent_radius,
+            );
+        }
+        for emergency in self.emergencies {
+            add(
+                emergency.center,
+                self.scenario.agent_radius + emergency.radius + 1e-7,
+            );
+        }
+        limits
     }
 
     // Check a point against the workspace extent, without agent-radius clearance.
@@ -50,13 +186,11 @@ impl<'a> Geometry<'a> {
         }
 
         // Check only solid wall portions; doors and available exits are gaps.
-        for wall in &self.scenario.walls {
-            let clearance = self.scenario.agent_radius + wall.thickness / 2.0;
-            for (start, end) in self.solid_wall_segments(wall) {
-                let distance = math::distance_to_segment(pos, start, end);
-                if distance < clearance {
-                    return false;
-                }
+        for &(start, end, half_thickness) in &self.solid_walls {
+            if math::distance_to_segment(pos, start, end)
+                < self.scenario.agent_radius + half_thickness
+            {
+                return false;
             }
         }
 
@@ -129,13 +263,11 @@ impl<'a> Geometry<'a> {
             return false;
         }
         //Checking path against all walls
-        for wall in &self.scenario.walls {
-            let clearance = self.scenario.agent_radius + wall.thickness / 2.0;
-            for (start, end) in self.solid_wall_segments(wall) {
-                let distance = math::distance_between_segments(from, to, start, end);
-                if distance < clearance {
-                    return false;
-                }
+        for &(start, end, half_thickness) in &self.solid_walls {
+            if math::distance_between_segments(from, to, start, end)
+                < self.scenario.agent_radius + half_thickness
+            {
+                return false;
             }
         }
         //Checking path against all obstracles

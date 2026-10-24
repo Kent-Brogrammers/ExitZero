@@ -33,11 +33,11 @@ describe("stress comparison", () => {
     const html = renderToStaticMarkup(
       createElement(ScenarioComparison, { result: syntheticStressResult }),
     );
-    expect(html.indexOf("Exit A blocked")).toBeLessThan(
-      html.indexOf("Corridor obstruction"),
+    expect(html.indexOf("Exit sample-exit-a blocked")).toBeLessThan(
+      html.indexOf("Obstruction: sample-barrier"),
     );
-    expect(html.indexOf("Corridor obstruction")).toBeLessThan(
-      html.indexOf("Exit B blocked"),
+    expect(html.indexOf("Obstruction: sample-barrier")).toBeLessThan(
+      html.indexOf("Exit sample-exit-b blocked"),
     );
     expect(html).toContain("No measured clearance");
     expect(html).toContain("12 more");

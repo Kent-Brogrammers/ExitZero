@@ -25,7 +25,7 @@ export function drawPlayback(
   drawAgents(canvas, building, frame, pixelRatio, palette);
 }
 
-function drawAgents(
+export function drawAgents(
   canvas: HTMLCanvasElement,
   building: BuildingScenario,
   frame: AnimationFrame | null,

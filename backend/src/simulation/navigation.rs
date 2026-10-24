@@ -68,7 +68,6 @@ impl Navigation {
                     return None;
                 }
 
-                // Offset and width are measured along the wall in metres.
                 let t = (exit.offset + exit.width / 2.0) / length;
                 Some(ExitTarget {
                     id: exit.id.clone(),
@@ -110,7 +109,7 @@ impl Navigation {
             let clearance = scenario.agent_radius + wall.thickness / 2.0 + 1e-6;
 
             // Four corners of an expanded wall rectangle allow safe detours
-            // around the rounded solid-segment endpoints used by Geometry.
+            // around the solid wall endpoints with body clearance.
             for (endpoint, direction) in [(wall.start, -1.0), (wall.end, 1.0)] {
                 for side in [-1.0, 1.0] {
                     add_point(Point {
@@ -194,6 +193,18 @@ impl Navigation {
     /// route was found with these waypoints, not proof of physical entrapment.
     /// Use the same unchanged scenario for this graph and the supplied Geometry.
     pub(super) fn find_route(&self, from: Point, geometry: &Geometry<'_>) -> Option<Route> {
+        self.find_route_with_crowd(from, geometry, &[], 0.0)
+    }
+
+    /// Congestion adds a routing cost, never permits crossing physical geometry.
+    /// Actual disc collision checks are still required at every movement tick.
+    pub(super) fn find_route_with_crowd(
+        &self,
+        from: Point,
+        geometry: &Geometry<'_>,
+        occupants: &[Point],
+        radius: f64,
+    ) -> Option<Route> {
         if !geometry.can_stand_at(from) {
             return None;
         }
@@ -205,7 +216,8 @@ impl Navigation {
         // visible waypoint. The shared graph itself stays unchanged.
         for (node, &point) in self.points.iter().enumerate() {
             if geometry.can_move(from, point) {
-                let distance = math::distance_to_point(from, point);
+                let distance = math::distance_to_point(from, point)
+                    + crowd_cost(from, point, occupants, radius);
                 distances[node] = distance;
                 queue.push(SearchState { node, distance });
             }
@@ -229,7 +241,9 @@ impl Navigation {
                 });
             }
             for edge in &self.connections[node] {
-                let candidate = distance + edge.distance;
+                let candidate = distance
+                    + edge.distance
+                    + crowd_cost(self.points[node], self.points[edge.to], occupants, radius);
                 if candidate < distances[edge.to] {
                     distances[edge.to] = candidate;
                     previous[edge.to] = Some(node);
@@ -242,30 +256,12 @@ impl Navigation {
         }
         None
     }
+}
 
-    /// Choose the nearest exit with a clear straight path for this agent.
-    /// None means no DIRECT route was found, not that the agent is trapped.
-    /// This does not check other agents or find detours around obstacles.
-    pub(super) fn find_direct_route(&self, from: Point, geometry: &Geometry<'_>) -> Option<Route> {
-        let mut best: Option<(&ExitTarget, f64)> = None;
-
-        for exit in &self.exits {
-            let distance = math::distance_to_point(from, exit.position);
-            // Keep the first exit in scenario order when distances tie.
-            if best
-                .as_ref()
-                .is_some_and(|(_, current)| distance >= *current)
-            {
-                continue;
-            }
-            if geometry.can_move(from, exit.position) {
-                best = Some((exit, distance));
-            }
-        }
-
-        best.map(|(exit, _)| Route {
-            exit_id: exit.id.clone(),
-            waypoints: vec![exit.position],
-        })
-    }
+fn crowd_cost(start: Point, end: Point, occupants: &[Point], radius: f64) -> f64 {
+    occupants
+        .iter()
+        .filter(|&&position| math::distance_to_segment(position, start, end) < 4.0 * radius)
+        .count() as f64
+        * (8.0 * radius)
 }

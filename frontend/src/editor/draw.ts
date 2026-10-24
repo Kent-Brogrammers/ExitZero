@@ -24,6 +24,7 @@ export function drawLayout(
   options?: {
     grid?: DraftingPreferences;
     furniture?: ReadonlyMap<string, FurnitureKind>;
+    underlay?: (ctx: CanvasRenderingContext2D) => void;
   },
 ) {
   const ctx = canvas.getContext("2d");
@@ -44,6 +45,8 @@ export function drawLayout(
   ctx.setTransform(scale, 0, 0, scale, x, y);
   ctx.fillStyle = palette.surface;
   ctx.fillRect(0, 0, building.width, building.height);
+  // World-space overlays sit above the background and below drafting/geometry.
+  options?.underlay?.(ctx);
   if (options?.grid)
     drawGrid(ctx, building, { scale, x, y }, ratio, options.grid, palette);
   ctx.lineCap = "round";

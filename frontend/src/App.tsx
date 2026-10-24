@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import example from "../../shared/examples/building.json";
 import { withoutObjectNames } from "./editor/names";
 import { buildingError } from "./editor/geometry";
@@ -9,6 +9,7 @@ import { StudioWelcome } from "./studio/StudioWelcome";
 import { api } from "./services/api";
 import type {
   BuildingScenario,
+  LiveSimulation,
   SimulationResult,
   StressTestResult,
 } from "./types/simulation";
@@ -63,10 +64,13 @@ export default function App() {
     "checking" | "online" | "offline"
   >("checking");
   const [healthAttempt, setHealthAttempt] = useState(0);
-  const [showMock, setShowMock] = useState(false);
+
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [result, setResult] = useState<SimulationResult | null>(null);
+  const [live, setLive] = useState<LiveSimulation | null>(null);
+  const liveRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => liveRequest.current?.abort(), []);
   const [stressResult, setStressResult] = useState<StressTestResult | null>(
     null,
   );
@@ -83,14 +87,34 @@ export default function App() {
   }, [healthAttempt]);
 
   async function run(action: "simulate" | "stress" | "optimize") {
+    if (busy) return;
     setBusy(true);
     setMessage("Sending request to the backend…");
     try {
       if (action === "simulate") {
-        setResult(await api.simulate(building));
-        setShowMock(false);
-        setMessage("Simulation result received.");
+        const controller = new AbortController();
+        liveRequest.current = controller;
+        setResult(null);
+        setStressResult(null);
+        setLive({ frame: null });
+        setMessage("Starting live simulation…");
         navigate("simulation");
+        const recording = await api.simulateLive(
+          building,
+          (frame) => {
+            if (!controller.signal.aborted) {
+              setLive({ frame });
+              setMessage("");
+            }
+          },
+          controller.signal,
+        );
+        if (!controller.signal.aborted) {
+          setResult(recording);
+          setMessage(
+            "Run finished. Rewind the timeline or replay to review it.",
+          );
+        }
       } else if (action === "stress") {
         setStressResult(
           await api.stressTest({
@@ -112,6 +136,8 @@ export default function App() {
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Request failed.");
     } finally {
+      setLive(null);
+      liveRequest.current = null;
       setBusy(false);
     }
   }
@@ -275,11 +301,11 @@ export default function App() {
               building={building}
               onChange={changeBuilding}
               result={result}
+              live={live}
               disabled={busy}
               mode={view === "simulation" ? "simulation" : "edit"}
               active={view === "edit" || view === "simulation"}
               onOpenAnalytics={() => {
-                setShowMock(false);
                 navigate("analytics");
               }}
             />
@@ -319,22 +345,11 @@ export default function App() {
                 </button>
               </div>
             </div>
-            <div className="preview-control">
-              <label>
-                <input
-                  type="checkbox"
-                  checked={showMock}
-                  onChange={(event) => setShowMock(event.target.checked)}
-                />
-                Show mock analytics preview
-              </label>
-              <span>Synthetic fixture for frontend development</span>
-            </div>
             <Suspense fallback={<p role="status">Loading analytics…</p>}>
               <AnalyticsDashboard
+                building={building}
                 result={result}
                 stressResult={stressResult}
-                showMock={showMock}
               />
             </Suspense>
           </section>
