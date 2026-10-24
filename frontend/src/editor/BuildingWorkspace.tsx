@@ -13,6 +13,7 @@ interface BuildingWorkspaceProps {
   disabled?: boolean;
   mode?: Mode;
   active?: boolean;
+  onOpenAnalytics?: () => void;
 }
 
 export function BuildingWorkspace({
@@ -22,6 +23,7 @@ export function BuildingWorkspace({
   disabled,
   mode: controlledMode,
   active = true,
+  onOpenAnalytics,
 }: BuildingWorkspaceProps) {
   const [localMode, setMode] = useState<Mode>(() =>
     typeof window !== "undefined" && window.location.hash === "#simulation"
@@ -72,6 +74,7 @@ export function BuildingWorkspace({
           building={building}
           result={result}
           active={active && mode === "simulation"}
+          onOpenAnalytics={onOpenAnalytics}
         />
       </div>
     </section>

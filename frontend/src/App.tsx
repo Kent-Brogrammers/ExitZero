@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import example from "../../shared/examples/building.json";
 import { buildingError } from "./editor/geometry";
 import { BuildingWorkspace } from "./editor/BuildingWorkspace";
+import { StudioPopover } from "./ui/StudioPopover";
 import { StudioWelcome } from "./studio/StudioWelcome";
 import { api } from "./services/api";
 import type {
@@ -179,53 +180,75 @@ export default function App() {
             </div>
           </nav>
           <div className="studio-header-actions">
-            <details
+            <StudioPopover
+              label="Settings"
               className="app-settings"
-              onKeyDown={(event) => {
-                if (event.key === "Escape") event.currentTarget.open = false;
-              }}
-            >
-              <summary>
-                Settings{" "}
+              indicator={
                 <span
                   className={`connection-dot ${connection}`}
                   aria-hidden="true"
                 />
-              </summary>
-              <div className="settings-popover">
-                <h3>Studio settings</h3>
-                <p>
-                  <span>Appearance</span>
-                  <strong>Studio dark</strong>
-                </p>
-                <p className="note">Additional themes are planned.</p>
-                <p className="note">System typography · metres</p>
-                <div className={`connection ${connection}`} role="status">
-                  Backend {connection}
-                  {connection === "offline" && (
+              }
+            >
+              {(close) => (
+                <div className="settings-content">
+                  <div className="control-popover-heading">
+                    <h3>Studio settings</h3>
                     <button
-                      className="text-button"
-                      onClick={() => {
-                        setConnection("checking");
-                        setHealthAttempt((attempt) => attempt + 1);
-                      }}
+                      type="button"
+                      className="studio-control studio-control--icon"
+                      aria-label="Close Settings"
+                      onClick={close}
                     >
-                      Retry
+                      ×
                     </button>
+                  </div>
+                  <dl className="settings-values">
+                    <div>
+                      <dt>Theme</dt>
+                      <dd>Studio dark</dd>
+                    </div>
+                    <div>
+                      <dt>Coordinates</dt>
+                      <dd>Metres</dd>
+                    </div>
+                  </dl>
+                  <div className="settings-connection" role="status">
+                    <span>
+                      <i
+                        className={`connection-dot ${connection}`}
+                        aria-hidden="true"
+                      />{" "}
+                      Backend {connection}
+                    </span>
+                    {connection === "offline" && (
+                      <button
+                        type="button"
+                        className="studio-control"
+                        onClick={() => {
+                          setConnection("checking");
+                          setHealthAttempt((attempt) => attempt + 1);
+                        }}
+                      >
+                        Retry
+                      </button>
+                    )}
+                  </div>
+                  <p className="settings-layout">
+                    {building.width} × {building.height} m ·{" "}
+                    {building.exits.length} exits ·{" "}
+                    {building.spawn_zones.reduce(
+                      (total, zone) => total + zone.count,
+                      0,
+                    )}{" "}
+                    occupants
+                  </p>
+                  {layoutProblem && (
+                    <p className="settings-warning">{layoutProblem}</p>
                   )}
                 </div>
-                <p className="note">
-                  {building.width} × {building.height} m ·{" "}
-                  {building.exits.length} exits ·{" "}
-                  {building.spawn_zones.reduce(
-                    (total, zone) => total + zone.count,
-                    0,
-                  )}{" "}
-                  occupants · seed {building.seed}
-                </p>
-                {layoutProblem && <p className="note">{layoutProblem}</p>}
-              </div>
-            </details>
+              )}
+            </StudioPopover>
             <button
               className="run-action"
               disabled={busy || connection !== "online" || !!layoutProblem}
@@ -252,6 +275,10 @@ export default function App() {
               disabled={busy}
               mode={view === "simulation" ? "simulation" : "edit"}
               active={view === "edit" || view === "simulation"}
+              onOpenAnalytics={() => {
+                setShowMock(false);
+                navigate("analytics");
+              }}
             />
           </div>
           <section

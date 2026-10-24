@@ -111,29 +111,8 @@ body,
 .run-action:disabled {
   opacity: 0.65;
 }
-.app-settings {
-  position: relative;
-  color: var(--cad-muted);
-  font-size: 11px;
-}
-.app-settings > summary,
-.recording-details > summary {
-  cursor: pointer;
-  list-style: none;
-}
-.app-settings > summary::-webkit-details-marker,
-.recording-details > summary::-webkit-details-marker {
-  display: none;
-}
-.app-settings > summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.app-settings > summary:hover {
-  color: var(--cad-text);
-}
 .connection-dot {
+  display: inline-block;
   width: 4px;
   height: 4px;
   border-radius: 50%;
@@ -142,49 +121,46 @@ body,
 .connection-dot.online {
   background: var(--cad-success);
 }
-.connection-dot.offline {
-  background: var(--cad-warning);
+.settings-values {
+  margin: 0;
 }
-.settings-popover {
-  position: absolute;
-  top: 30px;
-  right: 0;
-  width: 260px;
-  padding: 20px;
-  z-index: 50;
-  background: var(--cad-panel);
-  border: 1px solid var(--cad-border);
-  border-radius: 5px;
-  box-shadow: 0 18px 48px #0007;
-}
-.settings-popover h3 {
-  font-size: 13px;
-  font-weight: 400;
-  margin: 0 0 20px;
-  color: var(--cad-text);
-}
-.settings-popover > p:first-of-type {
+.settings-values > div {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: 16px;
+  padding: 7px 0;
 }
-.settings-popover strong {
-  font-weight: 400;
+.settings-values dt {
+  color: var(--cad-muted);
+}
+.settings-values dd {
+  margin: 0;
   color: var(--cad-text);
 }
-.connection {
+.settings-connection {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  font-size: 11px;
-  margin-top: 20px;
-  padding-top: 14px;
+  gap: 8px;
+  min-height: 42px;
+  margin-top: 10px;
   border-top: 1px solid var(--cad-border);
+  color: var(--cad-muted);
 }
-.text-button {
-  padding: 4px 8px;
-  font-size: 10px;
+.settings-connection > span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.settings-layout,
+.settings-warning {
+  margin: 8px 0 0;
+  color: var(--cad-muted);
+  font-size: var(--text-small);
+  line-height: 1.6;
+}
+.settings-warning {
+  color: var(--cad-warning);
 }
 .studio-main {
   position: relative;
@@ -477,14 +453,18 @@ canvas {
   }
 }
 
-@media (max-width: 760px) {
-  .settings-popover {
-    position: fixed;
-    top: 116px;
-    left: 16px;
-    right: 16px;
-    width: auto;
-    max-height: calc(100dvh - 140px);
-    overflow-y: auto;
+@media (max-width: 480px) {
+  .studio-header {
+    padding: 12px 12px 0;
+    gap: 6px 8px;
+  }
+  .studio-brand > span:last-child {
+    display: none;
+  }
+  .studio-header-actions {
+    gap: 4px;
+  }
+  .app-settings > .studio-control {
+    padding-inline: 6px;
   }
 }
