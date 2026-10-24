@@ -774,16 +774,304 @@ mod tests {
     }
 
     #[test]
-    fn production_entry_point_propagates_the_actual_engine_stub_and_validation_errors() {
-        assert!(matches!(
-            optimize(&request()),
-            Err(SimulationError::NotImplemented)
-        ));
+    fn production_entry_point_matches_the_real_simulator_and_validates_requests() {
         let mut request = request();
+        let baseline = crate::simulation::simulate(&request.building).unwrap();
+        baseline.validate().unwrap();
+        let result = optimize(&request).unwrap();
+        assert_eq!(
+            to_value(result.baseline).unwrap(),
+            to_value(baseline.metrics).unwrap()
+        );
         request.max_candidates = 0;
         assert!(matches!(
             optimize(&request),
             Err(SimulationError::InvalidScenario(_))
         ));
+    }
+}
+
+#[cfg(test)]
+mod real_integration {
+    use super::*;
+    use crate::{
+        models::{Opening, SimulationStatus},
+        stress_testing::real_integration::{room, simulate_checked, split_room},
+    };
+    use serde_json::to_value;
+
+    fn audit(label: &str, request: &OptimizeRequest) -> OptimizationResult {
+        let original = to_value(request).unwrap();
+        let baseline = simulate_checked(&request.building);
+        let result = optimize(request).unwrap();
+        assert_eq!(
+            to_value(&result.baseline).unwrap(),
+            to_value(&baseline.metrics).unwrap()
+        );
+        let mut expected_improvements = Vec::new();
+        for building in generate_candidates(request) {
+            let run = simulate_checked(&building);
+            assert_eq!(initial_positions(&baseline), initial_positions(&run));
+            if run.metrics.compare_severity(&baseline.metrics).is_lt() {
+                expected_improvements
+                    .push((to_value(building).unwrap(), to_value(run.metrics).unwrap()));
+            }
+        }
+        assert_eq!(result.candidates.len(), expected_improvements.len());
+        assert!(result.candidates.len() <= request.max_candidates as usize);
+        eprintln!("real optimization {label} baseline: {:?}", baseline.metrics);
+        let mut seen = HashSet::new();
+        for candidate in &result.candidates {
+            let layout = to_value(&candidate.building).unwrap();
+            assert!(
+                expected_improvements
+                    .contains(&(layout.clone(), to_value(&candidate.metrics).unwrap()))
+            );
+            assert!(seen.insert(layout.to_string()));
+            assert!(
+                candidate
+                    .metrics
+                    .compare_severity(&baseline.metrics)
+                    .is_lt()
+            );
+            let better = result
+                .candidates
+                .iter()
+                .filter(|other| other.metrics.compare_severity(&candidate.metrics).is_lt())
+                .count();
+            assert_eq!(candidate.rank, better as u32 + 1);
+            let changes: Vec<_> = request
+                .building
+                .doors
+                .iter()
+                .chain(&request.building.exits)
+                .zip(
+                    candidate
+                        .building
+                        .doors
+                        .iter()
+                        .chain(&candidate.building.exits),
+                )
+                .filter(|(before, after)| before.width != after.width)
+                .map(|(before, after)| {
+                    format!("{}: {} -> {} m", before.id, before.width, after.width)
+                })
+                .collect();
+            assert_eq!(changes.len(), 1);
+            eprintln!(
+                "real optimization {label} {changes:?}: {:?}, rank={}",
+                candidate.metrics, candidate.rank
+            );
+        }
+        assert!(
+            result
+                .candidates
+                .windows(2)
+                .all(|pair| !pair[0].metrics.compare_severity(&pair[1].metrics).is_gt())
+        );
+        assert_eq!(to_value(request).unwrap(), original);
+        result
+    }
+
+    fn narrow_door() -> BuildingScenario {
+        let mut building = split_room();
+        building.spawn_zones.truncate(1);
+        building.exits.remove(0); // Only the exit in the right-hand room remains.
+        building.doors.push(Opening {
+            id: "narrow-door".into(),
+            wall_id: "divider".into(),
+            offset: 3.0,
+            width: 0.4,
+        });
+        building
+    }
+
+    #[test]
+    fn real_door_widening_connects_an_occupant_to_the_exit_and_improves_clearance() {
+        let request = OptimizeRequest {
+            building: narrow_door(),
+            max_candidates: 2,
+        };
+        let result = audit("narrow door", &request);
+        assert_eq!(result.baseline.status, SimulationStatus::Incomplete);
+        assert!(result.baseline.clearance_steps.is_none());
+        assert_eq!(result.candidates.len(), 2);
+        for candidate in result.candidates {
+            assert_eq!(candidate.metrics.status, SimulationStatus::Completed);
+            assert_eq!(candidate.metrics.remaining, 0);
+            assert!(candidate.metrics.clearance_steps.is_some());
+            assert!(candidate.building.doors[0].width > request.building.doors[0].width);
+            assert_eq!(
+                candidate.building.doors[0].offset,
+                request.building.doors[0].offset
+            );
+            assert_eq!(
+                to_value(candidate.building.exits).unwrap(),
+                to_value(&request.building.exits).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn real_exit_widening_turns_an_incomplete_baseline_into_completed_evacuations() {
+        let mut building = room();
+        building.exits.truncate(1);
+        building.exits[0].width = 0.4;
+        let request = OptimizeRequest {
+            building,
+            max_candidates: 2,
+        };
+        let result = audit("narrow exit", &request);
+        assert_eq!(result.baseline.status, SimulationStatus::Incomplete);
+        assert_eq!(result.baseline.remaining, 1);
+        assert!(result.baseline.clearance_steps.is_none());
+        assert_eq!(result.candidates.len(), 2);
+        for candidate in result.candidates {
+            assert_eq!(candidate.metrics.status, SimulationStatus::Completed);
+            assert_eq!(candidate.metrics.evacuated, 1);
+            assert!(candidate.building.exits[0].width > request.building.exits[0].width);
+            assert_eq!(
+                candidate.building.exits[0].offset,
+                request.building.exits[0].offset
+            );
+        }
+    }
+
+    #[test]
+    fn real_equal_or_worse_widenings_return_no_improvements() {
+        let mut building = room();
+        building.exits.truncate(1);
+        let request = OptimizeRequest {
+            building,
+            max_candidates: 2,
+        };
+        let result = audit("already clear", &request);
+        assert_eq!(result.baseline.status, SimulationStatus::Completed);
+        assert!(result.candidates.is_empty());
+    }
+
+    #[test]
+    fn real_partial_evacuation_and_timeout_keep_null_clearance_without_false_improvement() {
+        let mut isolated = split_room();
+        isolated.blocked_exit_ids.push("left".into());
+        let request = OptimizeRequest {
+            building: isolated,
+            max_candidates: 2,
+        };
+        let result = audit("isolated room", &request);
+        assert_eq!(result.baseline.status, SimulationStatus::Incomplete);
+        assert_eq!(result.baseline.remaining, 1);
+        assert!(result.baseline.clearance_steps.is_none());
+        assert!(result.candidates.is_empty());
+        let mut timed = room();
+        timed.max_steps = 1;
+        let result = audit(
+            "timeout",
+            &OptimizeRequest {
+                building: timed,
+                max_candidates: 2,
+            },
+        );
+        assert_eq!(result.baseline.status, SimulationStatus::Timeout);
+        assert!(result.baseline.clearance_steps.is_none());
+        assert!(result.candidates.is_empty());
+    }
+
+    #[test]
+    fn real_evaluations_respect_the_budget_and_do_not_change_starting_positions() {
+        for budget in [1, 2] {
+            let request = OptimizeRequest {
+                building: narrow_door(),
+                max_candidates: budget,
+            };
+            let mut starts = Vec::new();
+            let counted = optimize_with(&request, |building| {
+                let run = simulate_checked(building);
+                starts.push(initial_positions(&run).unwrap());
+                Ok(run)
+            })
+            .unwrap();
+            assert_eq!(starts.len(), budget as usize + 1);
+            assert!(starts.iter().all(|start| start == &starts[0]));
+            assert_eq!(
+                to_value(&counted).unwrap(),
+                to_value(optimize(&request).unwrap()).unwrap()
+            );
+            assert_eq!(counted.candidates.len(), budget as usize);
+        }
+    }
+
+    #[test]
+    fn real_checked_in_example_optimization_matches_individually_measured_candidates() {
+        let building: BuildingScenario =
+            serde_json::from_str(include_str!("../../../shared/examples/building.json")).unwrap();
+        let result = audit(
+            "checked-in example",
+            &OptimizeRequest {
+                building,
+                max_candidates: 8,
+            },
+        );
+        assert_eq!(result.baseline.total_population, 34);
+        assert_eq!(result.baseline.status, SimulationStatus::Completed);
+        assert!(
+            !result.candidates.is_empty(),
+            "the example demonstrates a measured improvement"
+        );
+    }
+
+    #[test]
+    fn real_placement_errors_propagate_from_the_shared_engine() {
+        let mut building = room();
+        building.spawn_zones[0].height = 0.8;
+        building.spawn_zones[0].count = 2;
+        building.validate().unwrap();
+        let error = crate::simulation::simulate(&building)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("could not place occupant"));
+        assert_eq!(
+            optimize(&OptimizeRequest {
+                building,
+                max_candidates: 1
+            })
+            .unwrap_err()
+            .to_string(),
+            error
+        );
+    }
+
+    #[test]
+    fn real_building_to_stress_to_optimization_to_comparison_workflow() {
+        let building = narrow_door();
+        let stress_request = crate::models::StressTestRequest {
+            building: building.clone(),
+            config: crate::models::StressTestConfig {
+                max_scenarios: 1,
+                block_each_exit: true,
+                obstruction_candidates: vec![],
+            },
+        };
+        let before = crate::stress_testing::stress_test(&stress_request).unwrap();
+        let result = audit(
+            "end-to-end",
+            &OptimizeRequest {
+                building,
+                max_candidates: 2,
+            },
+        );
+        assert_eq!(
+            to_value(&before.baseline).unwrap(),
+            to_value(&result.baseline).unwrap()
+        );
+        let best = &result.candidates[0];
+        let mut after_request = stress_request;
+        after_request.building = best.building.clone();
+        let after = crate::stress_testing::stress_test(&after_request).unwrap();
+        assert!(after.baseline.compare_severity(&before.baseline).is_lt());
+        assert_eq!(after.baseline.status, SimulationStatus::Completed);
+        assert_eq!(after.scenarios[0].metrics.trapped, 1); // Widening does not mask a disabled exit.
+        assert!(after.scenarios[0].metrics.clearance_steps.is_none());
+        assert!(after.scenarios[0].description.contains("fairness verified"));
     }
 }

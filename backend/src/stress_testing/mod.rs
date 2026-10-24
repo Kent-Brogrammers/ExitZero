@@ -965,17 +965,502 @@ mod tests {
     }
 
     #[test]
-    fn production_entry_point_propagates_the_real_simulation_stub() {
-        // This is intentionally the actual engine: it must not return fabricated metrics.
-        assert!(matches!(
-            stress_test(&request()),
-            Err(SimulationError::NotImplemented)
-        ));
-        let mut invalid = request();
+    fn production_entry_point_matches_the_real_simulator_and_validates_requests() {
+        let request = request();
+        let baseline = crate::simulation::simulate(&request.building).unwrap();
+        baseline.validate().unwrap();
+        let result = stress_test(&request).unwrap();
+        assert_eq!(
+            to_value(result.baseline).unwrap(),
+            to_value(baseline.metrics).unwrap()
+        );
+        let mut invalid = request;
         invalid.config.max_scenarios = 0;
         assert!(matches!(
             stress_test(&invalid),
             Err(SimulationError::InvalidScenario(_))
         ));
+    }
+}
+
+// Real-engine regression fixtures are shared only with optimization's integration tests.
+#[cfg(test)]
+pub(crate) mod real_integration {
+    use super::*;
+    use crate::models::{Point, SimulationStatus};
+    use serde_json::{json, to_value};
+
+    /// A closed 12 x 8 m room, two north-wall exits, and one fixed spawn point.
+    /// Buildings are test inputs; all metrics/frames come from the actual simulator.
+    pub(crate) fn room() -> BuildingScenario {
+        serde_json::from_value(json!({
+            "width": 12.0, "height": 8.0,
+            "walls": [
+                {"id": "north", "start": {"x": 0.0, "y": 0.0}, "end": {"x": 12.0, "y": 0.0}, "thickness": 0.2},
+                {"id": "south", "start": {"x": 0.0, "y": 8.0}, "end": {"x": 12.0, "y": 8.0}, "thickness": 0.2},
+                {"id": "west", "start": {"x": 0.0, "y": 0.0}, "end": {"x": 0.0, "y": 8.0}, "thickness": 0.2},
+                {"id": "east", "start": {"x": 12.0, "y": 0.0}, "end": {"x": 12.0, "y": 8.0}, "thickness": 0.2}
+            ],
+            "doors": [],
+            "exits": [
+                {"id": "left", "wall_id": "north", "offset": 1.0, "width": 1.2},
+                {"id": "right", "wall_id": "north", "offset": 9.0, "width": 1.2}
+            ],
+            "spawn_zones": [{"id": "left-occupant", "x": 1.0, "y": 4.0, "width": 0.4, "height": 0.4, "count": 1}],
+            "blocked_exit_ids": [], "obstructions": [], "agent_radius": 0.2,
+            "time_step_seconds": 0.2, "seed": 42, "max_steps": 500
+        })).unwrap()
+    }
+
+    pub(crate) fn split_room() -> BuildingScenario {
+        let mut building = room();
+        building.walls.push(crate::models::Wall {
+            id: "divider".into(),
+            start: Point { x: 6.0, y: 0.0 },
+            end: Point { x: 6.0, y: 8.0 },
+            thickness: 0.2,
+        });
+        building.spawn_zones.push(crate::models::SpawnZone {
+            id: "right-occupant".into(),
+            x: 8.0,
+            y: 4.0,
+            width: 0.4,
+            height: 0.4,
+            count: 1,
+        });
+        building
+    }
+
+    // Independent segment-distance assertions check actual per-tick swept paths,
+    // including the final move to an exit (evacuated agents disappear from frames).
+    // These do not call or change Connor's private collision helpers.
+    fn point_distance(p: Point, a: Point, b: Point) -> f64 {
+        let (dx, dy) = (b.x - a.x, b.y - a.y);
+        let square = dx * dx + dy * dy;
+        let t = if square == 0.0 {
+            0.0
+        } else {
+            (((p.x - a.x) * dx + (p.y - a.y) * dy) / square).clamp(0.0, 1.0)
+        };
+        (p.x - a.x - t * dx).hypot(p.y - a.y - t * dy)
+    }
+
+    fn segment_distance(a: Point, b: Point, c: Point, d: Point) -> f64 {
+        let cross =
+            |p: Point, q: Point, r: Point| (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+        if cross(a, b, c) * cross(a, b, d) <= 0.0
+            && cross(c, d, a) * cross(c, d, b) <= 0.0
+            && a.x.min(b.x) <= c.x.max(d.x)
+            && c.x.min(d.x) <= a.x.max(b.x)
+            && a.y.min(b.y) <= c.y.max(d.y)
+            && c.y.min(d.y) <= a.y.max(b.y)
+        {
+            return 0.0;
+        }
+        point_distance(a, c, d)
+            .min(point_distance(b, c, d))
+            .min(point_distance(c, a, b))
+            .min(point_distance(d, a, b))
+    }
+
+    fn assert_clear_segment(building: &BuildingScenario, from: Point, to: Point) {
+        for wall in &building.walls {
+            let mut gaps: Vec<_> = building
+                .doors
+                .iter()
+                .chain(
+                    building
+                        .exits
+                        .iter()
+                        .filter(|exit| !building.blocked_exit_ids.contains(&exit.id)),
+                )
+                .filter(|opening| opening.wall_id == wall.id)
+                .collect();
+            gaps.sort_by(|a, b| a.offset.total_cmp(&b.offset));
+            let at = |offset: f64| Point {
+                x: wall.start.x + (wall.end.x - wall.start.x) * offset / wall.length(),
+                y: wall.start.y + (wall.end.y - wall.start.y) * offset / wall.length(),
+            };
+            let clearance = building.agent_radius + wall.thickness / 2.0;
+            let mut cursor = 0.0;
+            for (start, end) in gaps
+                .iter()
+                .map(|opening| (opening.offset, opening.offset + opening.width))
+                .chain(std::iter::once((wall.length(), wall.length())))
+            {
+                if start > cursor {
+                    assert!(
+                        segment_distance(from, to, at(cursor), at(start)) + 1e-7 >= clearance,
+                        "swept path {from:?} -> {to:?} crosses solid wall '{}'",
+                        wall.id
+                    );
+                }
+                cursor = end;
+            }
+        }
+        for obstruction in &building.obstructions {
+            let left = obstruction.x;
+            let right = left + obstruction.width;
+            let top = obstruction.y;
+            let bottom = top + obstruction.height;
+            let inside = |p: Point| p.x >= left && p.x <= right && p.y >= top && p.y <= bottom;
+            assert!(
+                !inside(from) && !inside(to),
+                "agent entered obstruction '{}'",
+                obstruction.id
+            );
+            let corners = [
+                Point { x: left, y: top },
+                Point { x: right, y: top },
+                Point {
+                    x: right,
+                    y: bottom,
+                },
+                Point { x: left, y: bottom },
+            ];
+            for index in 0..4 {
+                assert!(
+                    segment_distance(from, to, corners[index], corners[(index + 1) % 4]) + 1e-7
+                        >= building.agent_radius,
+                    "swept path crosses obstruction '{}'",
+                    obstruction.id
+                );
+            }
+        }
+    }
+
+    pub(crate) fn simulate_checked(building: &BuildingScenario) -> SimulationResult {
+        building.validate().unwrap();
+        let run = crate::simulation::simulate(building).unwrap();
+        run.validate().unwrap();
+        assert_eq!(
+            run.metrics.total_population,
+            building
+                .spawn_zones
+                .iter()
+                .map(|zone| zone.count)
+                .sum::<u32>()
+        );
+        let initial = initial_positions(&run).expect("real engine must supply complete step zero");
+        let analytics = run.analytics.as_ref().expect("real per-agent analytics");
+        for frame in &run.frames {
+            for agent in &frame.agents {
+                assert!(
+                    initial.contains_key(&agent.id),
+                    "agent IDs must remain stable"
+                );
+                let p = Point {
+                    x: agent.x,
+                    y: agent.y,
+                };
+                assert_clear_segment(building, p, p);
+            }
+        }
+        for pair in run.frames.windows(2) {
+            // Small fixtures retain every tick, so segments are actual accepted moves.
+            assert_eq!(pair[1].step, pair[0].step + 1);
+            for agent in &pair[0].agents {
+                let from = Point {
+                    x: agent.x,
+                    y: agent.y,
+                };
+                let to = if let Some(next) = pair[1].agents.iter().find(|next| next.id == agent.id)
+                {
+                    Point {
+                        x: next.x,
+                        y: next.y,
+                    }
+                } else {
+                    let stat = analytics
+                        .agents
+                        .iter()
+                        .find(|stat| stat.id == agent.id)
+                        .unwrap();
+                    assert_eq!(stat.evacuation_step, Some(pair[1].step));
+                    let exit = building
+                        .exits
+                        .iter()
+                        .find(|exit| Some(&exit.id) == stat.exit_id.as_ref())
+                        .unwrap();
+                    assert!(!building.blocked_exit_ids.contains(&exit.id));
+                    let wall = building
+                        .walls
+                        .iter()
+                        .find(|wall| wall.id == exit.wall_id)
+                        .unwrap();
+                    let t = (exit.offset + exit.width / 2.0) / wall.length();
+                    Point {
+                        x: wall.start.x + (wall.end.x - wall.start.x) * t,
+                        y: wall.start.y + (wall.end.y - wall.start.y) * t,
+                    }
+                };
+                assert!(
+                    (to.x - from.x).hypot(to.y - from.y) <= 1.3 * building.time_step_seconds + 1e-7
+                );
+                assert_clear_segment(building, from, to);
+            }
+        }
+        run
+    }
+
+    fn audit(request: &StressTestRequest) -> StressTestResult {
+        let original = to_value(request).unwrap();
+        let baseline = simulate_checked(&request.building);
+        let result = stress_test(request).unwrap();
+        assert_eq!(
+            to_value(&result.baseline).unwrap(),
+            to_value(&baseline.metrics).unwrap()
+        );
+        assert!(result.scenarios.len() <= request.config.max_scenarios as usize);
+        eprintln!("real stress baseline: {:?}", baseline.metrics);
+        for scenario in &result.scenarios {
+            assert_eq!(
+                scenario.modifications.blocked_exit_ids.len()
+                    + scenario.modifications.added_obstructions.len(),
+                1
+            );
+            let mut modified = request.building.clone();
+            modified
+                .blocked_exit_ids
+                .extend(scenario.modifications.blocked_exit_ids.iter().cloned());
+            modified
+                .obstructions
+                .extend(scenario.modifications.added_obstructions.iter().cloned());
+            let run = simulate_checked(&modified);
+            assert_eq!(initial_positions(&baseline), initial_positions(&run));
+            assert_eq!(
+                to_value(&scenario.metrics).unwrap(),
+                to_value(&run.metrics).unwrap()
+            );
+            assert!(scenario.description.contains("fairness verified"));
+            assert_eq!(
+                to_value(&scenario.severity).unwrap(),
+                to_value(severity(&baseline.metrics, &run.metrics)).unwrap()
+            );
+            let worse = result
+                .scenarios
+                .iter()
+                .filter(|other| other.metrics.compare_severity(&scenario.metrics).is_gt())
+                .count();
+            assert_eq!(scenario.rank, worse as u32 + 1);
+            eprintln!(
+                "real stress {}: {:?}, severity={:?}, rank={}",
+                scenario.scenario_id, scenario.metrics, scenario.severity, scenario.rank
+            );
+        }
+        assert!(
+            result
+                .scenarios
+                .windows(2)
+                .all(|pair| !pair[0].metrics.compare_severity(&pair[1].metrics).is_lt())
+        );
+        assert_eq!(to_value(request).unwrap(), original);
+        result
+    }
+
+    fn stress_request(building: BuildingScenario) -> StressTestRequest {
+        StressTestRequest {
+            building,
+            config: crate::models::StressTestConfig {
+                max_scenarios: 10,
+                block_each_exit: true,
+                obstruction_candidates: vec![],
+            },
+        }
+    }
+
+    #[test]
+    fn real_two_exit_room_has_distinct_closure_costs_and_repeatable_fairness() {
+        let request = stress_request(room());
+        let result = audit(&request);
+        assert_eq!(result.baseline.status, SimulationStatus::Completed);
+        assert_eq!(result.scenarios.len(), 2);
+        let left = result
+            .scenarios
+            .iter()
+            .find(|scenario| scenario.modifications.blocked_exit_ids == ["left"])
+            .unwrap();
+        let right = result
+            .scenarios
+            .iter()
+            .find(|scenario| scenario.modifications.blocked_exit_ids == ["right"])
+            .unwrap();
+        assert_eq!(left.metrics.status, SimulationStatus::Completed);
+        assert!(left.metrics.compare_severity(&result.baseline).is_gt());
+        assert!(matches!(left.severity, Severity::High));
+        assert!(matches!(right.severity, Severity::Low));
+        assert_eq!(
+            to_value(&result).unwrap(),
+            to_value(stress_test(&request).unwrap()).unwrap()
+        );
+        let first = simulate_checked(&request.building);
+        let second = simulate_checked(&request.building);
+        assert_eq!(to_value(first).unwrap(), to_value(second).unwrap());
+    }
+
+    #[test]
+    fn real_sealed_rooms_leave_one_occupant_without_a_route_when_its_exit_closes() {
+        let request = stress_request(split_room());
+        let result = audit(&request);
+        assert_eq!(result.baseline.status, SimulationStatus::Completed);
+        assert_eq!(result.baseline.evacuated, 2);
+        for scenario in &result.scenarios {
+            assert_eq!(scenario.metrics.status, SimulationStatus::Incomplete);
+            assert_eq!(
+                (
+                    scenario.metrics.evacuated,
+                    scenario.metrics.remaining,
+                    scenario.metrics.trapped
+                ),
+                (1, 1, 0)
+            );
+            assert!(scenario.metrics.clearance_steps.is_none());
+            assert!(matches!(scenario.severity, Severity::Critical));
+            assert_eq!(scenario.rank, 1);
+            let mut modified = request.building.clone();
+            modified.blocked_exit_ids = scenario.modifications.blocked_exit_ids.clone();
+            let run = simulate_checked(&modified);
+            assert_eq!(
+                run.analytics
+                    .unwrap()
+                    .agents
+                    .iter()
+                    .filter(|agent| !agent.route_found)
+                    .count(),
+                1
+            );
+            for frame in run.frames {
+                for agent in frame.agents {
+                    assert!(if agent.id == 0 {
+                        agent.x < 6.0
+                    } else {
+                        agent.x > 6.0
+                    });
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn real_single_exit_closure_reports_trapped_population_and_null_clearance() {
+        let mut building = room();
+        building.exits.truncate(1);
+        let result = audit(&stress_request(building));
+        let metrics = &result.scenarios[0].metrics;
+        assert_eq!(metrics.status, SimulationStatus::Incomplete);
+        assert_eq!(
+            (metrics.evacuated, metrics.remaining, metrics.trapped),
+            (0, 1, 1)
+        );
+        assert_eq!(
+            to_value(metrics).unwrap()["clearance_steps"],
+            serde_json::Value::Null
+        );
+    }
+
+    #[test]
+    fn real_obstructions_cause_a_detour_or_disconnect_the_only_exit() {
+        let mut building = room();
+        building.exits.truncate(1);
+        let mut request = stress_request(building);
+        request.config.block_each_exit = false;
+        request.config.obstruction_candidates = vec![
+            crate::models::Obstruction {
+                id: "detour".into(),
+                x: 0.5,
+                y: 2.0,
+                width: 2.0,
+                height: 1.0,
+            },
+            crate::models::Obstruction {
+                id: "barrier".into(),
+                x: 0.0,
+                y: 2.0,
+                width: 12.0,
+                height: 1.0,
+            },
+        ];
+        let result = audit(&request);
+        let detour = result
+            .scenarios
+            .iter()
+            .find(|scenario| scenario.scenario_id == "add-obstruction:detour")
+            .unwrap();
+        assert_eq!(detour.metrics.status, SimulationStatus::Completed);
+        assert!(detour.metrics.clearance_steps > result.baseline.clearance_steps);
+        let barrier = result
+            .scenarios
+            .iter()
+            .find(|scenario| scenario.scenario_id == "add-obstruction:barrier")
+            .unwrap();
+        assert_eq!(barrier.metrics.status, SimulationStatus::Incomplete);
+        assert_eq!((barrier.metrics.remaining, barrier.metrics.trapped), (1, 0));
+        assert!(barrier.metrics.clearance_steps.is_none());
+    }
+
+    #[test]
+    fn real_timeout_and_shared_budget_use_actual_simulation_calls() {
+        let mut building = room();
+        building.max_steps = 1;
+        let mut request = stress_request(building);
+        request.config.max_scenarios = 1;
+        let result = audit(&request);
+        assert_eq!(result.baseline.status, SimulationStatus::Timeout);
+        assert_eq!(result.baseline.remaining, 1);
+        assert!(result.baseline.clearance_steps.is_none());
+        let mut calls = 0;
+        let counted = stress_test_with(&request, |building| {
+            calls += 1;
+            crate::simulation::simulate(building)
+        })
+        .unwrap();
+        assert_eq!(calls, 2); // Baseline plus one modified scenario.
+        assert_eq!(counted.scenarios.len(), 1);
+        assert_eq!(
+            counted.scenarios[0].metrics.status,
+            SimulationStatus::Timeout
+        );
+        assert_eq!(to_value(counted).unwrap(), to_value(result).unwrap());
+    }
+
+    #[test]
+    fn real_diagonal_wall_exit_and_closure_respect_swept_geometry() {
+        let mut building = room();
+        building.walls.truncate(1);
+        building.walls[0].end.y = 8.0;
+        building.exits.truncate(1);
+        building.exits[0].offset = 5.0;
+        building.spawn_zones[0].x = 8.0;
+        building.spawn_zones[0].y = 1.0;
+        let result = audit(&stress_request(building));
+        assert_eq!(result.baseline.status, SimulationStatus::Completed);
+        assert_eq!(result.scenarios[0].metrics.trapped, 1);
+    }
+
+    #[test]
+    fn real_checked_in_example_runs_baseline_and_both_exit_closures() {
+        let building: BuildingScenario =
+            serde_json::from_str(include_str!("../../../shared/examples/building.json")).unwrap();
+        let result = audit(&stress_request(building));
+        assert_eq!(result.baseline.total_population, 34);
+        assert_eq!(result.scenarios.len(), 2);
+    }
+
+    #[test]
+    fn real_spawn_failures_propagate_without_fabricated_results() {
+        let mut building = room();
+        building.spawn_zones[0].height = 0.8;
+        building.spawn_zones[0].count = 2; // Area check passes; random packing cannot fit both discs.
+        building.validate().unwrap();
+        let expected = crate::simulation::simulate(&building)
+            .unwrap_err()
+            .to_string();
+        assert!(expected.contains("could not place occupant"));
+        assert_eq!(
+            stress_test(&stress_request(building))
+                .unwrap_err()
+                .to_string(),
+            expected
+        );
     }
 }
