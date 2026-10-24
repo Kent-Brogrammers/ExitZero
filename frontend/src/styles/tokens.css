@@ -1,7 +1,9 @@
 :root {
   --font-sans: "Helvetica Neue", Helvetica, Arial, sans-serif;
   --font-mono: ui-monospace, "SFMono-Regular", Consolas, monospace;
-  --radius-control: 3px;
+  --radius-control: 4px;
+  --control-height: 32px;
+  --control-padding: 10px;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;

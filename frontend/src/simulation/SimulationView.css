@@ -1,291 +1,367 @@
 .simulation-panel {
   position: relative;
+  display: flex;
+  flex-direction: column;
   height: 100%;
 }
 .simulation-panel .playback-source {
-  position: absolute;
-  top: 20px;
-  left: 24px;
-  right: 24px;
-  z-index: 6;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 16px;
+  padding: 12px 24px 4px;
+  z-index: 6;
 }
-.simulation-panel .playback-preview-toggle {
+.playback-source-info {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  min-width: 0;
+}
+.playback-preview-toggle {
   display: flex;
   align-items: center;
   gap: 7px;
   color: var(--cad-muted);
-  font-size: 10px;
+  font-size: var(--text-small);
 }
-.simulation-panel .playback-synthetic-note {
-  position: absolute;
-  top: 49px;
-  left: 24px;
-  right: 24px;
-  z-index: 6;
+.playback-synthetic-note {
+  flex-shrink: 0;
   margin: 0;
-  padding: 0;
-  font-size: 10px;
-  line-height: 1.6;
+  padding: 4px 24px 8px;
+  font-size: var(--text-small);
+  line-height: 1.5;
   color: var(--cad-warning);
-  pointer-events: none;
 }
-.simulation-panel .playback-workspace,
-.simulation-panel .playback-stage,
-.simulation-panel .playback-canvas-wrap {
-  position: absolute;
-  inset: 0;
+.playback-workspace {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+.playback-workspace.has-analytics {
+  grid-template-columns: minmax(0, 1fr) 280px;
+}
+.playback-stage {
+  display: contents;
 }
 .simulation-panel .playback-canvas-wrap {
-  top: 86px;
-  bottom: 130px;
+  position: relative;
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+  min-height: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
 }
-.simulation-panel .playback-canvas-wrap canvas {
+.playback-canvas-wrap canvas {
   width: 100%;
   height: 100%;
 }
 .simulation-panel .canvas-caption {
   display: none;
 }
-.simulation-panel .playback-transport {
-  position: absolute;
-  left: 50%;
-  bottom: 50px;
-  transform: translateX(-50%);
-  width: min(1000px, calc(100% - 100px));
+.playback-dock {
+  grid-column: 1;
+  grid-row: 2;
+  min-width: 0;
+  container-type: inline-size;
+  padding: 12px 24px;
+  background: var(--cad-surface);
+  border-top: 1px solid var(--cad-border);
   z-index: 6;
+}
+.playback-transport {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(160px, 1fr);
   align-items: center;
-  gap: 20px;
-  padding: 10px 14px;
-  background: #17171fe8;
-  backdrop-filter: blur(14px);
-  border: 1px solid #ffffff08;
-  border-radius: 7px;
-  box-shadow: 0 8px 30px #0003;
+  gap: 18px;
 }
-.simulation-panel .playback-bottomline {
-  position: absolute;
-  left: 50%;
-  bottom: 22px;
-  transform: translateX(-50%);
-  width: min(1000px, calc(100% - 100px));
-  z-index: 6;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-.simulation-panel .playback-readout {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 24px;
-  margin: 0;
-}
-.simulation-panel .playback-help {
-  position: absolute;
-  left: 50%;
-  bottom: 115px;
-  transform: translateX(-50%);
-  width: min(1000px, calc(100% - 100px));
-  z-index: 5;
-  text-align: center;
-  pointer-events: none;
-}
-.simulation-panel .playback-controls {
+.playback-controls {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 5px;
+  gap: 2px;
 }
-.simulation-panel .playback-controls button {
-  font-size: 11px;
-  padding: 6px 10px;
-}
-.simulation-panel .playback-speed {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin-left: 8px;
-  font-size: 10px;
-  color: var(--cad-muted);
-}
-.simulation-panel .playback-speed select {
-  background: transparent;
+.playback-controls .play-button {
   color: var(--cad-text);
-  border: 1px solid var(--cad-border-strong);
-  border-radius: var(--radius-control);
-  padding: 6px;
-  font-size: 11px;
+  border-color: var(--cad-border-strong);
 }
-.simulation-panel .playback-status {
+.playback-controls .play-button:disabled {
+  color: var(--cad-disabled);
+  border-color: var(--cad-border);
+}
+.playback-speed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 10px;
+  font-size: var(--text-small);
   color: var(--cad-muted);
-  font-size: 10px;
-  margin-left: 8px;
 }
-.simulation-panel .playback-timeline {
+.playback-speed select {
+  border-color: var(--cad-border);
+  background: var(--cad-control);
+  color: var(--cad-text);
+  padding-right: 4px;
+}
+.playback-status {
+  color: var(--cad-muted);
+  font-size: var(--text-small);
+  margin-left: 12px;
+}
+.playback-timeline {
   display: flex;
   align-items: center;
   gap: 12px;
   min-width: 0;
-  font-size: 10px;
+  font-size: var(--text-small);
   color: var(--cad-muted);
 }
-.simulation-panel .playback-timeline label {
+.playback-timeline label {
   position: absolute;
   width: 1px;
   height: 1px;
   overflow: hidden;
   clip-path: inset(50%);
 }
-.simulation-panel .playback-timeline input {
+.playback-timeline input {
   flex: 1;
-  min-width: 80px;
+  width: 100%;
+  min-width: 0;
+  min-height: 24px;
+  margin: 0;
   accent-color: var(--cad-accent);
 }
-.simulation-panel .playback-timeline > span {
+.playback-timeline input:disabled {
+  opacity: 0.65;
+}
+.playback-timeline > span {
   white-space: nowrap;
   font-family: var(--font-mono);
 }
-
-.simulation-panel .playback-readout > div {
+.playback-bottomline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 18px;
+  margin-top: 8px;
+}
+.playback-readout {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+  margin: 0;
+}
+.playback-readout > div {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: 7px;
 }
-.simulation-panel .playback-readout dt {
-  font-size: 10px;
+.playback-readout dt {
+  font-size: var(--text-small);
   color: var(--cad-muted);
 }
-.simulation-panel .playback-readout dd {
+.playback-readout dd {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--text-small);
   font-family: var(--font-mono);
 }
-.simulation-panel .playback-duration {
+.playback-duration {
   color: var(--cad-muted);
-  font-size: 10px;
 }
-.simulation-panel .recording-details {
+.recording-details {
   position: relative;
-  color: var(--cad-muted);
-  font-size: 10px;
+  flex-shrink: 0;
 }
-.simulation-panel .recording-details > summary:hover {
-  color: var(--cad-text);
+.recording-details > summary {
+  list-style: none;
 }
-.simulation-panel .recording-popover {
+.recording-details > summary::-webkit-details-marker {
+  display: none;
+}
+.recording-popover {
   position: absolute;
-  bottom: 26px;
+  bottom: calc(100% + 8px);
   right: 0;
-  width: 320px;
-  max-height: min(60vh, 400px);
+  width: min(320px, calc(100vw - 32px));
+  max-height: min(60dvh, 400px);
   overflow-y: auto;
-  padding: 18px;
+  padding: 16px;
   z-index: 20;
   background: var(--cad-panel);
-  border: 1px solid var(--cad-border-strong);
+  border: 1px solid var(--cad-border);
   border-radius: var(--radius-control);
   box-shadow: 0 12px 36px #0006;
 }
-.simulation-panel .playback-outcome {
-  font-size: 12px;
+.playback-outcome {
+  font-size: var(--text-control);
   line-height: 1.7;
   margin: 14px 0;
-  color: var(--cad-text);
 }
-.simulation-panel .playback-analytics-link {
-  display: inline-block;
-  color: var(--cad-text);
-  margin-top: 12px;
+.playback-analytics-link {
+  margin-top: 8px;
 }
-.simulation-panel .playback-help {
-  flex-shrink: 0;
+.playback-help .note,
+.playback-error {
+  font-size: var(--text-small);
+  line-height: 1.5;
+  margin: 6px 0 0;
 }
-.simulation-panel .playback-help .note {
-  font-size: 10px;
-  margin: 8px 0 0;
-}
-.simulation-panel .playback-error {
+.playback-error {
   color: var(--cad-danger);
-  font-size: 11px;
-  margin: 8px 0 0;
 }
-
-@media (max-width: 1100px) {
-  .simulation-panel .playback-transport,
-  .simulation-panel .playback-bottomline,
-  .simulation-panel .playback-help {
-    width: calc(100% - 48px);
-  }
-  .simulation-panel .playback-status {
-    display: none;
-  }
-  .simulation-panel .playback-readout {
-    gap: 8px 16px;
-  }
+.simulation-summary {
+  grid-column: 2;
+  grid-row: 1 / 3;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 20px;
+  background: var(--cad-surface);
+  border-left: 1px solid var(--cad-border);
+  z-index: 8;
 }
-@media (max-width: 760px) {
-  .simulation-panel .playback-canvas-wrap {
-    top: 112px;
-    bottom: 206px;
-  }
-  .simulation-panel .playback-source {
-    left: 16px;
-    right: 16px;
-    top: 16px;
-  }
-  .simulation-panel .playback-synthetic-note {
-    top: 46px;
-    left: 16px;
-    right: 16px;
-    font-size: 9px;
-  }
-  .simulation-panel .playback-transport {
-    width: calc(100% - 24px);
-    bottom: 78px;
+.summary-source {
+  color: var(--cad-muted);
+  font-size: var(--text-small);
+  margin: 0 0 22px;
+}
+.summary-source.is-synthetic,
+.summary-warning {
+  color: var(--cad-warning);
+}
+.summary-playhead {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+.summary-playhead span {
+  color: var(--cad-muted);
+  font-size: var(--text-small);
+}
+.summary-playhead strong {
+  font: 400 24px var(--font-mono);
+  letter-spacing: -1px;
+}
+.simulation-summary h4 {
+  margin: 0 0 8px;
+  font-size: var(--text-small);
+  font-weight: 500;
+}
+.summary-values {
+  margin: 0;
+}
+.summary-values > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 0;
+}
+.summary-values dt {
+  font-size: var(--text-small);
+  color: var(--cad-muted);
+}
+.summary-values dd {
+  margin: 0;
+  font-size: var(--text-control);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.summary-note,
+.summary-empty {
+  font-size: var(--text-small);
+  color: var(--cad-muted);
+  line-height: 1.65;
+}
+.summary-warning {
+  color: var(--cad-warning);
+}
+.summary-report-link {
+  width: 100%;
+  justify-content: space-between;
+  margin-top: 12px;
+  border-color: var(--cad-border);
+}
+@container (max-width: 900px) {
+  .playback-transport {
     grid-template-columns: minmax(0, 1fr);
-    gap: 9px;
-    padding: 10px;
+    gap: 8px;
   }
-  .simulation-panel .playback-controls {
-    justify-content: center;
-  }
-  .simulation-panel .playback-bottomline {
-    width: calc(100% - 32px);
-    bottom: 16px;
+  .playback-bottomline {
     align-items: flex-start;
   }
-  .simulation-panel .playback-readout {
+  .playback-readout {
     gap: 6px 14px;
-    max-width: 75%;
   }
-  .simulation-panel .playback-readout dt,
-  .simulation-panel .playback-readout dd {
-    font-size: 9px;
+}
+@media (max-width: 1100px) {
+  .playback-workspace.has-analytics {
+    grid-template-columns: minmax(0, 1fr);
   }
-  .simulation-panel .playback-duration {
+  .simulation-summary {
+    grid-column: 1;
+    grid-row: 1;
+    position: relative;
+    justify-self: end;
+    align-self: start;
+    margin: 8px 12px;
+    width: min(280px, calc(100% - 24px));
+    max-height: calc(100% - 16px);
+    border: 1px solid var(--cad-border);
+    border-radius: var(--radius-control);
+    box-shadow: 0 12px 36px #0006;
+  }
+}
+@media (max-width: 600px) {
+  .simulation-panel .playback-source {
+    padding: 8px 12px 4px;
+    gap: 8px;
+  }
+  .playback-source-info {
+    gap: 4px;
+  }
+  .playback-preview-toggle {
+    font-size: 10px;
+  }
+  .playback-synthetic-note {
+    padding: 4px 12px 8px;
+    font-size: 10px;
+  }
+  .playback-dock {
+    padding: 10px 12px;
+  }
+  .playback-status {
     display: none;
   }
-  .simulation-panel .playback-help {
-    bottom: 190px;
-    width: calc(100% - 32px);
+  .playback-speed {
+    margin-left: 6px;
+    gap: 4px;
   }
-  .simulation-panel .playback-help .note {
-    font-size: 9px;
+  .playback-bottomline {
+    flex-wrap: wrap;
+    gap: 6px;
   }
-  .simulation-panel .recording-popover {
-    position: fixed;
-    bottom: 30px;
-    right: 0;
-    width: min(320px, calc(100vw - 32px));
-    max-height: 55vh;
+  .playback-readout {
+    gap: 6px 12px;
+  }
+  .playback-duration {
+    display: none;
+  }
+  .recording-details {
+    margin-left: auto;
+  }
+  .summary-playhead {
+    margin-bottom: 16px;
+  }
+  .summary-source {
+    margin-bottom: 16px;
   }
 }

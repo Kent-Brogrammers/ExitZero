@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent } from "react";
+import { StudioPopover } from "../ui/StudioPopover";
 import example from "../../../shared/examples/building.json";
 import type { BuildingScenario, Point, Wall } from "../types/simulation";
 import {
@@ -447,49 +448,99 @@ export function BuildingEditor({
                 </button>
               ))}
             </div>
-            <div className="editor-actions">
-              <button onClick={undo} disabled={disabled || !history.length}>
-                Undo
-              </button>
-              <button onClick={redoChange} disabled={disabled || !redo.length}>
-                Redo
-              </button>
-              <button
-                onClick={() => {
-                  if (
-                    commit({
-                      ...building,
-                      walls: [],
-                      doors: [],
-                      exits: [],
-                      spawn_zones: [],
-                      blocked_exit_ids: [],
-                      obstructions: [],
-                    })
-                  ) {
-                    selectElement(null);
-                    setGesture(null);
-                  }
-                }}
+            <div
+              className="editor-actions"
+              role="group"
+              aria-label="Editor actions"
+            >
+              <div
+                className="studio-control-group"
+                role="group"
+                aria-label="History controls"
               >
-                New layout
-              </button>
-              <button
-                onClick={() => {
-                  if (commit(structuredClone(example))) {
-                    selectElement(null);
-                    setGesture(null);
-                  }
-                }}
+                <button
+                  className="studio-control"
+                  onClick={undo}
+                  disabled={disabled || !history.length}
+                >
+                  Undo
+                </button>
+                <button
+                  className="studio-control"
+                  onClick={redoChange}
+                  disabled={disabled || !redo.length}
+                >
+                  Redo
+                </button>
+              </div>
+              <span className="control-separator" aria-hidden="true" />
+              <StudioPopover
+                label="File"
+                className="editor-file"
+                disabled={disabled}
               >
-                Load example
-              </button>
-              <button onClick={exportLayout}>Export JSON</button>
-              <button onClick={() => importInput.current?.click()}>
-                Import JSON
-              </button>
+                {(close) => (
+                  <div className="file-actions">
+                    <button
+                      className="studio-control"
+                      onClick={() => {
+                        if (
+                          commit({
+                            ...building,
+                            walls: [],
+                            doors: [],
+                            exits: [],
+                            spawn_zones: [],
+                            blocked_exit_ids: [],
+                            obstructions: [],
+                          })
+                        ) {
+                          selectElement(null);
+                          setGesture(null);
+                        }
+                        close();
+                      }}
+                    >
+                      New layout
+                    </button>
+                    <button
+                      className="studio-control"
+                      onClick={() => {
+                        if (commit(structuredClone(example))) {
+                          selectElement(null);
+                          setGesture(null);
+                        }
+                        close();
+                      }}
+                    >
+                      Load example
+                    </button>
+                    <hr />
+                    <button
+                      className="studio-control"
+                      onClick={() => {
+                        close();
+                        importInput.current?.click();
+                      }}
+                    >
+                      Import JSON
+                    </button>
+                    <button
+                      className="studio-control"
+                      onClick={() => {
+                        exportLayout();
+                        close();
+                      }}
+                    >
+                      Export JSON
+                    </button>
+                  </div>
+                )}
+              </StudioPopover>
+              <span className="control-separator" aria-hidden="true" />
               <button
                 type="button"
+                className="studio-control"
                 ref={propertiesButton}
                 aria-expanded={propertiesOpen}
                 aria-controls="editor-properties"
