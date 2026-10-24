@@ -72,7 +72,7 @@ export function EditorDrawingRail({
         className="editor-shapes"
         disabled={disabled}
         indicator={false}
-        triggerClassName={`rail-button${isWallTool(tool) ? " is-selected" : ""}`}
+        triggerClassName={`rail-button${isWallTool(tool) || tool === "wall-freehand" ? " is-selected" : ""}`}
         triggerContent={content("wall", "Walls & Shapes")}
         onOpen={onOpenPanel}
       >
@@ -110,10 +110,18 @@ export function EditorDrawingRail({
               "circle",
               close,
             )}
+            {choice(
+              "wall-freehand",
+              "Freehand Curve",
+              "Drag or click–trace–click · saved as segments",
+              "curve",
+              close,
+            )}
             <p className="shape-note">
               Perimeters save as individual straight walls. Select a segment to
               edit, name, or delete it; undo restores the entire drawing action.
-              Curves save as 32 straight segments, not exact arcs.
+              Ellipses use 32 segments. Freehand curves use up to 96. Freehand
+              groups last only in this session; Alt-click edits one segment.
             </p>
           </>
         )}

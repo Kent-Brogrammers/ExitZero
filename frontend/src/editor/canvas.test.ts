@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import example from "../../../shared/examples/building.json";
 import { drawLayout } from "./draw";
+import { canvasPalette } from "../styles/canvasPalette";
+import { mergeEditedDoors } from "./doorEditing";
 
 function canvasFixture(width: number, height = (width * 2) / 3) {
   const context = {
@@ -109,4 +111,66 @@ describe("freeform Canvas drawing", () => {
     expect(context.moveTo).toHaveBeenCalledWith(28, 9);
     expect(context.lineTo).toHaveBeenCalledWith(28, 10.6);
   });
+});
+
+it("draws one width label and one blueprint swing after a door merge", () => {
+  const before = {
+    ...structuredClone(example),
+    walls: [
+      {
+        id: "wall",
+        start: { x: 2, y: 2 },
+        end: { x: 20, y: 2 },
+        thickness: 0.2,
+      },
+    ],
+    doors: [{ id: "kept", wall_id: "wall", offset: 2, width: 1 }],
+    exits: [],
+    spawn_zones: [],
+    obstructions: [],
+    blocked_exit_ids: [],
+  };
+  const merged = mergeEditedDoors(before, {
+    ...before,
+    doors: [
+      ...before.doors,
+      { id: "new", wall_id: "wall", offset: 3, width: 1 },
+    ],
+  }).building;
+  const { context, element } = canvasFixture(600);
+  drawLayout(element, merged, null, undefined, 2, {
+    ...canvasPalette(element),
+    blueprint: "1",
+  });
+  expect(context.arc).toHaveBeenCalledTimes(1);
+  expect(context.arc.mock.calls[0]![2]).toBe(2);
+  const labels = context.fillText.mock.calls.filter(([text]) =>
+    String(text).startsWith("Door"),
+  );
+  expect(labels).toHaveLength(1);
+  expect(labels[0]![0]).toBe("Door · 2.0 m");
+});
+
+it("renders supplied freehand vertices and thickness identically at both pixel densities", () => {
+  const points = [
+    { x: 2, y: 2 },
+    { x: 4, y: 3 },
+    { x: 6, y: 2 },
+  ];
+  const draft = {
+    start: points[0]!,
+    end: points.at(-1)!,
+    shape: "wall-freehand" as const,
+    points,
+  };
+  const normal = canvasFixture(600),
+    retina = canvasFixture(600);
+  drawLayout(normal.element, example, null, draft, 1);
+  drawLayout(retina.element, example, null, draft, 2);
+  expect(normal.context.lineTo.mock.calls).toEqual(
+    retina.context.lineTo.mock.calls,
+  );
+  expect(normal.context.lineTo).toHaveBeenLastCalledWith(6, 2);
+  expect(normal.context.lineWidth).toBe(0.2);
+  expect(retina.context.lineWidth).toBe(0.2);
 });

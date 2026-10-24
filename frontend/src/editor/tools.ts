@@ -1,5 +1,6 @@
 export type EditorTool =
   | "select"
+  | "wall-freehand"
   | "wall"
   | "wall-rectangle"
   | "wall-circle"
