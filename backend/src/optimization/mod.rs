@@ -237,6 +237,7 @@ mod tests {
                     .collect(),
             }],
             traffic_samples: vec![],
+            analytics: None,
             width: building.width,
             height: building.height,
             time_step_seconds: building.time_step_seconds,
