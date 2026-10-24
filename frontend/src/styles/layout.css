@@ -1,0 +1,490 @@
+html,
+body,
+#root {
+  height: 100%;
+}
+.workspace-app {
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--cad-bg);
+}
+.welcome-view {
+  height: 100%;
+  overflow-y: auto;
+}
+.studio-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.studio-header {
+  flex: 0 0 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 28px;
+  gap: 28px;
+  background: #0b0b11;
+  z-index: 30;
+}
+.studio-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.6px;
+  white-space: nowrap;
+}
+.studio-brand > span:last-child {
+  font-size: 10px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  margin-left: 6px;
+  color: var(--cad-muted);
+}
+.studio-symbol {
+  font-size: 25px;
+  color: var(--cad-text);
+  font-weight: 300;
+  margin-right: 1px;
+}
+.studio-nav {
+  display: flex;
+  align-items: center;
+  gap: 30px;
+}
+.studio-nav button {
+  position: relative;
+  border: 0;
+  background: transparent;
+  color: var(--cad-muted);
+  font-size: 12px;
+  padding: 21px 0;
+  border-radius: 0;
+}
+.studio-nav button:hover:not(:disabled) {
+  color: var(--cad-text);
+  background: transparent;
+}
+.studio-nav button[aria-selected="true"] {
+  color: var(--cad-text);
+}
+.studio-nav button[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  bottom: 12px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: #c4bddb;
+}
+.studio-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 25px;
+}
+.run-action,
+.entry-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--studio-primary);
+  color: #fff;
+  font-weight: 500;
+  padding: 11px 17px;
+  font-size: 12px;
+}
+.run-action:hover:not(:disabled),
+.entry-action:hover:not(:disabled) {
+  background: var(--studio-primary-hover);
+}
+.entry-action {
+  min-width: 160px;
+  padding: 14px 20px;
+}
+.run-action:disabled {
+  opacity: 0.65;
+}
+.app-settings {
+  position: relative;
+  color: var(--cad-muted);
+  font-size: 11px;
+}
+.app-settings > summary,
+.recording-details > summary {
+  cursor: pointer;
+  list-style: none;
+}
+.app-settings > summary::-webkit-details-marker,
+.recording-details > summary::-webkit-details-marker {
+  display: none;
+}
+.app-settings > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.app-settings > summary:hover {
+  color: var(--cad-text);
+}
+.connection-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--cad-warning);
+}
+.connection-dot.online {
+  background: var(--cad-success);
+}
+.connection-dot.offline {
+  background: var(--cad-warning);
+}
+.settings-popover {
+  position: absolute;
+  top: 30px;
+  right: 0;
+  width: 260px;
+  padding: 20px;
+  z-index: 50;
+  background: var(--cad-panel);
+  border: 1px solid var(--cad-border);
+  border-radius: 5px;
+  box-shadow: 0 18px 48px #0007;
+}
+.settings-popover h3 {
+  font-size: 13px;
+  font-weight: 400;
+  margin: 0 0 20px;
+  color: var(--cad-text);
+}
+.settings-popover > p:first-of-type {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.settings-popover strong {
+  font-weight: 400;
+  color: var(--cad-text);
+}
+.connection {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11px;
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid var(--cad-border);
+}
+.text-button {
+  padding: 4px 8px;
+  font-size: 10px;
+}
+.studio-main {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+.studio-viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.studio-viewport::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 40% 10%, #6c59bd08, transparent 60%);
+  pointer-events: none;
+  z-index: 1;
+}
+.studio-notice {
+  position: fixed;
+  top: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(440px, calc(100% - 48px));
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 12px 16px;
+  background: var(--cad-panel);
+  border: 1px solid var(--cad-border);
+  border-radius: 5px;
+  z-index: 45;
+  font-size: 11px;
+  box-shadow: 0 8px 24px #0006;
+}
+.studio-notice button {
+  border: 0;
+  padding: 0 4px;
+  font-size: 17px;
+  color: var(--cad-muted);
+}
+.analytics-workspace {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  padding: 54px max(32px, calc((100% - 1240px) / 2));
+  background:
+    radial-gradient(ellipse at 75% 0, #6c59bd0a, transparent 50%), var(--cad-bg);
+}
+.analysis-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 24px;
+  margin-bottom: 42px;
+}
+.analysis-heading h2 {
+  font-size: clamp(34px, 4vw, 56px);
+  line-height: 1.12;
+  font-weight: 400;
+  letter-spacing: -1.8px;
+  margin-top: 18px;
+}
+.analysis-heading h2 span {
+  color: var(--cad-muted);
+}
+.control-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.control-buttons button {
+  font-size: 11px;
+}
+.preview-control {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  color: var(--cad-muted);
+  font-size: 11px;
+  margin-bottom: 30px;
+}
+.preview-control label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.preview-control > span {
+  font-size: 10px;
+}
+.panel {
+  background: var(--cad-panel);
+  border: 1px solid var(--cad-border);
+  border-radius: var(--radius-control);
+  padding: 20px;
+  min-width: 0;
+}
+.panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.eyebrow {
+  color: var(--cad-muted);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  margin: 0 0 10px;
+}
+.badge {
+  color: var(--cad-muted);
+  font-size: 10px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.badge.mock {
+  color: var(--cad-warning);
+}
+.canvas-wrap {
+  border: 1px solid var(--cad-border);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+  background: var(--cad-surface);
+}
+canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.canvas-caption {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--cad-border);
+  font-size: 10px;
+  color: var(--cad-muted);
+  font-family: var(--font-mono);
+}
+.note {
+  color: var(--cad-muted);
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 10px 0 0;
+}
+.empty-state {
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px 16px;
+  color: var(--cad-muted);
+}
+.empty-state h3 {
+  font-weight: 400;
+}
+.empty-state p {
+  font-size: 12px;
+  line-height: 1.7;
+  max-width: 320px;
+  margin: 0;
+}
+.empty-state.compact {
+  min-height: 200px;
+}
+.analytics-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px;
+}
+.metrics {
+  display: flex;
+  gap: 28px;
+  flex-wrap: wrap;
+  margin: 24px 0 8px;
+}
+.metrics div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.metrics span {
+  font-size: 11px;
+  color: var(--cad-subtle);
+}
+.metrics strong {
+  font-size: 21px;
+  font-weight: 500;
+}
+.chart {
+  width: 100%;
+  height: 180px;
+  font-size: 11px;
+}
+
+.analytics-workspace .panel {
+  background: transparent;
+  border: 0;
+  padding: 24px 0;
+  border-top: 1px solid var(--cad-border);
+  border-radius: 0;
+}
+.analytics-workspace .analytics-grid {
+  gap: 50px;
+}
+.analytics-workspace h2,
+.analytics-workspace h3 {
+  font-weight: 400;
+}
+@media (max-width: 1000px) {
+  .studio-header {
+    padding: 0 20px;
+    gap: 20px;
+  }
+  .studio-nav {
+    gap: 22px;
+  }
+  .studio-header-actions {
+    gap: 18px;
+  }
+}
+@media (max-width: 760px) {
+  .studio-header {
+    height: auto;
+    min-height: 64px;
+    flex-basis: auto;
+    flex-wrap: wrap;
+    padding: 14px 16px 0;
+    gap: 6px 20px;
+  }
+  .studio-header > nav {
+    order: 3;
+    width: 100%;
+  }
+  .studio-nav {
+    justify-content: center;
+    gap: 36px;
+  }
+  .studio-nav button {
+    padding: 15px 0;
+  }
+  .studio-nav button[aria-selected="true"]::after {
+    bottom: 6px;
+  }
+  .studio-brand {
+    font-size: 17px;
+    gap: 6px;
+  }
+  .studio-brand > span:last-child {
+    font-size: 8px;
+    letter-spacing: 1px;
+  }
+  .studio-header-actions {
+    margin-left: auto;
+    gap: 14px;
+  }
+  .run-action {
+    gap: 10px;
+    padding: 9px 12px;
+    font-size: 11px;
+  }
+  .analytics-workspace {
+    padding: 30px 24px;
+  }
+  .analytics-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .analytics-workspace .analytics-grid {
+    gap: 24px;
+  }
+  .analysis-heading {
+    margin-bottom: 30px;
+  }
+}
+
+@media (max-width: 760px) {
+  .studio-notice {
+    top: 124px;
+  }
+}
+
+@media (max-width: 760px) {
+  .settings-popover {
+    position: fixed;
+    top: 116px;
+    left: 16px;
+    right: 16px;
+    width: auto;
+    max-height: calc(100dvh - 140px);
+    overflow-y: auto;
+  }
+}

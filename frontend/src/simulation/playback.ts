@@ -10,6 +10,7 @@ export interface AnimationClock {
 
 export interface PlaybackState {
   index: number;
+  time: number;
   playing: boolean;
   speed: number;
   started: boolean;
@@ -52,18 +53,23 @@ export function createPlayback(
   let animation: number | null = null;
   let state: PlaybackState = {
     index: 0,
+    time: firstTime,
     playing: false,
     speed: 1,
     started: false,
   };
   const listeners = new Set<() => void>();
+  const renderListeners = new Set<() => void>();
+  const render = () => renderListeners.forEach((listener) => listener());
 
-  function publish(next: PlaybackState) {
+  function publish(next: PlaybackState, exact = false) {
     if (
       next.index === state.index &&
       next.playing === state.playing &&
       next.speed === state.speed &&
-      next.started === state.started
+      next.started === state.started &&
+      (next.time === state.time ||
+        (!exact && Math.abs(next.time - state.time) < 0.1))
     )
       return;
     state = next;
@@ -85,8 +91,10 @@ export function createPlayback(
     publish({
       ...state,
       index: frameIndexAtTime(frames, timeStep, position),
+      time: position,
       playing: !ended,
     });
+    render();
   }
   function tick(now: number) {
     animation = null;
@@ -100,35 +108,59 @@ export function createPlayback(
     publish({
       ...state,
       index: frameIndexAtTime(frames, timeStep, position),
+      time: position,
       playing: true,
       started: true,
     });
+    render();
     animation = clock.request(tick);
   }
   function pause() {
     advance(clock.now());
     cancel();
-    publish({ ...state, playing: false });
+    publish({ ...state, time: position, playing: false }, true);
   }
   function reset() {
     cancel();
     position = firstTime;
-    publish({ ...state, index: 0, playing: false, started: false });
+    publish(
+      { ...state, index: 0, time: position, playing: false, started: false },
+      true,
+    );
+    render();
   }
   function seek(index: number) {
     if (!frames.length || !Number.isFinite(index)) return;
     cancel();
     const next = Math.max(0, Math.min(frames.length - 1, Math.round(index)));
     position = frames[next]!.step * timeStep;
-    publish({ ...state, index: next, playing: false, started: next > 0 });
+    publish(
+      {
+        ...state,
+        index: next,
+        time: position,
+        playing: false,
+        started: next > 0,
+      },
+      true,
+    );
+    render();
   }
   function setSpeed(speed: number) {
     if (!PLAYBACK_SPEEDS.some((value) => value === speed)) return;
     advance(clock.now());
-    publish({ ...state, speed });
+    publish({ ...state, time: position, speed }, true);
   }
   return {
     getSnapshot: () => state,
+    getTime: () => position,
+    // Canvas updates on every animation tick; React time readouts are throttled.
+    subscribeRender: (listener: () => void) => {
+      renderListeners.add(listener);
+      return () => {
+        renderListeners.delete(listener);
+      };
+    },
     subscribe: (listener: () => void) => {
       listeners.add(listener);
       return () => {
@@ -139,6 +171,7 @@ export function createPlayback(
     pause,
     reset,
     seek,
+    step: (direction: -1 | 1) => seek(state.index + direction),
     setSpeed,
     // Cancels the current session. It can be mounted again by React StrictMode.
     dispose: () => {

@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import example from "../../shared/examples/building.json";
 import { buildingError } from "./editor/geometry";
 import { BuildingWorkspace } from "./editor/BuildingWorkspace";
+import { StudioWelcome } from "./studio/StudioWelcome";
 import { api } from "./services/api";
 import type {
   BuildingScenario,
@@ -11,7 +12,36 @@ import type {
 
 const AnalyticsDashboard = lazy(() => import("./analytics/AnalyticsDashboard"));
 
+type StudioView = "welcome" | "edit" | "simulation" | "analytics";
+const studioViews = [
+  ["edit", "Edit"],
+  ["simulation", "Simulation"],
+  ["analytics", "Analytics"],
+] as const;
+function viewFromHash(): StudioView {
+  if (window.location.hash === "#building") return "edit";
+  if (window.location.hash === "#simulation") return "simulation";
+  if (window.location.hash === "#analytics") return "analytics";
+  return "welcome";
+}
+
 export default function App() {
+  const [view, setView] = useState<StudioView>(viewFromHash);
+  function navigate(next: StudioView, focus = false) {
+    setView(next);
+    window.history.replaceState(
+      window.history.state,
+      "",
+      next === "edit" ? "#building" : `#${next}`,
+    );
+    if (focus) document.getElementById(`studio-${next}-tab`)?.focus();
+  }
+  useEffect(() => {
+    const followHash = () => setView(viewFromHash());
+    window.addEventListener("hashchange", followHash);
+    return () => window.removeEventListener("hashchange", followHash);
+  }, []);
+
   const [building, setBuilding] = useState<BuildingScenario>(() =>
     structuredClone(example),
   );
@@ -20,7 +50,7 @@ export default function App() {
     setBuilding(next);
     setResult(null);
     setStressResult(null);
-    setMessage("Layout updated. Export JSON to save your work.");
+    setMessage("");
   }
   const [connection, setConnection] = useState<
     "checking" | "online" | "offline"
@@ -28,9 +58,7 @@ export default function App() {
   const [healthAttempt, setHealthAttempt] = useState(0);
   const [showMock, setShowMock] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState(
-    "The sample layout is ready. Computation endpoints are scaffolded and return 501 until implemented.",
-  );
+  const [message, setMessage] = useState("");
   const [result, setResult] = useState<SimulationResult | null>(null);
   const [stressResult, setStressResult] = useState<StressTestResult | null>(
     null,
@@ -55,6 +83,7 @@ export default function App() {
         setResult(await api.simulate(building));
         setShowMock(false);
         setMessage("Simulation result received.");
+        navigate("simulation");
       } else if (action === "stress") {
         setStressResult(
           await api.stressTest({
@@ -66,9 +95,7 @@ export default function App() {
             },
           }),
         );
-        setMessage(
-          "Stress-test result received. Scenario comparison rendering is pending.",
-        );
+        setMessage("Stress-test result received.");
       } else {
         await api.optimize({ building, max_candidates: 10 });
         setMessage(
@@ -83,107 +110,217 @@ export default function App() {
   }
 
   return (
-    <div className="workspace-app">
-      <header className="app-header">
-        <a className="brand" href="#building">
-          <span className="brand-icon" aria-hidden="true">
-            ↗
-          </span>
-          ExitZero<span className="brand-caption">Evacuation workspace</span>
-        </a>
-        <nav aria-label="Main navigation">
-          <a href="#building">Building</a>
-          <a href="#simulation">Simulation</a>
-          <a href="#analytics">Analytics</a>
-        </nav>
-        <div className={`connection ${connection}`} role="status">
-          <span className="status-dot" />
-          Backend {connection}
-          {connection === "offline" && (
-            <button
-              className="text-button"
-              onClick={() => {
-                setConnection("checking");
-                setHealthAttempt((attempt) => attempt + 1);
+    <div className={`workspace-app${view === "welcome" ? " is-welcome" : ""}`}>
+      <div className="welcome-view" hidden={view !== "welcome"}>
+        <StudioWelcome
+          building={example}
+          disabled={busy}
+          onOpen={() => navigate("edit")}
+          onLoadExample={() => {
+            if (busy) return;
+            changeBuilding(structuredClone(example));
+            navigate("edit");
+          }}
+        />
+      </div>
+      <div className="studio-shell" hidden={view === "welcome"}>
+        <header className="studio-header">
+          <a
+            className="studio-brand"
+            href="#welcome"
+            aria-label="ExitZero Studio home"
+          >
+            <span className="studio-symbol" aria-hidden="true">
+              ↗
+            </span>
+            ExitZero <span>Studio</span>
+          </a>
+          <nav aria-label="Main navigation">
+            <div
+              className="studio-nav"
+              role="tablist"
+              aria-label="Workspace mode"
+              onKeyDown={(event) => {
+                const current = studioViews.findIndex(
+                  ([value]) => value === view,
+                );
+                if (
+                  ["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)
+                ) {
+                  event.preventDefault();
+                  const index =
+                    event.key === "Home"
+                      ? 0
+                      : event.key === "End"
+                        ? 2
+                        : (current + (event.key === "ArrowLeft" ? 2 : 1)) % 3;
+                  navigate(studioViews[index]![0], true);
+                }
               }}
             >
-              Retry
-            </button>
-          )}
-        </div>
-      </header>
-      <main>
-        <div className="page-heading">
-          <h1>Evacuation workspace</h1>
-          <span className="badge">Design. Simulate. Stress test.</span>
-        </div>
-        <section className="controls panel" aria-label="Simulation controls">
-          <div className="scenario-summary">
-            <strong>Current layout</strong>
-            <span>
-              {building.width} × {building.height} m · {building.exits.length}{" "}
-              exits ·{" "}
-              {building.spawn_zones.reduce(
-                (total, zone) => total + zone.count,
-                0,
-              )}{" "}
-              occupants · seed {building.seed}
-            </span>
-          </div>
-          <div className="control-buttons">
+              {studioViews.map(([value, label]) => (
+                <button
+                  key={value}
+                  id={`studio-${value}-tab`}
+                  type="button"
+                  role="tab"
+                  aria-selected={view === value}
+                  aria-controls={
+                    value === "analytics"
+                      ? "studio-analytics-panel"
+                      : `workspace-${value}-panel`
+                  }
+                  tabIndex={view === value ? 0 : -1}
+                  onClick={() => navigate(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </nav>
+          <div className="studio-header-actions">
+            <details
+              className="app-settings"
+              onKeyDown={(event) => {
+                if (event.key === "Escape") event.currentTarget.open = false;
+              }}
+            >
+              <summary>
+                Settings{" "}
+                <span
+                  className={`connection-dot ${connection}`}
+                  aria-hidden="true"
+                />
+              </summary>
+              <div className="settings-popover">
+                <h3>Studio settings</h3>
+                <p>
+                  <span>Appearance</span>
+                  <strong>Studio dark</strong>
+                </p>
+                <p className="note">Additional themes are planned.</p>
+                <p className="note">System typography · metres</p>
+                <div className={`connection ${connection}`} role="status">
+                  Backend {connection}
+                  {connection === "offline" && (
+                    <button
+                      className="text-button"
+                      onClick={() => {
+                        setConnection("checking");
+                        setHealthAttempt((attempt) => attempt + 1);
+                      }}
+                    >
+                      Retry
+                    </button>
+                  )}
+                </div>
+                <p className="note">
+                  {building.width} × {building.height} m ·{" "}
+                  {building.exits.length} exits ·{" "}
+                  {building.spawn_zones.reduce(
+                    (total, zone) => total + zone.count,
+                    0,
+                  )}{" "}
+                  occupants · seed {building.seed}
+                </p>
+                {layoutProblem && <p className="note">{layoutProblem}</p>}
+              </div>
+            </details>
             <button
-              className="primary"
+              className="run-action"
               disabled={busy || connection !== "online" || !!layoutProblem}
+              title={
+                layoutProblem ??
+                (connection !== "online"
+                  ? "Backend unavailable. Open Settings to retry."
+                  : "Run this floor plan through the simulation engine.")
+              }
               onClick={() => void run("simulate")}
             >
-              Run simulation
-            </button>
-            <button
-              disabled={busy || connection !== "online" || !!layoutProblem}
-              onClick={() => void run("stress")}
-            >
-              Stress test
-            </button>
-            <button
-              disabled={busy || connection !== "online" || !!layoutProblem}
-              onClick={() => void run("optimize")}
-            >
-              Optimize
+              {busy ? "Working…" : "Run simulation"}
+              <span aria-hidden="true">↗</span>
             </button>
           </div>
-        </section>
-        <p className="request-message" role="status">
-          {layoutProblem ?? message}
-        </p>
-        <BuildingWorkspace
-          building={building}
-          onChange={changeBuilding}
-          result={result}
-          disabled={busy}
-        />
-        <div className="preview-control">
-          <label>
-            <input
-              type="checkbox"
-              checked={showMock}
-              onChange={(event) => setShowMock(event.target.checked)}
+        </header>
+        <main className="studio-main">
+          <h1 className="sr-only">ExitZero Studio</h1>
+          <div className="studio-viewport" hidden={view === "analytics"}>
+            <BuildingWorkspace
+              building={building}
+              onChange={changeBuilding}
+              result={result}
+              disabled={busy}
+              mode={view === "simulation" ? "simulation" : "edit"}
+              active={view === "edit" || view === "simulation"}
             />
-            Show mock analytics preview
-          </label>
-          <span>Synthetic fixture for frontend development</span>
-        </div>
-        <Suspense fallback={<p role="status">Loading analytics…</p>}>
-          <AnalyticsDashboard
-            result={result}
-            stressResult={stressResult}
-            showMock={showMock}
-          />
-        </Suspense>
-        <footer>
-          ExitZero · Local prototype · Simulation, stress testing, and
-          optimization are not implemented.
-        </footer>
-      </main>
+          </div>
+          <section
+            className="analytics-workspace"
+            id="studio-analytics-panel"
+            role="tabpanel"
+            aria-labelledby="studio-analytics-tab"
+            hidden={view !== "analytics"}
+          >
+            <div className="analysis-heading">
+              <div>
+                <p className="eyebrow">THE RECORD / ANALYTICS</p>
+                <h2>
+                  Every outcome.
+                  <br />
+                  <span>A clearer picture.</span>
+                </h2>
+              </div>
+              <div
+                className="control-buttons"
+                role="group"
+                aria-label="Analysis actions"
+              >
+                <button
+                  disabled={busy || connection !== "online" || !!layoutProblem}
+                  onClick={() => void run("stress")}
+                >
+                  Stress test
+                </button>
+                <button
+                  disabled={busy || connection !== "online" || !!layoutProblem}
+                  onClick={() => void run("optimize")}
+                >
+                  Optimize
+                </button>
+              </div>
+            </div>
+            <div className="preview-control">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={showMock}
+                  onChange={(event) => setShowMock(event.target.checked)}
+                />
+                Show mock analytics preview
+              </label>
+              <span>Synthetic fixture for frontend development</span>
+            </div>
+            <Suspense fallback={<p role="status">Loading analytics…</p>}>
+              <AnalyticsDashboard
+                result={result}
+                stressResult={stressResult}
+                showMock={showMock}
+              />
+            </Suspense>
+          </section>
+        </main>
+        {message && (
+          <div className="studio-notice" role="status">
+            <span>{message}</span>
+            <button
+              aria-label="Dismiss notification"
+              onClick={() => setMessage("")}
+            >
+              ×
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

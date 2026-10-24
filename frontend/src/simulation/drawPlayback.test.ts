@@ -1,10 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import { canvasView } from "../editor/geometry";
-import { drawPlayback, worldToCanvas } from "./drawPlayback";
+import {
+  createPlaybackRenderer,
+  drawPlayback,
+  worldToCanvas,
+} from "./drawPlayback";
 import { syntheticBuilding, syntheticResult } from "./playback.fixture";
 
 function fixture(width: number, height: number) {
   const context = {
+    drawImage: vi.fn(),
     setTransform: vi.fn(),
     clearRect: vi.fn(),
     fillRect: vi.fn(),
@@ -35,6 +40,51 @@ function fixture(width: number, height: number) {
 }
 
 describe("playback Canvas", () => {
+  it("caches the static layout until the display size or pixel ratio changes", () => {
+    const main = fixture(600, 400),
+      cache = fixture(600, 400);
+    const render = createPlaybackRenderer(
+      main.element,
+      syntheticBuilding,
+      cache.element,
+    );
+    render(syntheticResult.frames[0]!, 1);
+    const walls = main.context.lineTo.mock.calls.length;
+    expect(cache.context.drawImage).toHaveBeenCalledOnce();
+    render(syntheticResult.frames[1]!, 1);
+    expect(main.context.lineTo).toHaveBeenCalledTimes(walls);
+    expect(main.context.drawImage).toHaveBeenCalledWith(cache.element, 0, 0);
+    render(syntheticResult.frames[1]!, 2);
+    expect(cache.context.drawImage).toHaveBeenCalledTimes(2);
+    expect(main.canvas.width).toBe(1200);
+    main.canvas.getBoundingClientRect.mockReturnValue({
+      width: 300,
+      height: 200,
+    });
+    render(syntheticResult.frames[1]!, 2);
+    expect(cache.context.drawImage).toHaveBeenCalledTimes(3);
+    expect(main.canvas.width).toBe(600);
+  });
+
+  it("batches occupant circles into one fill/stroke operation", () => {
+    const { context, element } = fixture(600, 400);
+    const frame = {
+      ...syntheticResult.frames[0]!,
+      agents: Array.from({ length: 1000 }, (_, id) => ({ id, x: 1, y: 1 })),
+    };
+    const building = {
+      ...syntheticBuilding,
+      walls: [],
+      spawn_zones: [],
+      doors: [],
+      exits: [],
+    };
+    drawPlayback(element, building, frame, 1);
+    expect(context.arc).toHaveBeenCalledTimes(1000);
+    expect(context.fill).toHaveBeenCalledOnce();
+    expect(context.stroke).toHaveBeenCalledOnce();
+  });
+
   it("maps fractional world coordinates with a top-left origin and letterboxing", () => {
     const view = canvasView(600, 400, syntheticBuilding);
     expect(worldToCanvas({ x: 1.25, y: 1.5 }, view).x).toBeCloseTo(200);

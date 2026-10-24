@@ -11,6 +11,8 @@ interface BuildingWorkspaceProps {
   onChange: (building: BuildingScenario) => void;
   result: SimulationResult | null;
   disabled?: boolean;
+  mode?: Mode;
+  active?: boolean;
 }
 
 export function BuildingWorkspace({
@@ -18,33 +20,27 @@ export function BuildingWorkspace({
   onChange,
   result,
   disabled,
+  mode: controlledMode,
+  active = true,
 }: BuildingWorkspaceProps) {
-  const [mode, setMode] = useState<Mode>(() =>
+  const [localMode, setMode] = useState<Mode>(() =>
     typeof window !== "undefined" && window.location.hash === "#simulation"
       ? "simulation"
       : "edit",
   );
+  const mode = controlledMode ?? localMode;
   useEffect(() => {
+    if (controlledMode !== undefined) return;
     const followHash = () => {
       if (window.location.hash === "#building") setMode("edit");
       if (window.location.hash === "#simulation") setMode("simulation");
     };
     window.addEventListener("hashchange", followHash);
     return () => window.removeEventListener("hashchange", followHash);
-  }, []);
+  }, [controlledMode]);
   useEffect(() => {
-    if (result) setMode("simulation");
-  }, [result]);
-
-  function changeMode(next: Mode, focusTab = false) {
-    setMode(next);
-    window.history.replaceState(
-      window.history.state,
-      "",
-      next === "edit" ? "#building" : "#simulation",
-    );
-    if (focusTab) document.getElementById(`workspace-${next}-tab`)?.focus();
-  }
+    if (result && controlledMode === undefined) setMode("simulation");
+  }, [result, controlledMode]);
 
   return (
     <section
@@ -52,65 +48,11 @@ export function BuildingWorkspace({
       id="workspace"
       aria-label="Building workspace"
     >
-      <div className="workspace-topbar">
-        <div className="workspace-title">
-          <span className="workspace-mark" aria-hidden="true">
-            ↗
-          </span>
-          <h2>{mode === "edit" ? "Floor plan" : "Simulation playback"}</h2>
-          <span className="workspace-subtitle">Continuous 2D</span>
-        </div>
-        <div
-          className="workspace-modes"
-          role="tablist"
-          aria-label="Workspace mode"
-          onKeyDown={(event) => {
-            if (
-              ["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)
-            ) {
-              event.preventDefault();
-              changeMode(
-                event.key === "Home"
-                  ? "edit"
-                  : event.key === "End"
-                    ? "simulation"
-                    : mode === "edit"
-                      ? "simulation"
-                      : "edit",
-                true,
-              );
-            }
-          }}
-        >
-          {(
-            [
-              ["edit", "Edit"],
-              ["simulation", "Simulation"],
-            ] as const
-          ).map(([value, label]) => (
-            <button
-              key={value}
-              id={`workspace-${value}-tab`}
-              type="button"
-              role="tab"
-              aria-selected={mode === value}
-              aria-controls={`workspace-${value}-panel`}
-              tabIndex={mode === value ? 0 : -1}
-              onClick={() => changeMode(value)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <a className="workspace-analytics-link" href="#analytics">
-          View analytics <span aria-hidden="true">↗</span>
-        </a>
-      </div>
       <div
         className="workspace-view"
         id="workspace-edit-panel"
         role="tabpanel"
-        aria-labelledby="workspace-edit-tab"
+        aria-labelledby="studio-edit-tab"
         hidden={mode !== "edit"}
       >
         <BuildingEditor
@@ -123,13 +65,13 @@ export function BuildingWorkspace({
         className="workspace-view"
         id="workspace-simulation-panel"
         role="tabpanel"
-        aria-labelledby="workspace-simulation-tab"
+        aria-labelledby="studio-simulation-tab"
         hidden={mode !== "simulation"}
       >
         <SimulationView
           building={building}
           result={result}
-          active={mode === "simulation"}
+          active={active && mode === "simulation"}
         />
       </div>
     </section>

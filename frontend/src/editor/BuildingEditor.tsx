@@ -15,6 +15,7 @@ import {
 } from "./geometry";
 import { drawLayout } from "./draw";
 import { ToolIcon } from "./ToolIcon";
+import "./BuildingEditor.css";
 
 type Tool = "select" | "wall" | "door" | "exit" | "spawn" | "obstruction";
 type Gesture = {
@@ -69,8 +70,10 @@ export function BuildingEditor({
 }: BuildingEditorProps) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const importInput = useRef<HTMLInputElement>(null);
+  const propertiesButton = useRef<HTMLButtonElement>(null);
   const [tool, setTool] = useState<Tool>("select");
   const [selected, setSelected] = useState<Selection | null>(null);
+  const [propertiesOpen, setPropertiesOpen] = useState(false);
   const [gesture, setGesture] = useState<Gesture | null>(null);
   const [error, setError] = useState("");
   const [history, setHistory] = useState<BuildingScenario[]>([]);
@@ -79,6 +82,16 @@ export function BuildingEditor({
   const selectedElement = selected
     ? building[selected.kind].find((v) => v.id === selected.id)
     : null;
+
+  function closeProperties() {
+    setPropertiesOpen(false);
+    propertiesButton.current?.focus();
+  }
+
+  function selectElement(selection: Selection | null) {
+    setSelected(selection);
+    setPropertiesOpen(selection !== null);
+  }
 
   function commit(next: BuildingScenario) {
     const problem = buildingError(next, false);
@@ -93,6 +106,7 @@ export function BuildingEditor({
     return true;
   }
   function changeTool(next: Tool) {
+    setPropertiesOpen(false);
     setTool(next);
     setGesture(null);
     setError("");
@@ -228,7 +242,7 @@ export function BuildingEditor({
         width,
       };
       if (commit({ ...building, [kind]: [...building[kind], opening] })) {
-        setSelected({ kind, id: opening.id });
+        selectElement({ kind, id: opening.id });
         setTool("select");
       }
       return;
@@ -245,7 +259,7 @@ export function BuildingEditor({
           if (endpoint) selection = selected;
         }
       }
-      setSelected(selection);
+      selectElement(selection);
       if (selection)
         setGesture({
           start: point,
@@ -256,7 +270,7 @@ export function BuildingEditor({
         });
     } else {
       const start = tool === "wall" ? snap(point) : point;
-      setSelected(null);
+      selectElement(null);
       setGesture({ start, current: start, base: building });
     }
   }
@@ -287,7 +301,7 @@ export function BuildingEditor({
     if (tool === "wall") {
       const wall: Wall = { id, start: g.start, end: g.current, thickness: 0.2 };
       if (commit({ ...building, walls: [...building.walls, wall] }))
-        setSelected({ kind: "walls", id });
+        selectElement({ kind: "walls", id });
     } else {
       const rectangle = {
         id,
@@ -307,14 +321,14 @@ export function BuildingEditor({
         if (
           commit({ ...building, spawn_zones: [...building.spawn_zones, zone] })
         )
-          setSelected({ kind: "spawn_zones", id });
+          selectElement({ kind: "spawn_zones", id });
       } else if (
         commit({
           ...building,
           obstructions: [...building.obstructions, rectangle],
         })
       )
-        setSelected({ kind: "obstructions", id });
+        selectElement({ kind: "obstructions", id });
     }
   }
   function changeSelected(field: string, value: number) {
@@ -333,7 +347,7 @@ export function BuildingEditor({
     setRedo((items) => [...items, building]);
     setHistory((items) => items.slice(0, -1));
     setGesture(null);
-    setSelected(null);
+    selectElement(null);
     setError("");
     onChange(previous);
   }
@@ -343,7 +357,7 @@ export function BuildingEditor({
     setHistory((items) => [...items, building]);
     setRedo((items) => items.slice(0, -1));
     setGesture(null);
-    setSelected(null);
+    selectElement(null);
     setError("");
     onChange(next);
   }
@@ -368,7 +382,7 @@ export function BuildingEditor({
       const problem = buildingError(value, false);
       if (problem) throw new Error(problem);
       if (commit(value as BuildingScenario)) {
-        setSelected(null);
+        selectElement(null);
         setGesture(null);
       }
     } catch (reason) {
@@ -398,33 +412,41 @@ export function BuildingEditor({
       </div>
       <fieldset className="editor-controls" disabled={disabled}>
         <div className="editor-workspace">
-          <div
-            className="editor-toolbar"
-            role="toolbar"
-            aria-label="Layout tools"
-          >
-            {(
-              [
-                ["select", "Select / move"],
-                ["wall", "Wall"],
-                ["door", "Door"],
-                ["exit", "Exit"],
-                ["spawn", "Spawn zone"],
-                ["obstruction", "Obstruction"],
-              ] as [Tool, string][]
-            ).map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                aria-pressed={tool === value}
-                onClick={() => changeTool(value)}
-              >
-                <ToolIcon name={value} />
-                <span>{label}</span>
-              </button>
-            ))}
-          </div>
-          <div className="editor-stage">
+          <div className="editor-commandbar">
+            <div
+              className="editor-toolbar"
+              role="toolbar"
+              aria-label="Layout tools"
+            >
+              {(
+                [
+                  ["select", "Select / move"],
+                  ["wall", "Wall"],
+                  ["door", "Door"],
+                  ["exit", "Exit"],
+                  ["spawn", "Spawn zone"],
+                  ["obstruction", "Obstruction"],
+                ] as [Tool, string][]
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-label={label}
+                  title={label}
+                  aria-pressed={tool === value}
+                  onClick={() => changeTool(value)}
+                >
+                  <ToolIcon name={value} />
+                  <span>
+                    {value === "select"
+                      ? "Select"
+                      : value === "spawn"
+                        ? "Spawn"
+                        : label}
+                  </span>
+                </button>
+              ))}
+            </div>
             <div className="editor-actions">
               <button onClick={undo} disabled={disabled || !history.length}>
                 Undo
@@ -445,7 +467,7 @@ export function BuildingEditor({
                       obstructions: [],
                     })
                   ) {
-                    setSelected(null);
+                    selectElement(null);
                     setGesture(null);
                   }
                 }}
@@ -455,7 +477,7 @@ export function BuildingEditor({
               <button
                 onClick={() => {
                   if (commit(structuredClone(example))) {
-                    setSelected(null);
+                    selectElement(null);
                     setGesture(null);
                   }
                 }}
@@ -466,6 +488,15 @@ export function BuildingEditor({
               <button onClick={() => importInput.current?.click()}>
                 Import JSON
               </button>
+              <button
+                type="button"
+                ref={propertiesButton}
+                aria-expanded={propertiesOpen}
+                aria-controls="editor-properties"
+                onClick={() => setPropertiesOpen(!propertiesOpen)}
+              >
+                Properties
+              </button>
               <input
                 ref={importInput}
                 hidden
@@ -475,9 +506,11 @@ export function BuildingEditor({
                 onChange={(event) => void importLayout(event.target.files?.[0])}
               />
             </div>
+          </div>
+          <div className="editor-stage">
             <p className="editor-help">
               {tool === "select"
-                ? "Select and drag an element. Drag a selected wall’s endpoint to reshape it. Use the inspector for precise measurements."
+                ? "Drag objects or wall endpoints. Select an object to edit its properties."
                 : tool === "wall"
                   ? "Drag to draw a wall at any angle. Nearby wall endpoints snap together."
                   : tool === "door" || tool === "exit"
@@ -511,7 +544,7 @@ export function BuildingEditor({
                   if (disabled) return;
                   if (event.key === "Escape") {
                     setGesture(null);
-                    setSelected(null);
+                    selectElement(null);
                   }
                   if (
                     (event.key === "Delete" || event.key === "Backspace") &&
@@ -519,7 +552,7 @@ export function BuildingEditor({
                   ) {
                     event.preventDefault();
                     if (commit(removeElement(building, selected)))
-                      setSelected(null);
+                      selectElement(null);
                   }
                   if (
                     (event.ctrlKey || event.metaKey) &&
@@ -545,8 +578,25 @@ export function BuildingEditor({
               </div>
             </div>
           </div>
-          <aside className="editor-inspector" aria-label="Element inspector">
-            <h3>Inspector</h3>
+          <aside
+            className="editor-inspector"
+            id="editor-properties"
+            aria-label="Element inspector"
+            hidden={!propertiesOpen}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") closeProperties();
+            }}
+          >
+            <div className="inspector-heading">
+              <h3>Properties</h3>
+              <button
+                type="button"
+                aria-label="Close properties"
+                onClick={closeProperties}
+              >
+                ×
+              </button>
+            </div>
             <label className="element-select">
               Selected element
               <select
@@ -555,7 +605,7 @@ export function BuildingEditor({
                 onChange={(event) => {
                   const [kind, ...parts] = event.target.value.split(":");
                   const id = parts.join(":");
-                  setSelected(
+                  selectElement(
                     id ? { kind: kind as Selection["kind"], id } : null,
                   );
                   setTool("select");
@@ -655,7 +705,7 @@ export function BuildingEditor({
                   className="delete-button"
                   onClick={() => {
                     if (commit(removeElement(building, selected)))
-                      setSelected(null);
+                      selectElement(null);
                   }}
                 >
                   Delete selected
@@ -667,8 +717,8 @@ export function BuildingEditor({
                 local until you export the layout.
               </p>
             )}
-            <div className="workspace-settings">
-              <h3>Workspace</h3>
+            <details className="workspace-settings">
+              <summary>Canvas size</summary>
               <NumberField
                 label="Width (m)"
                 value={building.width}
@@ -679,7 +729,7 @@ export function BuildingEditor({
                 value={building.height}
                 onCommit={(height) => commit({ ...building, height })}
               />
-            </div>
+            </details>
           </aside>
         </div>
       </fieldset>

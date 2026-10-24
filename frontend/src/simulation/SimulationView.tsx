@@ -6,7 +6,8 @@ import {
   useSyncExternalStore,
 } from "react";
 import type { BuildingScenario, SimulationResult } from "../types/simulation";
-import { drawPlayback } from "./drawPlayback";
+import { createPlaybackRenderer } from "./drawPlayback";
+import { createFrameSampler } from "./interpolation";
 import { createPlayback, PLAYBACK_SPEEDS } from "./playback";
 import { syntheticBuilding, syntheticResult } from "./playback.fixture";
 import "./SimulationView.css";
@@ -31,8 +32,19 @@ function Playback({ building, result, active = true }: SimulationViewProps) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const frames = recording?.frames ?? [];
   const frame = frames[state.index] ?? null;
-  const time =
-    frame && recording ? frame.step * recording.time_step_seconds : 0;
+  const time = state.time;
+  const firstTime = recording
+    ? (frames[0]?.step ?? 0) * recording.time_step_seconds
+    : 0;
+  const sample = useMemo(
+    () =>
+      createFrameSampler(
+        building,
+        recording?.frames ?? [],
+        recording?.time_step_seconds ?? 1,
+      ),
+    [building, recording],
+  );
   const finalTime = recording
     ? (frames.at(-1)?.step ?? 0) * recording.time_step_seconds
     : 0;
@@ -45,17 +57,20 @@ function Playback({ building, result, active = true }: SimulationViewProps) {
   useEffect(() => {
     const element = canvas.current;
     if (!element) return;
+    const render = createPlaybackRenderer(element, building);
     const redraw = () =>
-      drawPlayback(element, building, frame, window.devicePixelRatio);
+      render(sample(player.getTime()), window.devicePixelRatio);
+    const unsubscribe = player.subscribeRender(redraw);
     redraw();
     const observer = new ResizeObserver(redraw);
     observer.observe(element);
     window.addEventListener("resize", redraw);
     return () => {
+      unsubscribe();
       observer.disconnect();
       window.removeEventListener("resize", redraw);
     };
-  }, [building, frame]);
+  }, [building, player, sample]);
 
   const status = state.playing
     ? "Playing"
@@ -68,13 +83,6 @@ function Playback({ building, result, active = true }: SimulationViewProps) {
           : "Ready";
   return (
     <div className="playback-workspace">
-      <aside className="playback-rail" aria-label="Playback view">
-        <span className="playback-view-icon" aria-hidden="true">
-          ▷
-        </span>
-        <strong>Recording</strong>
-        <span>Read only</span>
-      </aside>
       <div className="playback-stage">
         <div className="canvas-wrap playback-canvas-wrap">
           <canvas
@@ -82,9 +90,27 @@ function Playback({ building, result, active = true }: SimulationViewProps) {
             width={1200}
             height={800}
             role="img"
+            tabIndex={0}
+            aria-keyshortcuts="Space ArrowLeft ArrowRight Home End"
+            onKeyDown={(event) => {
+              if (!active || !frame) return;
+              if (
+                [" ", "ArrowLeft", "ArrowRight", "Home", "End"].includes(
+                  event.key,
+                )
+              ) {
+                event.preventDefault();
+                if (event.key === " ") {
+                  if (state.playing) player.pause();
+                  else player.play();
+                } else if (event.key === "ArrowLeft") player.step(-1);
+                else if (event.key === "ArrowRight") player.step(1);
+                else player.seek(event.key === "Home" ? 0 : frames.length - 1);
+              }
+            }}
             aria-label={
               frame
-                ? `Building layout with ${frame.agents.length} recorded occupants at simulation step ${frame.step}.`
+                ? `Building layout with ${frame.agents.length} recorded occupants at recorded simulation step ${frame.step}. Visual interpolation is used between recorded frames.`
                 : "Building layout. No recorded occupants to display."
             }
           />
@@ -104,7 +130,7 @@ function Playback({ building, result, active = true }: SimulationViewProps) {
           >
             <button
               type="button"
-              className="primary"
+              className="play-button"
               disabled={frames.length < 2 || state.playing}
               onClick={player.play}
             >
@@ -119,6 +145,24 @@ function Playback({ building, result, active = true }: SimulationViewProps) {
             </button>
             <button type="button" disabled={!frame} onClick={player.reset}>
               Reset
+            </button>
+            <button
+              type="button"
+              aria-label="Previous recorded frame"
+              title="Previous frame (← on Canvas)"
+              disabled={!frame || state.index === 0}
+              onClick={() => player.step(-1)}
+            >
+              ◀
+            </button>
+            <button
+              type="button"
+              aria-label="Next recorded frame"
+              title="Next frame (→ on Canvas)"
+              disabled={!frame || state.index >= frames.length - 1}
+              onClick={() => player.step(1)}
+            >
+              ▶
             </button>
             <label className="playback-speed">
               Speed
@@ -167,6 +211,79 @@ function Playback({ building, result, active = true }: SimulationViewProps) {
             </span>
           </div>
         </div>
+        <div className="playback-bottomline">
+          <dl className="playback-readout">
+            <div>
+              <dt>Simulation step</dt>
+              <dd>
+                <output aria-label="Current simulation step" aria-live="off">
+                  {frame?.step ?? "—"}
+                </output>
+              </dd>
+            </div>
+            <div>
+              <dt>Simulation time</dt>
+              <dd>
+                <output aria-label="Elapsed simulation time" aria-live="off">
+                  {frame ? `${time.toFixed(2)} s` : "—"}
+                </output>
+                {frame && (
+                  <span className="playback-duration">
+                    {" "}
+                    / {finalTime.toFixed(2)} s (end)
+                  </span>
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt>Occupants (frame)</dt>
+              <dd>{frame?.agents.length ?? "—"}</dd>
+            </div>
+            <div>
+              <dt>Duration</dt>
+              <dd>
+                <output aria-label="Recorded duration">
+                  {frame ? `${(finalTime - firstTime).toFixed(2)} s` : "—"}
+                </output>
+              </dd>
+            </div>
+          </dl>
+          <details className="recording-details">
+            <summary>Recording details</summary>
+            <div className="recording-popover">
+              {frame && (
+                <p className="note">
+                  Recording starts at {firstTime.toFixed(2)} s.
+                </p>
+              )}
+              {recording && (
+                <p className="note">
+                  Per-frame remaining and evacuated totals are not recorded.
+                  Agent disappearance alone does not establish evacuation.
+                </p>
+              )}
+              {recording && (
+                <p className="playback-outcome">
+                  Recorded outcome: <strong>{recording.status}</strong> ·{" "}
+                  {recording.evacuated} / {recording.total_population} evacuated
+                  · {recording.remaining} remaining ({recording.trapped}{" "}
+                  unreachable).{" "}
+                  {recording.status !== "completed" &&
+                    "The evacuation did not complete; the recording ending does not imply success."}
+                </p>
+              )}
+              <a className="playback-analytics-link" href="#analytics">
+                Explore analytics ↗
+              </a>
+
+              <p className="note">
+                Motion between recorded samples is visual only. Segments
+                crossing barriers hold until the next sample; sparse recordings
+                may jump.
+              </p>
+            </div>
+          </details>
+        </div>
         <div className="playback-help">
           {mismatch ? (
             <p className="playback-error" role="alert">
@@ -185,56 +302,12 @@ function Playback({ building, result, active = true }: SimulationViewProps) {
             </p>
           ) : (
             <p className="note">
-              Seeking pauses playback. Positions and time shown belong to the
-              selected recorded frame.
+              Seek or step to pause · Space to play/pause · ←/→ to step with the
+              Canvas focused
             </p>
           )}
         </div>
       </div>
-      <aside className="playback-inspector" aria-label="Simulation inspector">
-        <p className="eyebrow">Recording</p>
-        <h3>Simulation details</h3>
-        <dl className="playback-readout">
-          <div>
-            <dt>Simulation step</dt>
-            <dd>
-              <output aria-label="Current simulation step" aria-live="off">
-                {frame?.step ?? "—"}
-              </output>
-            </dd>
-          </div>
-          <div>
-            <dt>Simulation time</dt>
-            <dd>
-              <output aria-label="Elapsed simulation time" aria-live="off">
-                {frame ? `${time.toFixed(2)} s` : "—"}
-              </output>
-              {frame && (
-                <span className="playback-duration">
-                  {" "}
-                  / {finalTime.toFixed(2)} s
-                </span>
-              )}
-            </dd>
-          </div>
-          <div>
-            <dt>Visible occupants</dt>
-            <dd>{frame?.agents.length ?? "—"}</dd>
-          </div>
-        </dl>
-        {recording && (
-          <p className="playback-outcome">
-            Recorded outcome: <strong>{recording.status}</strong> ·{" "}
-            {recording.evacuated} / {recording.total_population} evacuated ·{" "}
-            {recording.remaining} remaining ({recording.trapped} unreachable).{" "}
-            {recording.status !== "completed" &&
-              "The evacuation did not complete; the recording ending does not imply success."}
-          </p>
-        )}
-        <a className="playback-analytics-link" href="#analytics">
-          Explore analytics ↗
-        </a>
-      </aside>
     </div>
   );
 }
