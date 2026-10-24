@@ -913,6 +913,59 @@
           "enum": [0, 90, 180, 270]
         }
       }
+    },
+    "SimulationStreamEvent": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "frame"],
+          "properties": {
+            "type": {
+              "const": "frame"
+            },
+            "frame": {
+              "$ref": "#/$defs/AnimationFrame"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "result"],
+          "properties": {
+            "type": {
+              "const": "complete"
+            },
+            "result": {
+              "$ref": "#/$defs/SimulationResult"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "error"],
+          "properties": {
+            "type": {
+              "const": "error"
+            },
+            "error": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["code", "message"],
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      ]
     }
   }
 }

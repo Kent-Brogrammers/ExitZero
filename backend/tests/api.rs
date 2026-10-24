@@ -7,8 +7,66 @@ use exitzero::{
     models::{BuildingScenario, OptimizationResult, SimulationResult, StressTestResult},
     simulation::simulate,
 };
+use futures_core::Stream;
 use serde_json::{Value, json};
+use std::{future::poll_fn, pin::Pin};
 use tower::ServiceExt;
+
+#[tokio::test]
+async fn live_route_delivers_frames_before_the_final_recording() {
+    let mut building: BuildingScenario = serde_json::from_value(building()).unwrap();
+    building.max_steps = 2;
+    building.time_step_seconds = 0.01;
+    let request = Request::post("/api/simulate/live")
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_vec(&building).unwrap()))
+        .unwrap();
+    let response = router().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["content-type"], "application/x-ndjson");
+    let mut stream = response.into_body().into_data_stream();
+    let first = poll_fn(|cx| Pin::new(&mut stream).poll_next(cx))
+        .await
+        .unwrap()
+        .unwrap();
+    let event: Value = serde_json::from_slice(&first).unwrap();
+    assert_eq!(event["type"], "frame");
+    assert_eq!(event["frame"]["step"], 0);
+    // The API remains responsive while a live simulation owns a worker.
+    assert_eq!(self::request("/api/health", None).await.0, StatusCode::OK);
+    let mut bytes = first.to_vec();
+    while let Some(chunk) = poll_fn(|cx| Pin::new(&mut stream).poll_next(cx)).await {
+        bytes.extend_from_slice(&chunk.unwrap());
+    }
+    let events: Vec<Value> = std::str::from_utf8(&bytes)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(
+        events
+            .iter()
+            .map(|event| event["type"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["frame", "frame", "complete"]
+    );
+    assert_eq!(events[1]["frame"]["step"], 2);
+    let result: SimulationResult = serde_json::from_value(events[2]["result"].clone()).unwrap();
+    result.validate().unwrap();
+    let expected: Value =
+        serde_json::from_slice(&serde_json::to_vec(&simulate(&building).unwrap()).unwrap())
+            .unwrap();
+    assert_eq!(serde_json::to_value(&result).unwrap(), expected);
+}
+
+#[tokio::test]
+async fn live_route_rejects_invalid_buildings_before_opening_a_stream() {
+    let mut payload = building();
+    payload["walls"][0]["end"]["x"] = json!(100);
+    let (status, body) = request("/api/simulate/live", Some(payload)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(body["error"]["code"], "validation_error");
+}
 
 async fn request(path: &str, payload: Option<Value>) -> (StatusCode, Value) {
     let request = match payload {

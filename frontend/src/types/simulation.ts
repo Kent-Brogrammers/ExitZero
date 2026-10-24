@@ -111,6 +111,17 @@ export interface SimulationResult extends SimulationMetrics {
   height: number;
 }
 
+/** Newline-delimited events from POST /api/simulate/live. */
+export type SimulationStreamEvent =
+  | { type: "frame"; frame: AnimationFrame }
+  | { type: "complete"; result: SimulationResult }
+  | { type: "error"; error: { code: string; message: string } };
+
+/** A running simulation has no outcome or known duration yet. */
+export interface LiveSimulation {
+  frame: AnimationFrame | null;
+}
+
 export interface StressTestConfig {
   max_scenarios: number;
   block_each_exit: boolean;
