@@ -53,7 +53,7 @@ shared/
   examples/            Valid 30×20 building and explicitly synthetic fixture
 ```
 
-Keep implementation changes inside your workstream. Review changes to `models/`, `types/`, schemas, examples, dependencies, and `App.tsx` together. Use branches such as `codex/building-editor`, `codex/simulation-engine`, `codex/stress-testing`, and `codex/analytics-integration`.
+Keep implementation changes inside your workstream. Review changes to `models/`, `types/`, schemas, examples, dependencies, and `App.tsx` together. Use branches such as `[name]/building-editor`, `[name]/simulation-engine`, `[name]/stress-testing`, and `[name]/analytics-integration`.
 
 The dependency direction is `api → feature modules → models`. Stress testing and optimization can call `simulation::simulate(&BuildingScenario) -> Result<SimulationResult, SimulationError>`. The simulation module does not depend on either feature module.
 
