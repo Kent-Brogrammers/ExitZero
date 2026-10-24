@@ -123,6 +123,10 @@ pub struct BuildingScenario {
     pub exits: Vec<Opening>,
     pub spawn_zones: Vec<SpawnZone>,
     pub blocked_exit_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "super::AgentAwareness::is_default")]
+    pub awareness: super::AgentAwareness,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub opening_events: Vec<super::OpeningStateChange>,
     pub obstructions: Vec<Obstruction>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stair_areas: Vec<StairArea>,
@@ -302,6 +306,37 @@ impl BuildingScenario {
             || blocked.iter().any(|id| !exit_ids.contains(id))
         {
             return Err("blocked_exit_ids must reference distinct existing exits".into());
+        }
+        for range in [
+            self.awareness.sight_range_metres,
+            self.awareness.communication_range_metres,
+        ] {
+            if !range.is_finite() || !(0.0..=1000.0).contains(&range) {
+                return Err("awareness ranges must be finite and between 0 and 1000 metres".into());
+            }
+        }
+        let opening_ids: HashSet<_> = self
+            .doors
+            .iter()
+            .chain(&self.exits)
+            .map(|o| &o.id)
+            .collect();
+        let mut seen_events = HashSet::new();
+        if self.opening_events.len() > 1000
+            || self
+                .opening_events
+                .windows(2)
+                .any(|pair| pair[0].step > pair[1].step)
+        {
+            return Err("opening_events must contain at most 1000 events ordered by step".into());
+        }
+        for event in &self.opening_events {
+            if event.step >= self.max_steps
+                || !opening_ids.contains(&event.opening_id)
+                || !seen_events.insert((event.step, &event.opening_id))
+            {
+                return Err("opening_events must reference existing openings before max_steps, once per opening per step".into());
+            }
         }
         for area in &self.stair_areas {
             if !self.contains_rectangle(area.x, area.y, area.width, area.height)

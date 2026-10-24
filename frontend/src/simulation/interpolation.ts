@@ -5,6 +5,7 @@ import type {
   Point,
 } from "../types/simulation";
 import { frameIndexAtTime } from "./playback";
+import { frameLayout } from "./frameLayout";
 
 interface Segment {
   start: Point;
@@ -154,7 +155,6 @@ export function createFrameSampler(
   frames: AnimationFrame[],
   timeStep: number,
 ) {
-  const walls = solidWalls(building);
   let pair = -1;
   let display: AnimationFrame | null = null;
   let entries: {
@@ -170,18 +170,21 @@ export function createFrameSampler(
     if (!next || seconds <= source.step * timeStep) return source;
     if (pair !== index) {
       pair = index;
+      const layout = frameLayout(building, source);
+      const walls = solidWalls(layout);
       const targets = new Map(next.agents.map((agent) => [agent.id, agent]));
       entries = source.agents.map((agent) => {
         const target = targets.get(agent.id);
         return {
           source: agent,
           target:
-            target && canBlend(agent, target, walls, building) ? target : agent,
+            target && canBlend(agent, target, walls, layout) ? target : agent,
           display: { ...agent },
         };
       });
       display = {
         step: source.step,
+        blocked_opening_ids: source.blocked_opening_ids,
         agents: entries.map((entry) => entry.display),
       };
     }

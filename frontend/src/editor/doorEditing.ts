@@ -78,10 +78,16 @@ function mergeKind(
           group.find((d) => old.has(d.id)) ??
           group[0]!;
         const removed = group.filter((d) => d.id !== survivor.id);
-        // The current contract only references exit IDs. Never erase a referenced ID in malformed input.
+        // Blocked exit references can be remapped below. Scheduled changes
+        // need their original opening IDs; malformed door references stay too.
         if (
-          kind === "exits" ||
-          !removed.some((d) => candidate.blocked_exit_ids.includes(d.id))
+          !removed.some(
+            (d) =>
+              (kind !== "exits" && candidate.blocked_exit_ids.includes(d.id)) ||
+              candidate.opening_events?.some(
+                (event) => event.opening_id === d.id,
+              ),
+          )
         ) {
           merged.set(survivor.id, {
             ...survivor,

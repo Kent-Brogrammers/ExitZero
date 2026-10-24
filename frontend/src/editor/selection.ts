@@ -127,6 +127,10 @@ export function removeSelection(
   next.blocked_exit_ids = next.blocked_exit_ids.filter((id) =>
     next.exits.some((o) => o.id === id),
   );
+  if (next.opening_events)
+    next.opening_events = next.opening_events.filter((event) =>
+      [...next.doors, ...next.exits].some((o) => o.id === event.opening_id),
+    );
   return next;
 }
 /** Apply one vector atomically. Selected parent walls carry their openings exactly once. */

@@ -13,6 +13,7 @@ import { trafficBins } from "../analytics/traffic";
 import { frameCrowding } from "../analytics/crowding";
 
 import { createFrameSampler } from "./interpolation";
+import { frameLayout } from "./frameLayout";
 
 export function LiveSimulationView({
   building,
@@ -79,11 +80,15 @@ export function LiveSimulationView({
     let animation = 0;
     function tick(now: number) {
       const snapshot = latest.current;
+      const frame =
+        snapshot.sample?.(
+          snapshot.fromTime + (now - snapshot.receivedAt) / 1000,
+        ) ?? null;
       // Interpolate only between physics samples already received. The live
       // view never predicts future positions or needs the run's duration.
       drawLayout(
         target,
-        building,
+        frameLayout(building, frame),
         null,
         undefined,
         window.devicePixelRatio || 1,
@@ -105,9 +110,7 @@ export function LiveSimulationView({
       drawAgents(
         target,
         building,
-        snapshot.sample?.(
-          snapshot.fromTime + (now - snapshot.receivedAt) / 1000,
-        ) ?? null,
+        frame,
         window.devicePixelRatio || 1,
         palette,
       );

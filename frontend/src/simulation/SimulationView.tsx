@@ -22,6 +22,7 @@ import { createFrameSampler } from "./interpolation";
 import { createPlayback, PLAYBACK_SPEEDS } from "./playback";
 import { syntheticBuilding, syntheticResult } from "./playback.fixture";
 import { SimulationSummary } from "./SimulationSummary";
+import { frameLayout } from "./frameLayout";
 import "./SimulationView.css";
 
 interface SimulationViewProps {
@@ -138,17 +139,25 @@ function Playback({
         }
         lastIndex = index;
       }
-      drawLayout(element, building, null, undefined, ratio, palette, {
-        underlay: (ctx) => {
-          ctx.save();
-          ctx.beginPath();
-          ctx.rect(0, 0, building.width, building.height);
-          ctx.clip();
-          ctx.imageSmoothingEnabled = true;
-          ctx.drawImage(layer, 0, 0, building.width, building.height);
-          ctx.restore();
+      drawLayout(
+        element,
+        frameLayout(building, agents),
+        null,
+        undefined,
+        ratio,
+        palette,
+        {
+          underlay: (ctx) => {
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(0, 0, building.width, building.height);
+            ctx.clip();
+            ctx.imageSmoothingEnabled = true;
+            ctx.drawImage(layer, 0, 0, building.width, building.height);
+            ctx.restore();
+          },
         },
-      });
+      );
       drawAgents(element, building, agents, ratio, palette);
     };
     const unsubscribe = player.subscribeRender(redraw);

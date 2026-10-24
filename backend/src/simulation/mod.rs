@@ -6,11 +6,13 @@ use crate::models::{
 use std::{collections::BTreeMap, fmt};
 mod agent;
 mod analytics;
+mod awareness;
 mod emergency;
 mod geometry;
 mod math;
 mod motion;
 mod navigation;
+mod perception;
 pub use emergency::Emergency;
 
 #[cfg(test)]
@@ -41,8 +43,8 @@ pub fn simulate(scenario: &BuildingScenario) -> Result<SimulationResult, Simulat
     simulate_with_emergencies(scenario, &[])
 }
 
-/// Emergencies are static for this run. Moving/spreading hazards will require
-/// rebuilding navigation and rerouting agents when the hazard state changes.
+/// Circular emergencies are static for this run. Door/exit states can change
+/// through opening_events and are learned independently by each agent.
 /// The existing API entry point remains compatible and runs without hazards.
 pub fn simulate_with_emergencies(
     scenario: &BuildingScenario,
@@ -82,17 +84,25 @@ fn run(
 
     //Spawning Agents
     let mut agents: Vec<Agent> = Vec::new();
-    let geometry = if emergencies.is_empty() {
+    let mut world = awareness::OpeningStates::new(scenario);
+    let mut geometry = if emergencies.is_empty() {
         geometry::Geometry::new(scenario)
     } else {
         geometry::Geometry::with_emergencies(scenario, emergencies)
     };
+    if world.apply(0, &[], &[]) {
+        geometry =
+            geometry::Geometry::with_blocked_openings(scenario, emergencies, world.blocked());
+    }
     agent::spawn_agents(&mut agents, scenario, &geometry)?;
 
-    let navigation = navigation::Navigation::new(scenario, &geometry);
+    let mut beliefs = awareness::BeliefMaps::new(scenario, emergencies);
     let mut routes: Vec<_> = agents
         .iter()
-        .map(|agent| navigation.find_route(agent.position, &geometry))
+        .map(|agent| {
+            let (map, navigation) = beliefs.for_agent(agent);
+            navigation.find_route(agent.position, map)
+        })
         .collect();
     let mut next_waypoint = vec![0; agents.len()];
     let mut motion: Vec<_> = agents.iter().map(|_| motion::Motion::new()).collect();
@@ -125,7 +135,7 @@ fn run(
     let frame_stride = ((u64::from(total_population) * (u64::from(scenario.max_steps) + 1))
         .div_ceil(200_000))
     .max(1) as u32;
-    let mut frames = vec![frame(0, &agents, &evacuated)];
+    let mut frames = vec![frame(0, &agents, &evacuated, &world)];
     let live_stride = (0.05 / scenario.time_step_seconds).ceil().max(1.0) as u32;
     let mut last_live_step = 0;
     if let Some(emit) = &mut on_frame
@@ -140,10 +150,39 @@ fn run(
         if evacuated_count == total_population {
             break SimulationStatus::Completed;
         }
+        let previous_blocks: Vec<_> = agents.iter().map(awareness::blocked_ids).collect();
+        let (changed_beliefs, information_changed) =
+            awareness::update_knowledge(&mut agents, &evacuated, &world, &geometry);
+        for i in 0..agents.len() {
+            if evacuated[i] || !changed_beliefs[i] {
+                continue;
+            }
+            // Keep useful guidance as visible fragments grow. Rebuild the
+            // graph only when new knowledge invalidates it or a passage changes.
+            let map = beliefs.geometry_for_agent(&agents[i]);
+            let mut from = agents[i].position;
+            let valid = routes[i].as_ref().is_some_and(|route| {
+                route.waypoints[next_waypoint[i]..].iter().all(|&to| {
+                    let clear = map.can_move(from, to);
+                    from = to;
+                    clear
+                })
+            });
+            if valid && previous_blocks[i] == awareness::blocked_ids(&agents[i]) {
+                continue;
+            }
+            let (map, navigation) = beliefs.for_agent(&agents[i]);
+            routes[i] = navigation.find_route(agents[i].position, map);
+            statistics[i].route_found = routes[i].is_some();
+            next_waypoint[i] = 0;
+            stalled_ticks[i] = 0;
+        }
         if !routes
             .iter()
             .enumerate()
             .any(|(i, route)| !evacuated[i] && route.is_some())
+            && !world.has_pending_changes()
+            && !information_changed
         {
             break SimulationStatus::Incomplete;
         }
@@ -166,7 +205,10 @@ fn run(
                 continue;
             };
             let distance = math::distance_to_point(before[i], target);
-            if !geometry.can_move(before[i], target) {
+            // Approach priority must use the person's beliefs too. Testing the
+            // actual closure here leaks unseen exit state into crowd steering.
+            let map = beliefs.geometry_for_agent(&agents[i]);
+            if !map.can_move(before[i], target) {
                 continue;
             }
             let leader = exit_leaders
@@ -187,9 +229,10 @@ fn run(
             if evacuated[i] {
                 continue;
             }
-            let lost_sight = routes[i].as_ref().is_some_and(|route| {
-                !geometry.can_move(before[i], route.waypoints[next_waypoint[i]])
-            });
+            let map = beliefs.geometry_for_agent(&agents[i]);
+            let lost_sight = routes[i]
+                .as_ref()
+                .is_some_and(|route| !map.can_move(before[i], route.waypoints[next_waypoint[i]]));
             if lost_sight
                 || (stalled_ticks[i] >= retry_ticks && stalled_ticks[i].is_multiple_of(retry_ticks))
             {
@@ -199,9 +242,10 @@ fn run(
                     .filter(|(j, _)| *j != i && !evacuated[*j])
                     .map(|(_, &position)| position)
                     .collect();
+                let (map, navigation) = beliefs.for_agent(&agents[i]);
                 if let Some(route) = navigation.find_route_with_crowd(
                     before[i],
-                    &geometry,
+                    map,
                     &occupants,
                     scenario.agent_radius,
                 ) {
@@ -212,8 +256,9 @@ fn run(
             let Some(route) = &routes[i] else {
                 continue;
             };
+            let map = beliefs.geometry_for_agent(&agents[i]);
             for future in (next_waypoint[i] + 1..route.waypoints.len()).rev() {
-                if geometry.can_move(before[i], route.waypoints[future]) {
+                if map.can_move(before[i], route.waypoints[future]) {
                     next_waypoint[i] = future;
                     break;
                 }
@@ -410,7 +455,9 @@ fn run(
             if math::distance_to_point(proposed[i], waypoint) <= math::EPSILON {
                 next_waypoint[i] += 1;
                 progress = true;
-                if next_waypoint[i] == routes[i].as_ref().unwrap().waypoints.len() {
+                if next_waypoint[i] == routes[i].as_ref().unwrap().waypoints.len()
+                    && !world.states[&routes[i].as_ref().unwrap().exit_id].blocked
+                {
                     leaving.push(i);
                 }
             }
@@ -426,18 +473,26 @@ fn run(
             statistics[i].evacuation_seconds = Some(f64::from(step) * scenario.time_step_seconds);
             statistics[i].exit_id = routes[i].as_ref().map(|route| route.exit_id.clone());
         }
+        if world.apply(step, &agents, &evacuated) {
+            geometry =
+                geometry::Geometry::with_blocked_openings(scenario, emergencies, world.blocked());
+        }
         if step % frame_stride == 0 {
-            frames.push(frame(step, &agents, &evacuated));
+            frames.push(frame(step, &agents, &evacuated, &world));
         }
         if step.is_multiple_of(live_stride)
             && let Some(emit) = &mut on_frame
         {
-            if !emit(&frame(step, &agents, &evacuated)) {
+            if !emit(&frame(step, &agents, &evacuated, &world)) {
                 return Err(SimulationError::Cancelled);
             }
             last_live_step = step;
         }
-        idle_steps = if progress { 0 } else { idle_steps + 1 };
+        idle_steps = if progress || information_changed || world.has_pending_changes() {
+            0
+        } else {
+            idle_steps + 1
+        };
         // Allow rerouting before reporting a stalled run. Local avoidance has
         // already run on every tick; a stall still does not prove entrapment.
         if idle_steps >= agents.len().max(2 * retry_ticks as usize + 1) {
@@ -446,7 +501,7 @@ fn run(
     };
 
     if frames.last().is_none_or(|last| last.step != step) {
-        frames.push(frame(step, &agents, &evacuated));
+        frames.push(frame(step, &agents, &evacuated, &world));
     }
     if last_live_step != step
         && let Some(emit) = &mut on_frame
@@ -459,7 +514,7 @@ fn run(
     let no_available_exits = scenario
         .exits
         .iter()
-        .all(|exit| scenario.blocked_exit_ids.contains(&exit.id));
+        .all(|exit| world.states[&exit.id].blocked);
     let remaining = total_population - evacuated_count;
     for agent in &mut statistics {
         agent.elapsed_seconds =
@@ -485,8 +540,14 @@ fn run(
     })
 }
 
-fn frame(step: u32, agents: &[Agent], evacuated: &[bool]) -> AnimationFrame {
+fn frame(
+    step: u32,
+    agents: &[Agent],
+    evacuated: &[bool],
+    world: &awareness::OpeningStates,
+) -> AnimationFrame {
     AnimationFrame {
+        blocked_opening_ids: Some(world.blocked().into_iter().collect()),
         step,
         agents: agents
             .iter()

@@ -80,6 +80,9 @@ pub struct AgentPosition {
 pub struct AnimationFrame {
     pub step: u32,
     pub agents: Vec<AgentPosition>,
+    /// Physical state at this frame; absent in legacy recordings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocked_opening_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
