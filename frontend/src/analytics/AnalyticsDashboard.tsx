@@ -50,6 +50,20 @@ export default function AnalyticsDashboard({
           <>
             <div className="metrics">
               <div>
+                <span>Status</span>
+                <strong>
+                  {metrics.status === "completed"
+                    ? "Completed"
+                    : metrics.status === "timeout"
+                      ? "Step limit reached"
+                      : "Incomplete"}
+                </strong>
+              </div>
+              <div>
+                <span>Remaining</span>
+                <strong>{metrics.remaining}</strong>
+              </div>
+              <div>
                 <span>Evacuated</span>
                 <strong>
                   {metrics.evacuated} / {metrics.total_population}
@@ -63,7 +77,7 @@ export default function AnalyticsDashboard({
                 <span>Clearance</span>
                 <strong>
                   {metrics.clearance_steps === null
-                    ? "Not cleared"
+                    ? "No measured clearance"
                     : `${metrics.clearance_steps} steps`}
                 </strong>
               </div>
@@ -96,9 +110,9 @@ export default function AnalyticsDashboard({
               </ResponsiveContainer>
             </div>
             <p className="note">
-              {showMock
-                ? "Synthetic UI fixture only. These numbers do not describe the displayed floor plan."
-                : "Trapped occupants are a subset of remaining occupants."}
+              Trapped occupants are included in remaining occupants.
+              {showMock &&
+                " Synthetic UI fixture only. These numbers do not describe the displayed floor plan."}
             </p>
           </>
         ) : (
