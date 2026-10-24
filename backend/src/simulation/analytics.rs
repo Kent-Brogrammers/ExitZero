@@ -15,7 +15,7 @@ pub(super) fn summarize(
         None
     } else {
         let middle = times.len() / 2;
-        Some(if times.len() % 2 == 0 {
+        Some(if times.len().is_multiple_of(2) {
             (times[middle - 1] + times[middle]) / 2.0
         } else {
             times[middle]

@@ -9,9 +9,12 @@ mod analytics;
 mod emergency;
 mod geometry;
 mod math;
+mod motion;
 mod navigation;
-mod steering;
 pub use emergency::Emergency;
+
+#[cfg(test)]
+mod tests;
 
 #[derive(Debug)]
 pub enum SimulationError {
@@ -30,7 +33,7 @@ impl fmt::Display for SimulationError {
 
 impl std::error::Error for SimulationError {}
 
-/// Simplified waypoint-following model. Agents walk at 1.3 m/s and evacuate
+/// Continuous reactive crowd model. Agents walk at up to 1.3 m/s and evacuate
 /// upon reaching an available exit's centre; this does not certify outdoors.
 pub fn simulate(scenario: &BuildingScenario) -> Result<SimulationResult, SimulationError> {
     simulate_with_emergencies(scenario, &[])
@@ -60,7 +63,11 @@ pub fn simulate_with_emergencies(
 
     //Spawning Agents
     let mut agents: Vec<Agent> = Vec::new();
-    let geometry = geometry::Geometry::with_emergencies(scenario, emergencies);
+    let geometry = if emergencies.is_empty() {
+        geometry::Geometry::new(scenario)
+    } else {
+        geometry::Geometry::with_emergencies(scenario, emergencies)
+    };
     agent::spawn_agents(&mut agents, scenario, &geometry)?;
 
     let navigation = navigation::Navigation::new(scenario, &geometry);
@@ -69,13 +76,9 @@ pub fn simulate_with_emergencies(
         .map(|agent| navigation.find_route(agent.position, &geometry))
         .collect();
     let mut next_waypoint = vec![0; agents.len()];
-    let mut steering: Vec<_> = agents
-        .iter()
-        .map(|agent| steering::Steering::new(agent.id, scenario.seed))
-        .collect();
-    let retry_ticks = (2.0 / scenario.time_step_seconds)
-        .ceil()
-        .min(f64::from(scenario.max_steps)) as u32;
+    let mut motion: Vec<_> = agents.iter().map(|_| motion::Motion::new()).collect();
+    let retry_ticks = (2.0 / scenario.time_step_seconds).ceil() as u32;
+    let mut stalled_ticks = vec![0_u32; agents.len()];
     let mut statistics: Vec<_> = agents
         .iter()
         .zip(&routes)
@@ -96,7 +99,7 @@ pub fn simulate_with_emergencies(
     let mut evacuated_count = 0;
     let mut step = 0;
     let mut idle_steps = 0;
-    let movement_budget = 1.3 * scenario.time_step_seconds;
+    let movement_budget = motion::WALKING_SPEED * scenario.time_step_seconds;
 
     // Bound animation output by sampling ticks, retaining initial/final frames.
     // Physics and traffic still update every tick.
@@ -123,18 +126,47 @@ pub fn simulate_with_emergencies(
         }
 
         let before: Vec<Point> = agents.iter().map(|agent| agent.position).collect();
-        let mut processed = vec![false; agents.len()];
-        let mut leaving = Vec::new();
-        let mut progress = false;
-
-        // Rotate priority deterministically so the same person is not always first.
-        for offset in 0..agents.len() {
-            let i = (step as usize + offset) % agents.len();
+        let previous_velocities: Vec<_> = motion.iter().map(motion::Motion::velocity).collect();
+        // Centre-arrival remains compatible with result consumers. The closest
+        // visible person gets approach priority; everybody still performs local
+        // avoidance. This does not model the full capacity of a wide opening.
+        let mut exit_leaders: BTreeMap<String, (usize, f64)> = BTreeMap::new();
+        for (i, route) in routes.iter().enumerate() {
             if evacuated[i] {
                 continue;
             }
-            let recovering = steering[i].needs_replan(retry_ticks);
-            if recovering {
+            let Some(route) = route else { continue };
+            let Some(&target) = route.waypoints.last() else {
+                continue;
+            };
+            let distance = math::distance_to_point(before[i], target);
+            if !geometry.can_move(before[i], target) {
+                continue;
+            }
+            let leader = exit_leaders
+                .entry(route.exit_id.clone())
+                .or_insert((i, distance));
+            if distance < leader.1 || (distance == leader.1 && agents[i].id < agents[leader.0].id) {
+                *leader = (i, distance);
+            }
+        }
+        let mut proposed = before.clone();
+        let active: Vec<_> = evacuated.iter().map(|gone| !gone).collect();
+        let mut targets = vec![None; agents.len()];
+        let mut velocity_limits = vec![Vec::new(); agents.len()];
+
+        // Guidance can change with congestion, but avoidance is active on every
+        // tick, including the very first one. All people see the same snapshot.
+        for i in 0..agents.len() {
+            if evacuated[i] {
+                continue;
+            }
+            let lost_sight = routes[i].as_ref().is_some_and(|route| {
+                !geometry.can_move(before[i], route.waypoints[next_waypoint[i]])
+            });
+            if lost_sight
+                || (stalled_ticks[i] >= retry_ticks && stalled_ticks[i].is_multiple_of(retry_ticks))
+            {
                 let occupants: Vec<_> = before
                     .iter()
                     .enumerate()
@@ -151,74 +183,208 @@ pub fn simulate_with_emergencies(
                     next_waypoint[i] = 0;
                 }
             }
-            let Some(route) = &routes[i] else { continue };
-            // Waypoints describe a corridor, not mandatory stopping points.
-            // Skip intermediate corners/door centres as soon as a later point
-            // becomes visible, so agents do not all queue on an exact coordinate.
+            let Some(route) = &routes[i] else {
+                continue;
+            };
             for future in (next_waypoint[i] + 1..route.waypoints.len()).rev() {
-                if geometry.can_move(before[i], route.waypoints[future])
-                    && !(0..agents.len()).any(|j| {
-                        j != i
-                            && !evacuated[j]
-                            && math::distance_to_segment(
-                                before[j],
-                                before[i],
-                                route.waypoints[future],
-                            ) < 2.0 * scenario.agent_radius
-                    })
-                {
+                if geometry.can_move(before[i], route.waypoints[future]) {
                     next_waypoint[i] = future;
                     break;
                 }
             }
             let waypoint = route.waypoints[next_waypoint[i]];
-            steering[i].observe(before[i], waypoint, movement_budget);
-            // Accepted agents follow their swept path. Unprocessed agents are
-            // conservatively treated as stationary for this tick. This prevents
-            // both overlap and agents crossing through each other between frames.
-            let proposed = steering[i]
-                .candidates(before[i], waypoint, movement_budget, retry_ticks)
-                .into_iter()
-                .find(|&candidate| {
-                    if !geometry.can_move(before[i], candidate)
-                        // Keep the current waypoint visible after a sidestep.
-                        || !geometry.can_move(candidate, waypoint)
-                    {
-                        return false;
-                    }
-                    !(0..agents.len()).any(|j| {
-                        if i == j || evacuated[j] {
-                            return false;
-                        }
-                        let other_end = if processed[j] {
-                            agents[j].position
+            targets[i] = Some(waypoint);
+            velocity_limits[i] = geometry.velocity_limits(before[i], scenario.time_step_seconds);
+            if next_waypoint[i] + 1 == route.waypoints.len()
+                && geometry.can_move(before[i], waypoint)
+            {
+                // Followers leave a body-sized arrival lane for the leader;
+                // otherwise they can crowd the plane and obstruct its centre.
+                velocity_limits[i].extend(
+                    geometry.exit_approach_limits(
+                        before[i],
+                        &route.exit_id,
+                        scenario.time_step_seconds,
+                        if exit_leaders
+                            .get(&route.exit_id)
+                            .is_some_and(|&(leader, _)| leader == i)
+                        {
+                            0.0
                         } else {
-                            before[j]
-                        };
-                        math::moving_circles_overlap(
-                            before[i],
-                            candidate,
-                            scenario.agent_radius,
-                            before[j],
-                            other_end,
-                            scenario.agent_radius,
-                        )
-                    })
-                });
-            let Some(proposed) = proposed else {
-                statistics[i].waiting_steps += 1;
-                steering[i].waited(retry_ticks);
+                            2.0 * scenario.agent_radius + 1e-4
+                        },
+                    ),
+                );
+            }
+        }
+        let previous_neighbors = |i: usize| -> Vec<_> {
+            before
+                .iter()
+                .enumerate()
+                .filter(|(j, _)| *j != i && !evacuated[*j])
+                .map(|(j, &position)| motion::Neighbor {
+                    position,
+                    velocity: previous_velocities[j],
+                    responsibility: if routes[j].is_some() { 0.5 } else { 1.0 },
+                    horizon: 1.5,
+                })
+                .collect()
+        };
+        let intents: Vec<_> = (0..agents.len())
+            .map(|i| {
+                let Some(target) = targets[i] else {
+                    return Point { x: 0.0, y: 0.0 };
+                };
+                motion[i].preferred_velocity(
+                    before[i],
+                    target,
+                    scenario.time_step_seconds,
+                    scenario.agent_radius,
+                    &previous_neighbors(i),
+                    &velocity_limits[i],
+                )
+            })
+            .collect();
+        for i in 0..agents.len() {
+            let Some(waypoint) = targets[i] else {
                 continue;
             };
-
-            agents[i].position = proposed;
-            statistics[i].distance_metres += math::distance_to_point(before[i], proposed);
-            processed[i] = true;
-            progress |= math::distance_to_point(before[i], proposed) > 0.0;
-            if math::distance_to_point(proposed, waypoint) <= math::EPSILON {
+            let route = routes[i].as_ref().unwrap();
+            let exit = *route.waypoints.last().unwrap();
+            let neighbors: Vec<_> = before
+                .iter()
+                .enumerate()
+                .filter(|(j, _)| *j != i && !evacuated[*j])
+                .map(|(j, &position)| motion::Neighbor {
+                    position,
+                    velocity: intents[j],
+                    responsibility: if routes[j].is_none() {
+                        1.0
+                    } else if routes[j]
+                        .as_ref()
+                        .is_some_and(|other| other.exit_id == route.exit_id)
+                    {
+                        match exit_leaders.get(&route.exit_id).map(|&(index, _)| index) {
+                            Some(leader) if leader == i => 0.05,
+                            Some(leader) if leader == j => 0.95,
+                            _ => 0.5,
+                        }
+                    } else {
+                        0.5
+                    },
+                    horizon: if routes[j]
+                        .as_ref()
+                        .is_some_and(|other| other.exit_id == route.exit_id)
+                    {
+                        ((math::distance_to_point(before[i], exit)
+                            .min(math::distance_to_point(position, exit)))
+                            / motion::WALKING_SPEED
+                            + scenario.time_step_seconds)
+                            .min(1.5)
+                    } else {
+                        1.5
+                    },
+                })
+                .collect();
+            let mut candidate = motion[i].propose(
+                before[i],
+                intents[i],
+                scenario.time_step_seconds,
+                scenario.agent_radius,
+                &neighbors,
+                velocity_limits[i].clone(),
+            );
+            if exit_leaders
+                .get(&route.exit_id)
+                .is_some_and(|&(leader, _)| leader == i)
+                && math::distance_to_point(before[i], exit)
+                    <= 2.0 * scenario.agent_radius + movement_budget
+                && geometry.can_move(before[i], exit)
+            {
+                let speed = (previous_velocities[i].x.hypot(previous_velocities[i].y)
+                    + motion::ACCELERATION * scenario.time_step_seconds)
+                    .min(motion::WALKING_SPEED);
+                candidate = math::move_toward(before[i], exit, speed * scenario.time_step_seconds);
+            }
+            if math::distance_to_point(candidate, waypoint) < 1e-8 {
+                candidate = waypoint;
+            }
+            // Projection onto a boundary can leave a negative coordinate a few
+            // ulps below zero. Clamp before exact geometry/swept-disc checks.
+            candidate.x = candidate.x.clamp(0.0, scenario.width);
+            candidate.y = candidate.y.clamp(0.0, scenario.height);
+            if geometry.can_move(before[i], candidate) {
+                proposed[i] = candidate;
+            }
+        }
+        let compliance: Vec<_> = (0..agents.len())
+            .map(|i| {
+                if targets[i].is_none() {
+                    0.0
+                } else if routes[i].as_ref().is_some_and(|route| {
+                    exit_leaders
+                        .get(&route.exit_id)
+                        .is_some_and(|&(leader, _)| leader == i)
+                }) {
+                    if math::distance_to_point(
+                        before[i],
+                        *routes[i].as_ref().unwrap().waypoints.last().unwrap(),
+                    ) <= movement_budget * 0.2
+                    {
+                        0.0
+                    } else {
+                        0.05
+                    }
+                } else {
+                    1.0
+                }
+            })
+            .collect();
+        motion::coordinate_moves(
+            &before,
+            &mut proposed,
+            &active,
+            &compliance,
+            scenario.agent_radius,
+            scenario.time_step_seconds,
+            &velocity_limits,
+        );
+        for i in 0..agents.len() {
+            proposed[i].x = proposed[i].x.clamp(0.0, scenario.width);
+            proposed[i].y = proposed[i].y.clamp(0.0, scenario.height);
+            if !geometry.can_move(before[i], proposed[i]) {
+                proposed[i] = before[i];
+            }
+        }
+        motion::resolve_collisions(&before, &mut proposed, &active, scenario.agent_radius);
+        let mut leaving = Vec::new();
+        let mut progress = false;
+        for i in 0..agents.len() {
+            if evacuated[i] {
+                continue;
+            }
+            let Some(waypoint) = targets[i] else {
+                continue;
+            };
+            let travelled = math::distance_to_point(before[i], proposed[i]);
+            agents[i].position = proposed[i];
+            motion[i].accepted(before[i], proposed[i], scenario.time_step_seconds);
+            statistics[i].distance_metres += travelled;
+            if travelled <= math::EPSILON {
+                statistics[i].waiting_steps += 1;
+            }
+            if math::distance_to_point(proposed[i], waypoint)
+                < math::distance_to_point(before[i], waypoint) - movement_budget * 0.05
+            {
+                stalled_ticks[i] = 0;
+            } else {
+                stalled_ticks[i] += 1;
+            }
+            progress |= travelled > math::EPSILON;
+            if math::distance_to_point(proposed[i], waypoint) <= math::EPSILON {
                 next_waypoint[i] += 1;
                 progress = true;
-                if next_waypoint[i] == route.waypoints.len() {
+                if next_waypoint[i] == routes[i].as_ref().unwrap().waypoints.len() {
                     leaving.push(i);
                 }
             }
@@ -238,8 +404,8 @@ pub fn simulate_with_emergencies(
             frames.push(frame(step, &agents, &evacuated));
         }
         idle_steps = if progress { 0 } else { idle_steps + 1 };
-        // Allow both a full priority cycle and side-preference recovery before
-        // reporting a stalled run. This still does not prove entrapment.
+        // Allow rerouting before reporting a stalled run. Local avoidance has
+        // already run on every tick; a stall still does not prove entrapment.
         if idle_steps >= agents.len().max(2 * retry_ticks as usize + 1) {
             break SimulationStatus::Incomplete;
         }

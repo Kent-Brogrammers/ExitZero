@@ -68,7 +68,6 @@ impl Navigation {
                     return None;
                 }
 
-                // Offset and width are measured along the wall in metres.
                 let t = (exit.offset + exit.width / 2.0) / length;
                 Some(ExitTarget {
                     id: exit.id.clone(),
@@ -110,7 +109,7 @@ impl Navigation {
             let clearance = scenario.agent_radius + wall.thickness / 2.0 + 1e-6;
 
             // Four corners of an expanded wall rectangle allow safe detours
-            // around the rounded solid-segment endpoints used by Geometry.
+            // around the solid wall endpoints with body clearance.
             for (endpoint, direction) in [(wall.start, -1.0), (wall.end, 1.0)] {
                 for side in [-1.0, 1.0] {
                     add_point(Point {
@@ -256,32 +255,6 @@ impl Navigation {
             }
         }
         None
-    }
-
-    /// Choose the nearest exit with a clear straight path for this agent.
-    /// None means no DIRECT route was found, not that the agent is trapped.
-    /// This does not check other agents or find detours around obstacles.
-    pub(super) fn find_direct_route(&self, from: Point, geometry: &Geometry<'_>) -> Option<Route> {
-        let mut best: Option<(&ExitTarget, f64)> = None;
-
-        for exit in &self.exits {
-            let distance = math::distance_to_point(from, exit.position);
-            // Keep the first exit in scenario order when distances tie.
-            if best
-                .as_ref()
-                .is_some_and(|(_, current)| distance >= *current)
-            {
-                continue;
-            }
-            if geometry.can_move(from, exit.position) {
-                best = Some((exit, distance));
-            }
-        }
-
-        best.map(|(exit, _)| Route {
-            exit_id: exit.id.clone(),
-            waypoints: vec![exit.position],
-        })
     }
 }
 
