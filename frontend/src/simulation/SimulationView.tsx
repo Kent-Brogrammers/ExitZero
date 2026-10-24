@@ -5,7 +5,12 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import type { BuildingScenario, SimulationResult } from "../types/simulation";
+import type {
+  BuildingScenario,
+  LiveSimulation,
+  SimulationResult,
+} from "../types/simulation";
+import { LiveSimulationView } from "./LiveSimulationView";
 import { createPlaybackRenderer, drawAgents } from "./drawPlayback";
 import { drawLayout } from "../editor/draw";
 import { canvasPalette } from "../styles/canvasPalette";
@@ -22,6 +27,7 @@ import "./SimulationView.css";
 interface SimulationViewProps {
   building: BuildingScenario;
   result: SimulationResult | null;
+  live?: LiveSimulation | null;
   active?: boolean;
   onOpenAnalytics?: () => void;
 }
@@ -47,7 +53,12 @@ function Playback({
     result !== null &&
     (result.width !== building.width || result.height !== building.height);
   const recording = mismatch ? null : result;
-  const player = useMemo(() => createPlayback(recording), [recording]);
+  const player = useMemo(() => {
+    const playback = createPlayback(recording);
+    // A real run has already been watched live. Begin its review at the end.
+    if (recording && !synthetic) playback.seek(recording.frames.length - 1);
+    return playback;
+  }, [recording, synthetic]);
   const state = useSyncExternalStore(
     player.subscribe,
     player.getSnapshot,
@@ -432,6 +443,7 @@ function Playback({
 export function SimulationView({
   building,
   result,
+  live = null,
   active = true,
   onOpenAnalytics,
 }: SimulationViewProps) {
@@ -442,10 +454,11 @@ export function SimulationView({
     analyticsButton.current?.focus();
   }
   const [preview, setPreview] = useState(false);
+  const running = live !== null;
   // A newly returned API result takes precedence over a development preview.
   useEffect(() => {
     setPreview(false);
-  }, [result]);
+  }, [result, running]);
 
   return (
     <section
@@ -456,7 +469,9 @@ export function SimulationView({
       <div className="panel-heading">
         <div>
           <p className="eyebrow">02 / Simulation</p>
-          <h2 id="simulation-title">Evacuation playback</h2>
+          <h2 id="simulation-title">
+            {live ? "Live evacuation" : "Evacuation playback"}
+          </h2>
         </div>
       </div>
       <div className="playback-source">
@@ -465,16 +480,19 @@ export function SimulationView({
             <input
               type="checkbox"
               checked={preview}
+              disabled={live !== null}
               onChange={(event) => setPreview(event.target.checked)}
             />
             Use synthetic playback preview
           </label>
           <span className={`badge${preview ? " mock" : ""}`}>
-            {preview
-              ? "SYNTHETIC PREVIEW"
-              : result
-                ? "API recording"
-                : "Awaiting simulation"}
+            {live
+              ? "LIVE · RECORDING"
+              : preview
+                ? "SYNTHETIC PREVIEW"
+                : result
+                  ? "API recording"
+                  : "Awaiting simulation"}
           </span>
         </div>
         <button
@@ -483,27 +501,32 @@ export function SimulationView({
           className="studio-control"
           aria-expanded={analyticsOpen}
           aria-controls="simulation-summary"
+          disabled={live !== null}
           onClick={() => setAnalyticsOpen(!analyticsOpen)}
         >
           {analyticsOpen ? "Hide Analytics" : "Show Analytics"}
         </button>
       </div>
-      {preview && (
+      {preview && !live && (
         <p className="playback-synthetic-note" role="note">
           Scripted development fixture only. No simulation was run. Separate 4 ×
           3 m layout with two occupants; it does not represent your edited
           building or the full Analytics view.
         </p>
       )}
-      <Playback
-        synthetic={preview}
-        analyticsOpen={analyticsOpen}
-        onCloseAnalytics={closeAnalytics}
-        onOpenAnalytics={onOpenAnalytics}
-        active={active}
-        building={preview ? syntheticBuilding : building}
-        result={preview ? syntheticResult : result}
-      />
+      {live ? (
+        <LiveSimulationView building={building} live={live} active={active} />
+      ) : (
+        <Playback
+          synthetic={preview}
+          analyticsOpen={analyticsOpen}
+          onCloseAnalytics={closeAnalytics}
+          onOpenAnalytics={onOpenAnalytics}
+          active={active}
+          building={preview ? syntheticBuilding : building}
+          result={preview ? syntheticResult : result}
+        />
+      )}
     </section>
   );
 }
