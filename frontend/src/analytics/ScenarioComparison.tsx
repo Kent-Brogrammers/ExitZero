@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { SimulationMetrics, StressTestResult } from "../types/simulation";
 import "./scenarioComparison.css";
+import { scenarioTitle, outcomeExplanation } from "./presentation";
 
 interface ScenarioComparisonProps {
   result: StressTestResult | null;
@@ -31,8 +32,8 @@ export default function ScenarioComparison({
       <div className="empty-state compact">
         <h3>No scenarios evaluated</h3>
         <p>
-          Run a stress test when the backend is available, or enable the
-          synthetic preview.
+          Run Stress test to compare computed scenarios for the current
+          building.
         </p>
       </div>
     );
@@ -103,7 +104,7 @@ export default function ScenarioComparison({
                       setSelection({ source: result, id: scenario.scenario_id })
                     }
                   >
-                    {scenario.description}
+                    {scenarioTitle(scenario)}
                   </button>
                 </th>
                 <td>
@@ -121,6 +122,7 @@ export default function ScenarioComparison({
           </tbody>
         </table>
       </div>
+      <p className="note">Baseline: {outcomeExplanation(result.baseline)}</p>
       {!scenarios.length && (
         <p>No stress scenarios were returned. Baseline metrics are shown.</p>
       )}
@@ -130,11 +132,28 @@ export default function ScenarioComparison({
           aria-label="Selected scenario details"
           aria-live="polite"
         >
-          <h3>{selected.description}</h3>
+          <h3>{scenarioTitle(selected)}</h3>
+          <p>{selected.description}</p>
+          <p>{outcomeExplanation(selected.metrics)}</p>
           <p>
             Rank {selected.rank} · {statusLabel(selected.metrics.status)}
           </p>
           <dl>
+            <div>
+              <dt>Evacuated</dt>
+              <dd>
+                {selected.metrics.evacuated} /{" "}
+                {selected.metrics.total_population}
+              </dd>
+            </div>
+            <div>
+              <dt>Remaining</dt>
+              <dd>{selected.metrics.remaining}</dd>
+            </div>
+            <div>
+              <dt>Trapped</dt>
+              <dd>{selected.metrics.trapped}</dd>
+            </div>
             <div>
               <dt>Remaining vs. baseline</dt>
               <dd>

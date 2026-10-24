@@ -56,7 +56,7 @@ export default function App() {
     "checking" | "online" | "offline"
   >("checking");
   const [healthAttempt, setHealthAttempt] = useState(0);
-  const [showMock, setShowMock] = useState(false);
+
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [result, setResult] = useState<SimulationResult | null>(null);
@@ -81,7 +81,7 @@ export default function App() {
     try {
       if (action === "simulate") {
         setResult(await api.simulate(building));
-        setShowMock(false);
+
         setMessage("Simulation result received.");
         navigate("simulation");
       } else if (action === "stress") {
@@ -289,23 +289,8 @@ export default function App() {
                 </button>
               </div>
             </div>
-            <div className="preview-control">
-              <label>
-                <input
-                  type="checkbox"
-                  checked={showMock}
-                  onChange={(event) => setShowMock(event.target.checked)}
-                />
-                Show mock analytics preview
-              </label>
-              <span>Synthetic fixture for frontend development</span>
-            </div>
             <Suspense fallback={<p role="status">Loading analytics…</p>}>
-              <AnalyticsDashboard
-                result={result}
-                stressResult={stressResult}
-                showMock={showMock}
-              />
+              <AnalyticsDashboard result={result} stressResult={stressResult} />
             </Suspense>
           </section>
         </main>

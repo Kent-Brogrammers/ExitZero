@@ -102,3 +102,22 @@
 .stress-preview input {
   margin-right: 8px;
 }
+.analytics-grid > .comparison-panel {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+.scenario-table caption {
+  white-space: normal;
+}
+.scenario-table button {
+  min-width: 0;
+  max-width: 240px;
+  overflow-wrap: anywhere;
+}
+.scenario-table th,
+.scenario-table td {
+  padding: 10px;
+}
+.scenario-table td {
+  font-variant-numeric: tabular-nums;
+}
