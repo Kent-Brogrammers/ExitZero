@@ -13,6 +13,7 @@ import type {
 const AnalyticsDashboard = lazy(() => import("./analytics/AnalyticsDashboard"));
 
 export default function App() {
+<<<<<<< HEAD
   const [building, setBuilding] = useState<BuildingScenario>(() =>
     structuredClone(example),
   );
@@ -23,6 +24,9 @@ export default function App() {
     setStressResult(null);
     setMessage("Layout updated. Export JSON to save your work.");
   }
+=======
+  const [building, setBuilding] = useState<BuildingScenario>(example);
+>>>>>>> 640f4251aaa873d72caf13cb12cc68bec8b5e328
   const [connection, setConnection] = useState<
     "checking" | "online" | "offline"
   >("checking");
@@ -163,8 +167,20 @@ export default function App() {
         <div className="workspace-grid">
           <BuildingEditor
             building={building}
+<<<<<<< HEAD
             onChange={changeBuilding}
             disabled={busy}
+=======
+            disabled={busy}
+            onChange={(next) => {
+              setBuilding(next);
+              setResult(null);
+              setStressResult(null);
+              setMessage(
+                "Layout updated. Computation endpoints return 501 until the engine is implemented.",
+              );
+            }}
+>>>>>>> 640f4251aaa873d72caf13cb12cc68bec8b5e328
           />
           <SimulationView result={result} />
         </div>
