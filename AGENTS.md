@@ -54,7 +54,7 @@ The user opens ExitZero and sees a top-down, 2D building editor.
 
 They can:
 
-- Create a rectangular floor-plan grid.
+- Create a floor plan using continuous coordinates in metres.
 - Draw and remove walls.
 - Place doors and walkable corridors.
 - Designate emergency exits.
@@ -79,7 +79,7 @@ The simulation engine:
 2. Identifies walkable areas and available exits.
 3. Creates simulated occupants.
 4. Calculates routes toward accessible exits.
-5. Moves occupants through the grid.
+5. Moves occupants through continuous space.
 6. Resolves movement conflicts.
 7. Records traffic and congestion-related metrics.
 8. Tracks successful evacuations.
@@ -161,9 +161,8 @@ The goal is to demonstrate measurable improvement under consistent assumptions, 
 ExitZero combines several computer science areas:
 
 **Algorithms**
-- Breadth-first search
 - Pathfinding
-- Graph/grid representation
+- Navigation graphs and computational geometry
 - Search and optimization
 
 **Simulation**
@@ -234,7 +233,7 @@ The frontend should NOT independently calculate evacuation physics.
 Responsible for:
 
 - Building validation
-- Grid representation
+- Continuous geometry and obstacle representation
 - Agent pathfinding
 - Movement simulation
 - Congestion behavior
@@ -258,7 +257,7 @@ Planned routes:
 - POST /api/stress-test
 - POST /api/optimize (stretch feature)
 
-The ongoing boilerplate generation establishes the authoritative data contracts. Inspect the generated schemas and Rust/TypeScript types before implementing features. Do not independently introduce incompatible request or response structures.
+The checked-in shared schemas and Rust/TypeScript types establish the authoritative data contracts. Inspect them and the README before implementing features. Do not independently introduce incompatible request or response structures.
 
 # 6. TEAM ASSIGNMENTS
 
@@ -269,7 +268,7 @@ Primary responsibility: Building design and simulation playback.
 
 Owns:
 
-- Editable grid
+- Continuous floor-plan editor
 - Walls and doors
 - Emergency exits
 - Spawn zones
@@ -287,8 +286,8 @@ Primary responsibility: Build the simulation engine that everything else depends
 
 Owns:
 
-- Grid navigation
-- Walkable and blocked cells
+- Continuous-space navigation
+- Wall, opening, and obstruction collision geometry
 - Pathfinding
 - Agent initialization
 - Agent movement
@@ -331,7 +330,7 @@ Primary responsibility: Explain simulation results and help deliver a fully inte
 Owns:
 
 - Evacuation metrics dashboard
-- Cell traffic heatmaps
+- World-space traffic heatmaps
 - Vulnerability rankings
 - Before/after comparisons
 - Scenario selection UI
@@ -346,18 +345,21 @@ All four developers remain responsible for integration and testing of their work
 
 # 7. SIMULATION DESIGN
 
-Use a simplified 2D grid-based crowd-flow simulation for the hackathon MVP.
+Use a simplified 2D continuous-space crowd-flow simulation for the hackathon MVP. There is no navigation grid or cell snapping.
 
-Each grid cell represents a small region of the building.
+Geometry follows the existing `BuildingScenario` contract:
 
-Cell types include:
+- Positions are finite floating-point `(x, y)` coordinates in metres, with origin at the top left, x increasing right, and y increasing down.
+- Workspace width and height are drawing extents, not inferred building boundaries.
+- Walls are segments at any angle, with start/end points and thickness.
+- Doors and exits are openings attached to a wall by `wall_id`, `offset`, and `width`. Offset is measured from the wall's start along its length.
+- Obstructions and spawn zones are axis-aligned rectangles.
+- Agents are discs with the scenario's `agent_radius`.
+- `time_step_seconds` defines simulated time per step; `max_steps` bounds the run.
 
-- Wall
-- Walkable space
-- Door
-- Exit
+Collision checks and routing must use the same wall and opening geometry, including wall thickness and agent radius. Check the full movement segment so an agent cannot jump through an obstacle between steps. Respect obstructions and disabled exits; a disabled exit must not remain an evacuation target or a traversable opening.
 
-Blocked corridors and disabled exits must be respected by the simulation.
+Exits may be attached to interior walls. Validation does not prove that an exit leads outdoors or that rooms are enclosed; topology checks belong to the simulation workstream.
 
 Agents have:
 
@@ -365,9 +367,13 @@ Agents have:
 - Identifier
 - Evacuation status
 - Movement behavior
-- A route or navigation field toward an available exit
+- A route toward an available exit
 
-Initially, a distance-field or BFS-based pathfinding approach is sufficient.
+Start with geometry and collision checks, then route one agent to an available exit before adding crowd behavior. Select a continuous-space routing approach compatible with the checked-in geometry; do not assume a cell-based distance field.
+
+Initialization must deterministically place nonoverlapping agents using the scenario seed, or return a meaningful placement error. Spawn-area validation is only a preliminary capacity check, not a guarantee that all agents fit.
+
+Output frames use continuous agent positions. Accumulated traffic uses `traffic_samples: [{x, y, visits}]`, not a cell array. Preserve the existing result types and population accounting rules.
 
 During each simulation step:
 
@@ -462,7 +468,7 @@ The dashboard should include:
 
 **Visualizations**
 - Agent movement playback
-- Accumulated cell traffic heatmap
+- Accumulated world-space traffic heatmap
 - Baseline vs. stress-test comparison
 - Scenario rankings
 - Before/after layout comparison
@@ -524,19 +530,9 @@ Our objective is a reliable, complete engineering prototype.
 
 # 14. REPOSITORY & COLLABORATION RULES
 
-Another Codex session is currently generating the boilerplate.
+The scaffold and continuous-geometry contracts are checked in. The simulation, stress-testing, and optimization entry points currently remain explicit stubs; inspect their current implementations before starting work.
 
-Until that process finishes:
-
-- Do not modify repository source files.
-- Do not independently scaffold another application.
-- Do not rewrite shared types or schemas.
-- Do not create additional AGENTS.md files.
-- Do not add unnecessary documentation.
-- Do not install additional dependencies into the shared repository.
-- Do not implement application features against assumed contracts.
-
-Once the scaffold is committed:
+For implementation work authorized by the user:
 
 - Inspect the authoritative shared JSON schemas.
 - Use the existing folder structure.
@@ -546,6 +542,9 @@ Once the scaffold is committed:
 - Run relevant tests.
 - Coordinate changes to shared contracts.
 - Integrate frequently.
+- Do not scaffold another application or create additional AGENTS.md files.
+- Avoid unnecessary documentation and dependencies.
+- Do not implement features against assumed contracts.
 
 The initial GitHub issue plan contains exactly eight development issues, two per developer.
 
