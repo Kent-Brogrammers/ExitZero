@@ -10,13 +10,15 @@ import {
   appearanceOptions,
   initialTheme,
   THEME_STORAGE_KEY,
+  LEGACY_THEME_STORAGE_KEY,
   type StudioTheme,
 } from "./appearance";
 
 export function StudioAppearance({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<StudioTheme>(initialTheme);
   useLayoutEffect(() => {
-    document.documentElement.dataset.studioTheme = theme;
+    document.documentElement.dataset.studioTheme = "dark";
+    document.documentElement.dataset.canvasTheme = theme;
     try {
       window.localStorage.setItem(THEME_STORAGE_KEY, theme);
     } catch {
@@ -25,7 +27,11 @@ export function StudioAppearance({ children }: { children: ReactNode }) {
   }, [theme]);
   useEffect(() => {
     const update = (event: StorageEvent) => {
-      if (event.key === THEME_STORAGE_KEY || event.key === null)
+      if (
+        event.key === THEME_STORAGE_KEY ||
+        event.key === LEGACY_THEME_STORAGE_KEY ||
+        event.key === null
+      )
         setTheme(initialTheme());
     };
     window.addEventListener("storage", update);
@@ -43,9 +49,9 @@ export function AppearanceSelector() {
   return (
     <div>
       <label className="appearance-setting">
-        Appearance
+        Canvas appearance
         <select
-          aria-label="Studio appearance"
+          aria-label="Canvas appearance"
           value={theme}
           onChange={(event) => setTheme(event.target.value as StudioTheme)}
         >
@@ -56,6 +62,10 @@ export function AppearanceSelector() {
           ))}
         </select>
       </label>
+      <p className="note">
+        The Studio shell stays dark; appearance changes apply only to floor-plan
+        canvases.
+      </p>
       {theme.startsWith("blueprint") && (
         <p className="note">
           Architectural wall outlines and schematic door swings. Collision still

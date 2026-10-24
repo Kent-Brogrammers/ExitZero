@@ -1,3 +1,4 @@
+import { furniturePresets, type FurnitureKind } from "./furniture";
 import { StudioPopover } from "../ui/StudioPopover";
 import { ToolIcon } from "./ToolIcon";
 import { isWallTool, type EditorTool } from "./tools";
@@ -135,7 +136,7 @@ export function EditorDrawingRail({
         className="editor-shapes"
         disabled={disabled}
         indicator={false}
-        triggerClassName={`rail-button${tool.startsWith("object-") ? " is-selected" : ""}`}
+        triggerClassName={`rail-button${tool.startsWith("object-") || tool.startsWith("furniture-") ? " is-selected" : ""}`}
         triggerContent={content("obstruction", "Object")}
         onOpen={onOpenPanel}
       >
@@ -159,32 +160,49 @@ export function EditorDrawingRail({
               "rectangle",
               close,
             )}
-            <button
-              type="button"
-              className="shape-choice"
-              aria-label="Circle"
-              disabled
+            <div className="object-curves">
+              <button
+                type="button"
+                className="shape-choice"
+                aria-label="Circle"
+                disabled
+              >
+                <ToolIcon name="circle" />
+                <span>
+                  Circle<small>Collision unsupported</small>
+                </span>
+              </button>
+              <button
+                type="button"
+                className="shape-choice"
+                aria-label="Ellipse"
+                disabled
+              >
+                <ToolIcon name="circle" />
+                <span>
+                  Ellipse<small>Collision unsupported</small>
+                </span>
+              </button>
+            </div>
+            <div
+              className="furniture-choices"
+              role="group"
+              aria-label="Furniture presets"
             >
-              <ToolIcon name="circle" />
-              <span>
-                Circle<small>Requires collision-contract approval</small>
-              </span>
-            </button>
-            <button
-              type="button"
-              className="shape-choice"
-              aria-label="Ellipse"
-              disabled
-            >
-              <ToolIcon name="circle" />
-              <span>
-                Ellipse<small>Requires collision-contract approval</small>
-              </span>
-            </button>
+              {Object.entries(furniturePresets).map(([kind, preset]) =>
+                choice(
+                  `furniture-${kind as FurnitureKind}`,
+                  preset.label,
+                  `${preset.width} × ${preset.height} m · blocks movement`,
+                  kind,
+                  close,
+                ),
+              )}
+            </div>
             <p className="shape-note">
-              Squares and rectangles save as rectangular obstructions. Resize
-              width/height independently and give any object a name in
-              Properties. Circular collision is not supported yet.
+              All furniture, including chairs, blocks its full rectangle.
+              Drawing styles last this editor session; JSON and playback
+              preserve named blockers. Change styles in Properties.
             </p>
           </>
         )}

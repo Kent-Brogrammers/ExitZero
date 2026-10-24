@@ -7,6 +7,8 @@ import { mergeEditedDoors } from "./doorEditing";
 function canvasFixture(width: number, height = (width * 2) / 3) {
   const context = {
     setTransform: vi.fn(),
+    save: vi.fn(),
+    restore: vi.fn(),
     clearRect: vi.fn(),
     fillRect: vi.fn(),
     fillText: vi.fn(),
@@ -174,3 +176,125 @@ it("renders supplied freehand vertices and thickness identically at both pixel d
   expect(normal.context.lineWidth).toBe(0.2);
   expect(retina.context.lineWidth).toBe(0.2);
 });
+
+it("draws a furniture symbol within the unchanged rectangular blocker footprint", () => {
+  const b = {
+    ...structuredClone(example),
+    walls: [],
+    doors: [],
+    exits: [],
+    spawn_zones: [],
+    obstructions: [
+      { id: "desk", name: "Study desk", x: 4, y: 4, width: 2, height: 1 },
+    ],
+  };
+  const { context, element } = canvasFixture(600);
+  const before = JSON.stringify(b);
+  drawLayout(element, b, null, undefined, 2, canvasPalette(element), {
+    furniture: new Map([["desk", "desk"]]),
+  });
+  expect(context.strokeRect).toHaveBeenCalledWith(4, 4, 2, 1);
+  expect(context.lineTo).toHaveBeenCalledWith(5.4, 5);
+  expect(
+    context.fillText.mock.calls.some(
+      ([text]) => String(text) === "Obstruction",
+    ),
+  ).toBe(false);
+  expect(JSON.stringify(b)).toBe(before);
+});
+
+it("uses a plain drafting footprint for imported blockers without inferring furniture type from their names", () => {
+  const b = {
+    ...structuredClone(example),
+    walls: [],
+    doors: [],
+    exits: [],
+    spawn_zones: [],
+    obstructions: [
+      { id: "plain", name: "Desk 1", x: 4, y: 4, width: 2, height: 1 },
+    ],
+  };
+  const { context, element } = canvasFixture(600);
+  drawLayout(element, b, null, undefined, 2, {
+    ...canvasPalette(element),
+    blueprint: "1",
+  });
+  expect(context.strokeRect).toHaveBeenCalledWith(4, 4, 2, 1);
+  expect(context.lineTo).not.toHaveBeenCalledWith(5.4, 5);
+});
+
+it.each([1, 2])(
+  "composes underlay, grid and furniture in world-space drawing order at DPR %s",
+  (ratio) => {
+    const b = {
+      ...structuredClone(example),
+      walls: [
+        {
+          id: "wall",
+          start: { x: 1, y: 1 },
+          end: { x: 10, y: 1 },
+          thickness: 0.2,
+        },
+      ],
+      doors: [],
+      exits: [],
+      spawn_zones: [],
+      obstructions: [{ id: "desk", x: 4, y: 4, width: 2, height: 1 }],
+    };
+    const before = JSON.stringify(b);
+    const { context, element } = canvasFixture(600);
+    const underlay = vi.fn((ctx: CanvasRenderingContext2D) => {
+      expect(ctx).toBe(context);
+      expect(context.fillRect.mock.calls).toEqual([
+        [0, 0, 600 * ratio, 400 * ratio],
+        [0, 0, 30, 20],
+      ]);
+      expect(context.setTransform).toHaveBeenLastCalledWith(
+        20 * ratio,
+        0,
+        0,
+        20 * ratio,
+        0,
+        0,
+      );
+      expect(context.stroke).not.toHaveBeenCalled();
+      expect(context.strokeRect).not.toHaveBeenCalled();
+      ctx.fillRect(3, 3, 1, 1);
+    });
+    drawLayout(
+      element,
+      b,
+      null,
+      undefined,
+      ratio,
+      { ...canvasPalette(element), blueprint: "1" },
+      {
+        underlay,
+        grid: {
+          visible: true,
+          snap: false,
+          spacing: "1m",
+          doorMergeTolerance: 0.1,
+        },
+        furniture: new Map([["desk", "desk"]]),
+      },
+    );
+    expect(underlay).toHaveBeenCalledTimes(1);
+    expect(underlay.mock.invocationCallOrder[0]).toBeLessThan(
+      context.stroke.mock.invocationCallOrder[0]!,
+    );
+    expect(underlay.mock.invocationCallOrder[0]).toBeLessThan(
+      context.strokeRect.mock.invocationCallOrder[0]!,
+    );
+    expect(context.strokeRect).toHaveBeenCalledWith(4, 4, 2, 1);
+    const furnitureLine = context.lineTo.mock.calls.findIndex(
+      ([x, y]) => x === 5.4 && y === 5,
+    );
+    const wallLine = context.lineTo.mock.calls.findIndex(
+      ([x, y]) => x === 10 && y === 1,
+    );
+    expect(furnitureLine).toBeGreaterThan(-1);
+    expect(wallLine).toBeGreaterThan(furnitureLine);
+    expect(JSON.stringify(b)).toBe(before);
+  },
+);

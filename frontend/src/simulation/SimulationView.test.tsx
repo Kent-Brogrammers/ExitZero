@@ -16,6 +16,7 @@ describe("live first run and recorded review", () => {
       />,
     );
     expect(html).toContain("Live evacuation");
+    expect(html).toMatch(/<canvas[^>]*data-world-canvas=/);
     expect(html).toContain("LIVE · RECORDING");
     expect(html).toContain("1.00 s");
     expect(html).toContain(
@@ -31,6 +32,7 @@ describe("live first run and recorded review", () => {
       <SimulationView building={building} result={result} />,
     );
     expect(html).toContain("End of recording");
+    expect(html).toMatch(/<canvas[^>]*data-world-canvas=/);
     expect(html).toContain("Replay");
     expect(html).toContain('type="range"');
     expect(html).toContain('max="4"');

@@ -43,28 +43,14 @@
   scrollbar-color: var(--cad-border-strong) var(--cad-surface);
 }
 
-:root[data-studio-theme="light"] {
+/* Canvas palettes never cascade into the Studio shell or analytics controls. */
+:root[data-canvas-theme="light"] canvas[data-world-canvas] {
   --cad-bg: #f3f2f5;
   --cad-surface: #fcfbfe;
-  --cad-panel: #ffffff;
-  --cad-control: #eeedf3;
-  --cad-hover: #e9e5f1;
-  --cad-border: #ddd9e6;
-  --cad-border-strong: #b8b1c7;
-  --cad-text: #292436;
   --cad-muted: #5c546b;
-  --cad-subtle: #6b617b;
-  --cad-disabled: #898194;
   --cad-accent: #2563b8;
-  --cad-accent-hover: #1d4e94;
-  --cad-selected: #dce9fc;
   --cad-success: #128461;
-  --cad-warning: #8d5c16;
-  --cad-warning-bg: #f5e8ce;
-  --cad-warning-border: #c49a51;
   --cad-danger: #b3403f;
-  --cad-danger-bg: #fae2e0;
-  --cad-danger-border: #c97c78;
   --cad-wall: #4d455b;
   --cad-door: #94601f;
   --cad-spawn: #e9e5f0;
@@ -73,41 +59,18 @@
   --cad-obstacle: #e4ded7;
   --cad-obstacle-border: #a28b6a;
   --cad-obstacle-text: #62492f;
-  --cad-header: #f3f2f5;
-  --cad-rail: #fffffff2;
-  --cad-inspector: #fffffffa;
-  --cad-rail-border: #c6bedc66;
   --cad-grid: #e9e6ee;
   --cad-grid-major: #d4cfdf;
-  --studio-primary: #7969d8;
-  --studio-primary-hover: #6957c5;
-  --studio-primary-text: #ffffff;
   --canvas-blueprint: 0;
-  color-scheme: light;
 }
 
-:root[data-studio-theme="blueprint-dark"] {
+:root[data-canvas-theme="blueprint-dark"] canvas[data-world-canvas] {
   --cad-bg: #0c1830;
   --cad-surface: #102844;
-  --cad-panel: #132640;
-  --cad-control: #19324e;
-  --cad-hover: #20405f;
-  --cad-border: #284461;
-  --cad-border-strong: #4e7090;
-  --cad-text: #e3f0fb;
   --cad-muted: #abc4db;
-  --cad-subtle: #9bb8d0;
-  --cad-disabled: #7f9bb5;
   --cad-accent: #8ac6ff;
-  --cad-accent-hover: #b6dcff;
-  --cad-selected: #224e74;
   --cad-success: #a5e2cb;
-  --cad-warning: #e4bd75;
-  --cad-warning-bg: #3e3627;
-  --cad-warning-border: #8d7651;
   --cad-danger: #ffb7aa;
-  --cad-danger-bg: #44343c;
-  --cad-danger-border: #996f71;
   --cad-wall: #c4def2;
   --cad-door: #e4bd75;
   --cad-spawn: #173656;
@@ -116,41 +79,18 @@
   --cad-obstacle: #1a3b5b;
   --cad-obstacle-border: #9ab5cf;
   --cad-obstacle-text: #ccdfef;
-  --cad-header: #0c1830;
-  --cad-rail: #132640f5;
-  --cad-inspector: #132640fa;
-  --cad-rail-border: #7dadd133;
   --cad-grid: #193755;
   --cad-grid-major: #244c70;
-  --studio-primary: #8d7bdb;
-  --studio-primary-hover: #6957c5;
-  --studio-primary-text: #ffffff;
   --canvas-blueprint: 1;
-  color-scheme: dark;
 }
 
-:root[data-studio-theme="blueprint-light"] {
+:root[data-canvas-theme="blueprint-light"] canvas[data-world-canvas] {
   --cad-bg: #e2ebf1;
   --cad-surface: #eff7fc;
-  --cad-panel: #f8fcff;
-  --cad-control: #e1edf6;
-  --cad-hover: #d6e7f3;
-  --cad-border: #c5d9e8;
-  --cad-border-strong: #96b1c6;
-  --cad-text: #193c5d;
   --cad-muted: #45637f;
-  --cad-subtle: #526e88;
-  --cad-disabled: #7890a4;
   --cad-accent: #235fa3;
-  --cad-accent-hover: #164879;
-  --cad-selected: #cee3f6;
   --cad-success: #16735b;
-  --cad-warning: #855b24;
-  --cad-warning-bg: #f6ead4;
-  --cad-warning-border: #bc9c65;
   --cad-danger: #a83e45;
-  --cad-danger-bg: #f8dfe3;
-  --cad-danger-border: #c78790;
   --cad-wall: #315f88;
   --cad-door: #466e9b;
   --cad-spawn: #dceaf5;
@@ -159,17 +99,9 @@
   --cad-obstacle: #e2edf5;
   --cad-obstacle-border: #648cac;
   --cad-obstacle-text: #2b5477;
-  --cad-header: #e2ebf1;
-  --cad-rail: #f8fcfff5;
-  --cad-inspector: #f8fcfffa;
-  --cad-rail-border: #8eaec855;
   --cad-grid: #dbe8f2;
   --cad-grid-major: #bed2e3;
-  --studio-primary: #7063bd;
-  --studio-primary-hover: #6957c5;
-  --studio-primary-text: #ffffff;
   --canvas-blueprint: 1;
-  color-scheme: light;
 }
 
 /* Presentation only: shared chart data and analytics components stay unchanged. */

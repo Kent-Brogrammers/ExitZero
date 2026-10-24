@@ -190,3 +190,27 @@
     display: none;
   }
 }
+
+.welcome-demo-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+  padding: 0 5%;
+}
+.welcome-demo-link p,
+.welcome-demo-link > span {
+  margin: 0;
+  font-size: 10px;
+  color: var(--cad-muted);
+  line-height: 1.6;
+}
+.welcome-demo-link > span {
+  flex-basis: 100%;
+  color: var(--cad-subtle);
+  font-size: 9px;
+}
+.welcome-demo-link .welcome-example {
+  color: var(--cad-text);
+}

@@ -29,6 +29,7 @@ interface SimulationViewProps {
   result: SimulationResult | null;
   live?: LiveSimulation | null;
   active?: boolean;
+  allowSyntheticPreview?: boolean;
   onOpenAnalytics?: () => void;
 }
 
@@ -177,6 +178,7 @@ function Playback({
       <div className="playback-stage">
         <div className="canvas-wrap playback-canvas-wrap">
           <canvas
+            data-world-canvas
             ref={canvas}
             width={1200}
             height={800}
@@ -445,6 +447,7 @@ export function SimulationView({
   result,
   live = null,
   active = true,
+  allowSyntheticPreview = true,
   onOpenAnalytics,
 }: SimulationViewProps) {
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
@@ -453,7 +456,8 @@ export function SimulationView({
     setAnalyticsOpen(false);
     analyticsButton.current?.focus();
   }
-  const [preview, setPreview] = useState(false);
+  const [previewRequested, setPreview] = useState(false);
+  const preview = previewRequested && allowSyntheticPreview;
   const running = live !== null;
   // A newly returned API result takes precedence over a development preview.
   useEffect(() => {
@@ -480,7 +484,7 @@ export function SimulationView({
             <input
               type="checkbox"
               checked={preview}
-              disabled={live !== null}
+              disabled={live !== null || !allowSyntheticPreview}
               onChange={(event) => setPreview(event.target.checked)}
             />
             Use synthetic playback preview
