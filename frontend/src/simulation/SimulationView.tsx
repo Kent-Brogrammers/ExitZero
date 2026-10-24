@@ -297,7 +297,7 @@ function Playback({
                     Recorded outcome: <strong>{recording.status}</strong> ·{" "}
                     {recording.evacuated} / {recording.total_population}{" "}
                     evacuated · {recording.remaining} remaining (
-                    {recording.trapped} unreachable).{" "}
+                    {recording.trapped} trapped).{" "}
                     {recording.status !== "completed" &&
                       "The evacuation did not complete; the recording ending does not imply success."}
                   </p>

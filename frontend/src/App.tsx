@@ -7,10 +7,15 @@ import { StudioPopover } from "./ui/StudioPopover";
 import { AppearanceSelector } from "./styles/StudioAppearance";
 import { StudioWelcome } from "./studio/StudioWelcome";
 import { api } from "./services/api";
+import {
+  applyOptimizationCandidate,
+  type OptimizationEvaluation,
+} from "./analytics/optimization";
 import type {
   BuildingScenario,
   SimulationResult,
   StressTestResult,
+  OptimizationCandidate,
 } from "./types/simulation";
 
 const AnalyticsDashboard = lazy(() => import("./analytics/AnalyticsDashboard"));
@@ -57,6 +62,7 @@ export default function App() {
     if (namesOnly) return;
     setResult(null);
     setStressResult(null);
+    setOptimization(null);
     setMessage("");
   }
   const [connection, setConnection] = useState<
@@ -70,6 +76,31 @@ export default function App() {
   const [stressResult, setStressResult] = useState<StressTestResult | null>(
     null,
   );
+  const [optimization, setOptimization] =
+    useState<OptimizationEvaluation | null>(null);
+
+  function applyCandidate(candidate: OptimizationCandidate) {
+    if (!optimization || busy) return;
+    try {
+      const next = applyOptimizationCandidate(
+        building,
+        optimization.result.baseline,
+        candidate,
+      );
+      setBuilding(next);
+      setResult(null);
+      setStressResult(null);
+      setOptimization({ ...optimization, applied: candidate });
+      setMessage(
+        "Candidate applied. Run simulation to measure the new layout.",
+      );
+      navigate("edit");
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Could not apply candidate.",
+      );
+    }
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -104,10 +135,13 @@ export default function App() {
         );
         setMessage("Stress-test result received.");
       } else {
-        await api.optimize({ building, max_candidates: 10 });
-        setMessage(
-          "Optimization result received. Candidate visualization is pending.",
-        );
+        const optimized = await api.optimize({ building, max_candidates: 10 });
+        setOptimization({
+          source: structuredClone(building),
+          result: optimized,
+          applied: null,
+        });
+        setMessage(`${optimized.candidates.length} layout improvements found.`);
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Request failed.");
@@ -279,7 +313,6 @@ export default function App() {
               mode={view === "simulation" ? "simulation" : "edit"}
               active={view === "edit" || view === "simulation"}
               onOpenAnalytics={() => {
-                setShowMock(false);
                 navigate("analytics");
               }}
             />
@@ -320,7 +353,14 @@ export default function App() {
               </div>
             </div>
             <Suspense fallback={<p role="status">Loading analytics…</p>}>
-              <AnalyticsDashboard result={result} stressResult={stressResult} />
+              <AnalyticsDashboard
+                result={result}
+                stressResult={stressResult}
+                building={building}
+                optimization={optimization}
+                onApply={applyCandidate}
+                disabled={busy}
+              />
             </Suspense>
           </section>
         </main>

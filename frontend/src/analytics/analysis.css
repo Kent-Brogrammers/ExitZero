@@ -1,0 +1,27 @@
+.analysis-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 3 / 2;
+  border: 1px solid var(--cad-border);
+  border-radius: var(--radius-control);
+  margin: 16px 0;
+}
+.analytics-grid > .optimization-panel {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+.optimization-preview {
+  margin-top: 24px;
+  max-width: 800px;
+}
+.optimization-preview .studio-control {
+  border-color: var(--cad-border-strong);
+  color: var(--cad-text);
+}
+.traffic-scale {
+  display: flex;
+  justify-content: space-between;
+  color: var(--cad-muted);
+  font-size: 11px;
+}

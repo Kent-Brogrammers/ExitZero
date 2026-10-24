@@ -86,7 +86,7 @@ export function SimulationSummary({
               <dd>{result.remaining}</dd>
             </div>
             <div>
-              <dt>Trapped / unreachable</dt>
+              <dt>Trapped</dt>
               <dd>{result.trapped}</dd>
             </div>
             <div>

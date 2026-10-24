@@ -42,6 +42,34 @@ const barrier: BuildingScenario = {
 };
 
 describe("visual-only frame interpolation", () => {
+  it("allows interpolation through a 0.5 m flat-ended opening for a 0.4 m disc", () => {
+    const building = {
+      ...empty,
+      agent_radius: 0.2,
+      walls: [
+        {
+          id: "wall",
+          start: { x: 0, y: 2 },
+          end: { x: 10, y: 2 },
+          thickness: 0.2,
+        },
+      ],
+      doors: [{ id: "door", wall_id: "wall", offset: 4.75, width: 0.5 }],
+    };
+    const passage = [
+      { step: 0, agents: [{ id: 1, x: 5, y: 1 }] },
+      { step: 10, agents: [{ id: 1, x: 5, y: 3 }] },
+    ];
+    expect(createFrameSampler(building, passage, 0.1)(0.5)?.agents[0]).toEqual({
+      id: 1,
+      x: 5,
+      y: 2,
+    });
+    expect(
+      createFrameSampler({ ...building, doors: [] }, passage, 0.1)(0.5)
+        ?.agents[0],
+    ).toEqual({ id: 1, x: 5, y: 1 });
+  });
   it("matches stable IDs across reordered arrays and uses nonconsecutive step timestamps", () => {
     const sample = createFrameSampler(empty, frames, 0.2);
     expect(sample(2)?.agents).toEqual([

@@ -5,12 +5,7 @@ import type {
   Point,
 } from "../types/simulation";
 import { frameIndexAtTime } from "./playback";
-
-interface Segment {
-  start: Point;
-  end: Point;
-  padding: number;
-}
+import { solidWallSegments, wallPolygon } from "../editor/wallGeometry";
 
 function pointDistance(point: Point, start: Point, end: Point) {
   const dx = end.x - start.x,
@@ -47,51 +42,19 @@ function segmentDistance(a: Point, b: Point, c: Point, d: Point) {
   );
 }
 
-function solidWalls(building: BuildingScenario): Segment[] {
-  const segments: Segment[] = [];
-  const openings = [
-    ...building.doors,
-    ...building.exits.filter(
-      (exit) => !building.blocked_exit_ids.includes(exit.id),
+function solidWalls(building: BuildingScenario): Point[][] {
+  return building.walls.flatMap((wall) =>
+    solidWallSegments(building, wall).map(([start, end]) =>
+      wallPolygon(start, end, wall.thickness),
     ),
-  ];
-  for (const wall of building.walls) {
-    const length = Math.hypot(
-      wall.end.x - wall.start.x,
-      wall.end.y - wall.start.y,
-    );
-    if (!length) continue;
-    const point = (offset: number) => ({
-      x: wall.start.x + ((wall.end.x - wall.start.x) * offset) / length,
-      y: wall.start.y + ((wall.end.y - wall.start.y) * offset) / length,
-    });
-    let offset = 0;
-    for (const opening of openings
-      .filter((o) => o.wall_id === wall.id)
-      .sort((a, b) => a.offset - b.offset)) {
-      if (opening.offset > offset)
-        segments.push({
-          start: point(offset),
-          end: point(opening.offset),
-          padding: wall.thickness / 2 + building.agent_radius,
-        });
-      offset = Math.max(offset, opening.offset + opening.width);
-    }
-    if (offset < length)
-      segments.push({
-        start: point(offset),
-        end: point(length),
-        padding: wall.thickness / 2 + building.agent_radius,
-      });
-  }
-  return segments;
+  );
 }
 
 /** Conservative display guard only. It never finds routes or changes physics. */
 function canBlend(
   a: Point,
   b: Point,
-  walls: Segment[],
+  walls: Point[][],
   building: BuildingScenario,
 ) {
   if (a.x === b.x && a.y === b.y) return true;
@@ -99,15 +62,36 @@ function canBlend(
     right = Math.max(a.x, b.x),
     top = Math.min(a.y, b.y),
     bottom = Math.max(a.y, b.y);
-  for (const { start, end, padding } of walls) {
+  for (const vertices of walls) {
+    const radius = building.agent_radius;
+    const xs = vertices.map((p) => p.x),
+      ys = vertices.map((p) => p.y);
     if (
-      right < Math.min(start.x, end.x) - padding ||
-      left > Math.max(start.x, end.x) + padding ||
-      bottom < Math.min(start.y, end.y) - padding ||
-      top > Math.max(start.y, end.y) + padding
+      right < Math.min(...xs) - radius ||
+      left > Math.max(...xs) + radius ||
+      bottom < Math.min(...ys) - radius ||
+      top > Math.max(...ys) + radius
     )
       continue;
-    if (segmentDistance(a, b, start, end) < padding - 1e-8) return false;
+    const inside = (p: Point) => {
+      const sides = vertices.map((start, i) => {
+        const end = vertices[(i + 1) % 4]!;
+        return (
+          (end.x - start.x) * (p.y - start.y) -
+          (end.y - start.y) * (p.x - start.x)
+        );
+      });
+      return (
+        sides.every((side) => side >= 0) || sides.every((side) => side <= 0)
+      );
+    };
+    if (inside(a) || inside(b)) return false;
+    for (let i = 0; i < 4; i++)
+      if (
+        segmentDistance(a, b, vertices[i]!, vertices[(i + 1) % 4]!) <
+        radius - 1e-8
+      )
+        return false;
   }
   for (const obstacle of building.obstructions) {
     const radius = building.agent_radius;

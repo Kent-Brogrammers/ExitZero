@@ -108,5 +108,6 @@ describe("freeform Canvas drawing", () => {
     expect(context.lineTo).toHaveBeenCalledWith(15, 6.4);
     expect(context.moveTo).toHaveBeenCalledWith(28, 9);
     expect(context.lineTo).toHaveBeenCalledWith(28, 10.6);
+    expect(context.lineCap).toBe("butt");
   });
 });

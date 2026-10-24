@@ -3,6 +3,7 @@ import { canvasView, openingSegment, type Selection } from "./geometry";
 import { dragRectangle, wallShapePoints } from "./shapes";
 import { isWallTool, type EditorTool } from "./tools";
 import { canvasPalette, type CanvasPalette } from "../styles/canvasPalette";
+import { solidWallSegments } from "./wallGeometry";
 
 export function drawLayout(
   canvas: HTMLCanvasElement,
@@ -30,7 +31,7 @@ export function drawLayout(
   ctx.setTransform(scale, 0, 0, scale, x, y);
   ctx.fillStyle = palette.surface;
   ctx.fillRect(0, 0, building.width, building.height);
-  ctx.lineCap = "round";
+  ctx.lineCap = "butt";
   const selectedId = selected?.id;
   for (const rectangle of [...building.spawn_zones, ...building.obstructions]) {
     const spawn = "count" in rectangle;
@@ -57,8 +58,10 @@ export function drawLayout(
   }
   for (const wall of building.walls) {
     ctx.beginPath();
-    ctx.moveTo(wall.start.x, wall.start.y);
-    ctx.lineTo(wall.end.x, wall.end.y);
+    for (const [start, end] of solidWallSegments(building, wall)) {
+      ctx.moveTo(start.x, start.y);
+      ctx.lineTo(end.x, end.y);
+    }
     if (wall.id === selectedId) {
       ctx.lineWidth = wall.thickness + 6 * px;
       ctx.strokeStyle = palette.selection;
@@ -79,9 +82,6 @@ export function drawLayout(
       ctx.beginPath();
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
-      ctx.lineWidth = wall.thickness + 2 * px;
-      ctx.strokeStyle = palette.surface;
-      ctx.stroke();
       ctx.lineWidth = opening.id === selectedId ? 5 * px : 3 * px;
       ctx.strokeStyle = building.blocked_exit_ids.includes(opening.id)
         ? palette.danger
