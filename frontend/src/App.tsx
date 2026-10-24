@@ -9,10 +9,10 @@ import type {
   StressTestResult,
 } from "./types/simulation";
 
-const building: BuildingScenario = example;
 const AnalyticsDashboard = lazy(() => import("./analytics/AnalyticsDashboard"));
 
 export default function App() {
+  const [building, setBuilding] = useState<BuildingScenario>(example);
   const [connection, setConnection] = useState<
     "checking" | "online" | "offline"
   >("checking");
@@ -151,7 +151,18 @@ export default function App() {
           {message}
         </p>
         <div className="workspace-grid">
-          <BuildingEditor building={building} />
+          <BuildingEditor
+            building={building}
+            disabled={busy}
+            onChange={(next) => {
+              setBuilding(next);
+              setResult(null);
+              setStressResult(null);
+              setMessage(
+                "Layout updated. Computation endpoints return 501 until the engine is implemented.",
+              );
+            }}
+          />
           <SimulationView result={result} />
         </div>
         <div className="preview-control">
