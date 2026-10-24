@@ -27,8 +27,8 @@ export function drawPlayback(
   const ratio = Number.isFinite(pixelRatio) ? Math.max(1, pixelRatio) : 1;
   context.save();
   context.setTransform(1, 0, 0, 1, 0, 0);
-  context.fillStyle = "#2475a3";
-  context.strokeStyle = "#ffffff";
+  context.fillStyle = "#5fa8f7";
+  context.strokeStyle = "#17191e";
   context.lineWidth = ratio;
   for (const agent of frame.agents) {
     const point = worldToCanvas(agent, view);

@@ -7,13 +7,13 @@
 }
 .playback-preview-toggle input,
 .playback-timeline input {
-  accent-color: #25624f;
+  accent-color: var(--cad-accent);
 }
 .playback-synthetic-note {
-  background: #fff5df;
-  border: 1px solid #e3cc97;
+  background: var(--cad-warning-bg);
+  border: 1px solid var(--cad-warning-border);
   border-radius: 4px;
-  color: #795d26;
+  color: var(--cad-warning);
   font-size: 12px;
   line-height: 1.7;
   padding: 12px;
@@ -31,20 +31,20 @@
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  color: #5c7566;
+  color: var(--cad-muted);
 }
 .playback-speed select {
   font: inherit;
   padding: 9px;
-  color: #294a3c;
-  background: white;
-  border: 1px solid #cdd9d2;
-  border-radius: 6px;
+  color: var(--cad-text);
+  background: var(--cad-surface);
+  border: 1px solid var(--cad-border);
+  border-radius: 4px;
 }
 .playback-status {
   margin-left: auto;
   font-size: 12px;
-  color: #5c7566;
+  color: var(--cad-muted);
 }
 .playback-canvas-wrap canvas {
   aspect-ratio: 3 / 2;
@@ -55,7 +55,7 @@
   flex-wrap: wrap;
   gap: 12px;
   font-size: 12px;
-  color: #5c7566;
+  color: var(--cad-muted);
   margin-top: 18px;
 }
 .playback-timeline input {
@@ -70,7 +70,7 @@
 }
 .playback-readout dt {
   font-size: 11px;
-  color: #6c8072;
+  color: var(--cad-subtle);
   margin-bottom: 6px;
 }
 .playback-readout dd {
@@ -79,7 +79,7 @@
   font-variant-numeric: tabular-nums;
 }
 .playback-duration {
-  color: #6c8072;
+  color: var(--cad-subtle);
   font-size: 12px;
 }
 .playback-outcome,
@@ -89,7 +89,7 @@
   margin: 16px 0 0;
 }
 .playback-error {
-  color: #a24732;
+  color: var(--cad-danger);
 }
 @media (max-width: 480px) {
   .playback-status {
