@@ -71,8 +71,8 @@ impl SimulationMetrics {
 #[serde(deny_unknown_fields)]
 pub struct AgentPosition {
     pub id: u32,
-    pub x: u32,
-    pub y: u32,
+    pub x: f64,
+    pub y: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -83,23 +83,52 @@ pub struct AnimationFrame {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TrafficSample {
+    pub x: f64,
+    pub y: f64,
+    pub visits: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SimulationResult {
     #[serde(flatten)]
     pub metrics: SimulationMetrics,
     pub frames: Vec<AnimationFrame>,
-    pub cell_visits: Vec<u32>,
-    pub width: u32,
-    pub height: u32,
+    pub traffic_samples: Vec<TrafficSample>,
+    pub width: f64,
+    pub height: f64,
+    pub time_step_seconds: f64,
 }
 
 impl SimulationResult {
+    fn in_bounds(&self, x: f64, y: f64) -> bool {
+        x.is_finite()
+            && y.is_finite()
+            && x >= 0.0
+            && y >= 0.0
+            && x <= self.width
+            && y <= self.height
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         self.metrics.validate()?;
-        if !(1..=512).contains(&self.width)
-            || !(1..=512).contains(&self.height)
-            || self.cell_visits.len() != (self.width as usize) * (self.height as usize)
+        if !self.width.is_finite()
+            || self.width <= 0.0
+            || self.width > 1000.0
+            || !self.height.is_finite()
+            || self.height <= 0.0
+            || self.height > 1000.0
+            || !self.time_step_seconds.is_finite()
+            || self.time_step_seconds <= 0.0
+            || self.time_step_seconds > 1.0
+            || self.traffic_samples.len() > 100_000
+            || self
+                .traffic_samples
+                .iter()
+                .any(|sample| !self.in_bounds(sample.x, sample.y))
         {
-            return Err("cell_visits must have width * height row-major entries".into());
+            return Err("invalid workspace, time step, or continuous traffic samples".into());
         }
         let mut previous_step = None;
         for frame in &self.frames {
@@ -109,11 +138,12 @@ impl SimulationResult {
             previous_step = Some(frame.step);
             let mut ids = std::collections::HashSet::new();
             if frame.agents.len() > self.metrics.total_population as usize
-                || frame.agents.iter().any(|agent| {
-                    agent.x >= self.width || agent.y >= self.height || !ids.insert(agent.id)
-                })
+                || frame
+                    .agents
+                    .iter()
+                    .any(|agent| !self.in_bounds(agent.x, agent.y) || !ids.insert(agent.id))
             {
-                return Err("frames must contain unique agents within building bounds".into());
+                return Err("frames must contain unique agents with finite positions within building bounds".into());
             }
         }
         Ok(())

@@ -214,7 +214,7 @@ h3 {
 }
 .workspace-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 20px;
 }
 .panel-heading {
@@ -366,9 +366,6 @@ footer {
     align-items: flex-start;
     flex-direction: column;
   }
-  .workspace-grid {
-    grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
-  }
   .app-header {
     gap: 16px;
   }
@@ -405,6 +402,149 @@ footer {
   }
   .control-buttons button {
     padding: 9px 12px;
+    font-size: 12px;
+  }
+}
+
+.editor-controls {
+  padding: 0;
+  margin: 0;
+  border: 0;
+  min-width: 0;
+}
+.editor-toolbar,
+.editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.editor-toolbar {
+  margin-bottom: 10px;
+}
+.editor-toolbar button[aria-pressed="true"] {
+  background: #25624f;
+  color: white;
+  border-color: #25624f;
+}
+.editor-actions button {
+  padding: 6px 10px;
+  font-size: 11px;
+}
+.editor-help {
+  color: #61766a;
+  font-size: 12px;
+  line-height: 1.7;
+  margin: 16px 0;
+  min-height: 21px;
+}
+.editor-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 20px;
+  align-items: start;
+}
+.editor-canvas-wrap canvas {
+  touch-action: none;
+  user-select: none;
+}
+.canvas-caption {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  padding: 10px 12px;
+  gap: 10px;
+  border-top: 1px solid #e0e7e3;
+  color: #657b6d;
+  font-size: 11px;
+}
+.editor-inspector {
+  border-left: 1px solid #e0e7e3;
+  padding-left: 20px;
+  min-width: 0;
+}
+.editor-inspector h3 {
+  font-size: 13px;
+}
+.number-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: #62766a;
+  margin: 8px 0;
+}
+.number-field input {
+  width: 100px;
+  min-width: 0;
+  border: 1px solid #d1ddd5;
+  border-radius: 4px;
+  padding: 6px;
+  color: #294a3c;
+}
+.element-select {
+  font-size: 11px;
+  color: #62766a;
+  display: block;
+}
+.element-select select {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 7px 4px;
+  background: white;
+  border: 1px solid #d1ddd5;
+  border-radius: 4px;
+  font: inherit;
+  color: #294a3c;
+}
+.inspector-fields {
+  margin-top: 16px;
+}
+.workspace-settings {
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid #e0e7e3;
+}
+.block-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  margin: 12px 0;
+}
+button.delete-button {
+  color: #a44e3c;
+  border-color: #dfc6bf;
+  font-size: 11px;
+  padding: 7px 10px;
+  margin-top: 8px;
+}
+.editor-error {
+  color: #a24732;
+  background: #fff1e9;
+  border: 1px solid #eacbb9;
+  padding: 12px;
+  font-size: 12px;
+  border-radius: 4px;
+}
+@media (max-width: 850px) {
+  .editor-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .editor-inspector {
+    border-left: 0;
+    border-top: 1px solid #e0e7e3;
+    padding: 18px 0 0;
+  }
+  .inspector-fields {
+    max-width: 360px;
+  }
+  .workspace-settings {
+    max-width: 360px;
+  }
+  .editor-toolbar button {
+    padding: 8px 10px;
     font-size: 12px;
   }
 }

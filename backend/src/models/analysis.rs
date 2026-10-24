@@ -1,4 +1,4 @@
-use super::{BuildingScenario, Cell, SimulationMetrics};
+use super::{BuildingScenario, Obstruction, SimulationMetrics};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 pub struct StressTestConfig {
     pub max_scenarios: u32,
     pub block_each_exit: bool,
-    pub blocked_cell_candidates: Vec<Cell>,
+    pub obstruction_candidates: Vec<Obstruction>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,19 +22,19 @@ impl StressTestRequest {
         if !(1..=100).contains(&self.config.max_scenarios) {
             return Err("max_scenarios must be between 1 and 100".into());
         }
-        let cells = &self.config.blocked_cell_candidates;
-        let unique: std::collections::HashSet<_> = cells.iter().collect();
-        if cells.len() > 100
-            || unique.len() != cells.len()
-            || cells
-                .iter()
-                .any(|cell| cell.x >= self.building.width || cell.y >= self.building.height)
-        {
-            return Err(
-                "blocked_cell_candidates must contain at most 100 unique in-bounds cells".into(),
-            );
+        if self.config.obstruction_candidates.len() > 100 {
+            return Err("at most 100 obstruction candidates are allowed".into());
         }
-        if !self.config.block_each_exit && cells.is_empty() {
+        let mut ids = std::collections::HashSet::new();
+        for candidate in &self.config.obstruction_candidates {
+            if !ids.insert(&candidate.id) {
+                return Err("obstruction candidate IDs must be unique".into());
+            }
+            let mut modified = self.building.clone();
+            modified.obstructions.push(candidate.clone());
+            modified.validate()?;
+        }
+        if !self.config.block_each_exit && self.config.obstruction_candidates.is_empty() {
             return Err("configure at least one stress scenario source".into());
         }
         Ok(())
@@ -46,7 +46,7 @@ impl StressTestRequest {
 pub struct ScenarioModifications {
     /// Additional blockers applied to the baseline, not replacements.
     pub blocked_exit_ids: Vec<String>,
-    pub blocked_cells: Vec<Cell>,
+    pub added_obstructions: Vec<Obstruction>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,28 +1,42 @@
 // Shared JSON names stay snake_case. Review contract changes with the team.
-export interface Cell {
+/** Continuous world coordinates in metres. */
+export interface Point {
   x: number;
   y: number;
 }
-
-export interface Exit extends Cell {
+export interface Wall {
   id: string;
+  start: Point;
+  end: Point;
+  thickness: number;
 }
-
-export interface SpawnZone extends Cell {
+export interface Opening {
+  id: string;
+  wall_id: string;
+  offset: number;
+  width: number;
+}
+export interface Obstruction {
+  id: string;
+  x: number;
+  y: number;
   width: number;
   height: number;
+}
+export interface SpawnZone extends Obstruction {
   count: number;
 }
-
 export interface BuildingScenario {
   width: number;
   height: number;
-  walls: Cell[];
-  doors: Cell[];
-  exits: Exit[];
+  walls: Wall[];
+  doors: Opening[];
+  exits: Opening[];
   spawn_zones: SpawnZone[];
   blocked_exit_ids: string[];
-  blocked_cells: Cell[];
+  obstructions: Obstruction[];
+  agent_radius: number;
+  time_step_seconds: number;
   seed: number;
   max_steps: number;
 }
@@ -39,7 +53,7 @@ export interface SimulationMetrics {
   clearance_steps: number | null;
 }
 
-export interface AgentPosition extends Cell {
+export interface AgentPosition extends Point {
   id: number;
 }
 
@@ -50,8 +64,9 @@ export interface AnimationFrame {
 
 export interface SimulationResult extends SimulationMetrics {
   frames: AnimationFrame[];
-  /** Accumulated traffic at index y * width + x; not instantaneous density. */
-  cell_visits: number[];
+  /** Weighted world positions representing accumulated traffic, not density. */
+  traffic_samples: TrafficSample[];
+  time_step_seconds: number;
   width: number;
   height: number;
 }
@@ -59,7 +74,7 @@ export interface SimulationResult extends SimulationMetrics {
 export interface StressTestConfig {
   max_scenarios: number;
   block_each_exit: boolean;
-  blocked_cell_candidates: Cell[];
+  obstruction_candidates: Obstruction[];
 }
 
 export interface StressTestRequest {
@@ -70,7 +85,7 @@ export interface StressTestRequest {
 export interface ScenarioModifications {
   /** Additional blockers applied to the baseline. */
   blocked_exit_ids: string[];
-  blocked_cells: Cell[];
+  added_obstructions: Obstruction[];
 }
 
 export interface StressScenarioResult {
@@ -111,4 +126,8 @@ export interface HealthResponse {
 
 export interface ApiErrorResponse {
   error: { code: string; message: string };
+}
+
+export interface TrafficSample extends Point {
+  visits: number;
 }

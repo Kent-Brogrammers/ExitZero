@@ -40,7 +40,7 @@ export default function AnalyticsDashboard({
           </div>
           <span className={`badge ${showMock ? "mock" : ""}`}>
             {showMock
-              ? "MOCK DATA · separate 4 × 3 fixture"
+              ? "MOCK DATA · separate 4 × 3 m fixture"
               : result
                 ? "API result"
                 : "Awaiting results"}
@@ -126,8 +126,8 @@ export default function AnalyticsDashboard({
           </p>
         </div>
         <p className="note">
-          Cell visits will represent accumulated traffic, not instantaneous
-          crowd density.
+          Traffic samples represent accumulated visits at world positions, not
+          instantaneous crowd density.
         </p>
       </div>
     </section>

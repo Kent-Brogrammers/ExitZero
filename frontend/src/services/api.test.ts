@@ -9,7 +9,7 @@ const stressRequest = {
   config: {
     max_scenarios: 10,
     block_each_exit: true,
-    blocked_cell_candidates: [],
+    obstruction_candidates: [],
   },
 };
 
@@ -148,11 +148,11 @@ describe("API integration contract", () => {
     });
   });
 
-  it("rejects inconsistent totals, traffic dimensions, and frames", async () => {
+  it("rejects inconsistent totals, traffic positions, and frames", async () => {
     for (const invalid of [
       { ...mock, evacuated: 2 },
       { ...mock, trapped: 2 },
-      { ...mock, cell_visits: [0] },
+      { ...mock, traffic_samples: [{ x: 99, y: 0, visits: 1 }] },
       { ...mock, frames: [{ step: 0, agents: [{ id: 0, x: 99, y: 0 }] }] },
       {
         ...mock,
@@ -196,7 +196,7 @@ describe("API integration contract", () => {
         {
           scenario_id: "block-west",
           description: "West exit blocked",
-          modifications: { blocked_exit_ids: ["west"], blocked_cells: [] },
+          modifications: { blocked_exit_ids: ["west"], added_obstructions: [] },
           metrics: baseline,
           rank: 1,
           severity: "critical",
