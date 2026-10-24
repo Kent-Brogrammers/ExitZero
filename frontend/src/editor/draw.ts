@@ -19,7 +19,10 @@ export function drawLayout(
   },
   pixelRatio = 1,
   palette: CanvasPalette = canvasPalette(canvas),
-  options?: { grid?: DraftingPreferences },
+  options?: {
+    grid?: DraftingPreferences;
+    underlay?: (ctx: CanvasRenderingContext2D) => void;
+  },
 ) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
@@ -39,6 +42,7 @@ export function drawLayout(
   ctx.setTransform(scale, 0, 0, scale, x, y);
   ctx.fillStyle = palette.surface;
   ctx.fillRect(0, 0, building.width, building.height);
+  options?.underlay?.(ctx);
   if (options?.grid)
     drawGrid(ctx, building, { scale, x, y }, ratio, options.grid, palette);
   ctx.lineCap = "round";

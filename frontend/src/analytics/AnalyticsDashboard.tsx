@@ -8,17 +8,24 @@ import {
   YAxis,
 } from "recharts";
 
-import type { SimulationResult, StressTestResult } from "../types/simulation";
+import type {
+  BuildingScenario,
+  SimulationResult,
+  StressTestResult,
+} from "../types/simulation";
 
 import ScenarioComparison from "./ScenarioComparison";
+import TrafficHeatmap from "./TrafficHeatmap";
 import { outcomeExplanation } from "./presentation";
 
 interface AnalyticsDashboardProps {
+  building?: BuildingScenario;
   result: SimulationResult | null;
   stressResult: StressTestResult | null;
 }
 
 export default function AnalyticsDashboard({
+  building,
   result,
   stressResult,
 }: AnalyticsDashboardProps) {
@@ -30,7 +37,6 @@ export default function AnalyticsDashboard({
       ]
     : [];
 
-  // TODO(Developer 4): world-coordinate traffic heatmap.
   return (
     <section className="analytics-grid" id="analytics" aria-label="Analytics">
       <div className="panel">
@@ -132,6 +138,7 @@ export default function AnalyticsDashboard({
           </div>
         )}
       </div>
+      <TrafficHeatmap building={building} result={result} />
       <div className="panel comparison-panel">
         <p className="eyebrow">04 / Stress testing</p>
         <h2>Vulnerability comparison</h2>
