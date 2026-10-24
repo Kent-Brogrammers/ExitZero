@@ -253,3 +253,50 @@ fn display_name_validation_matches_optional_string_contract() {
             .unwrap();
     }
 }
+
+#[test]
+fn stair_annotations_are_optional_validated_and_round_trip() {
+    let original = serde_json::to_value(example()).unwrap();
+    assert!(original.get("stair_areas").is_none());
+    let mut json = original.clone();
+    json["stair_areas"] = serde_json::json!([{"id":"stair-marker","name":"Main Stair","x":0.0,"y":0.0,"width":30.0,"height":20.0,"orientation_degrees":90}]);
+    let building: BuildingScenario = serde_json::from_value(json.clone()).unwrap();
+    building.validate().unwrap();
+    assert_eq!(serde_json::to_value(building).unwrap(), json);
+    for orientation in [
+        serde_json::json!(45),
+        serde_json::Value::Null,
+        serde_json::json!("90"),
+    ] {
+        let mut invalid = json.clone();
+        invalid["stair_areas"][0]["orientation_degrees"] = orientation;
+        assert!(match serde_json::from_value::<BuildingScenario>(invalid) {
+            Err(_) => true,
+            Ok(b) => b.validate().is_err(),
+        });
+    }
+    json["stair_areas"][0]["x"] = serde_json::json!(30);
+    assert!(
+        serde_json::from_value::<BuildingScenario>(json)
+            .unwrap()
+            .validate()
+            .is_err()
+    );
+}
+
+#[test]
+fn editor_presets_validate_under_rust_geometry_rules() {
+    for source in [
+        include_str!("../../frontend/src/editor/presets/house.json"),
+        include_str!("../../frontend/src/editor/presets/classroom.json"),
+        include_str!("../../frontend/src/editor/presets/office.json"),
+    ] {
+        let b: BuildingScenario = serde_json::from_str(source).unwrap();
+        b.validate().unwrap();
+        let saved = serde_json::to_string(&b).unwrap();
+        serde_json::from_str::<BuildingScenario>(&saved)
+            .unwrap()
+            .validate()
+            .unwrap();
+    }
+}

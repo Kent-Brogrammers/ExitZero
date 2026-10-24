@@ -1,4 +1,10 @@
+import { hitOpening } from "./openings";
 import { useEffect, useRef, useState, type PointerEvent } from "react";
+import {
+  gridSpacings,
+  snapGridPoint,
+  useDraftingPreferences,
+} from "./drafting";
 import { ObjectNameField } from "./ObjectNameField";
 import { objectName, nextObjectName, renameObject } from "./names";
 import { EditorUtilityRail } from "./EditorUtilityRail";
@@ -13,13 +19,20 @@ import {
   canvasView,
   clamp,
   distance,
-  openingSegment,
   project,
-  removeElement,
-  translateElement,
   wallLength,
   type Selection,
 } from "./geometry";
+import {
+  combineSelection,
+  toggleSelection,
+  marqueeSelection,
+  selectionBounds,
+  moveSelection,
+  removeSelection,
+  resizeSelection,
+  canResizeSelection,
+} from "./selection";
 import { drawLayout } from "./draw";
 import "./BuildingEditor.css";
 
@@ -28,7 +41,11 @@ type Gesture = {
   current: Point;
   base: BuildingScenario;
   selection?: Selection;
+  items?: Selection[];
+  marquee?: boolean;
+  initial?: Selection[];
   endpoint?: "start" | "end";
+  constrain?: boolean;
 };
 interface BuildingEditorProps {
   building: BuildingScenario;
@@ -74,11 +91,14 @@ export function BuildingEditor({
   disabled = false,
 }: BuildingEditorProps) {
   const theme = useStudioTheme();
+  const [drafting, setDrafting] = useDraftingPreferences();
   const canvas = useRef<HTMLCanvasElement>(null);
   const importInput = useRef<HTMLInputElement>(null);
   const propertiesButton = useRef<HTMLButtonElement>(null);
+  const savedLayout = useRef(JSON.stringify(building));
   const [tool, setTool] = useState<EditorTool>("select");
-  const [selected, setSelected] = useState<Selection | null>(null);
+  const [selections, setSelections] = useState<Selection[]>([]);
+  const selected = selections.at(-1) ?? null;
   const [propertiesOpen, setPropertiesOpen] = useState(false);
   const [gesture, setGesture] = useState<Gesture | null>(null);
   const [error, setError] = useState("");
@@ -86,7 +106,7 @@ export function BuildingEditor({
   const [redo, setRedo] = useState<BuildingScenario[]>([]);
   const [cursor, setCursor] = useState<Point | null>(null);
   const selectedElement = selected
-    ? building[selected.kind].find((v) => v.id === selected.id)
+    ? (building[selected.kind] ?? []).find((v) => v.id === selected.id)
     : null;
 
   function closeProperties() {
@@ -95,8 +115,7 @@ export function BuildingEditor({
   }
 
   function selectElement(selection: Selection | null) {
-    setSelected(selection);
-    setPropertiesOpen(selection !== null);
+    setSelections(selection ? [selection] : []);
   }
 
   function commit(next: BuildingScenario) {
@@ -118,7 +137,11 @@ export function BuildingEditor({
     setError("");
     canvas.current?.focus({ preventScroll: true });
   }
-  function world(event: PointerEvent<HTMLCanvasElement>): Point {
+  function world(event: {
+    currentTarget: HTMLCanvasElement;
+    clientX: number;
+    clientY: number;
+  }): Point {
     const rect = event.currentTarget.getBoundingClientRect();
     const view = canvasView(
       event.currentTarget.width,
@@ -154,24 +177,25 @@ export function BuildingEditor({
     );
   }
   function snap(point: Point): Point {
+    if (drafting.snap)
+      return snapGridPoint(
+        point,
+        gridSpacings[drafting.spacing].metres,
+        building,
+      );
     const endpoints = building.walls.flatMap((wall) => [wall.start, wall.end]);
     return endpoints.find((p) => distance(point, p) < tolerance()) ?? point;
   }
   function hit(point: Point): Selection | null {
-    for (const kind of ["exits", "doors"] as const)
-      for (const opening of building[kind]) {
-        const wall = building.walls.find((w) => w.id === opening.wall_id)!;
-        const [start, end] = openingSegment(opening, wall);
-        if (project(point, { ...wall, start, end }).distance < tolerance())
-          return { kind, id: opening.id };
-      }
+    const opening = hitOpening(building, point, tolerance());
+    if (opening) return opening;
     const wall = building.walls.find(
       (w) =>
         project(point, w).distance < Math.max(tolerance(), w.thickness / 2),
     );
     if (wall) return { kind: "walls", id: wall.id };
-    for (const kind of ["obstructions", "spawn_zones"] as const)
-      for (const rectangle of building[kind]) {
+    for (const kind of ["obstructions", "spawn_zones", "stair_areas"] as const)
+      for (const rectangle of building[kind] ?? []) {
         if (
           point.x >= rectangle.x &&
           point.x <= rectangle.x + rectangle.width &&
@@ -186,16 +210,40 @@ export function BuildingEditor({
     if (!g.selection) return g.base;
     if (g.endpoint) {
       const next = structuredClone(g.base);
-      next.walls.find((wall) => wall.id === g.selection!.id)![g.endpoint] =
-        snap(g.current);
+      next.walls.find((w) => w.id === g.selection!.id)![g.endpoint] = snap(
+        g.current,
+      );
       return next;
     }
-    return translateElement(g.base, g.selection, {
-      x: g.current.x - g.start.x,
-      y: g.current.y - g.start.y,
-    });
+    let delta = { x: g.current.x - g.start.x, y: g.current.y - g.start.y };
+    if (drafting.snap) {
+      const bounds = selectionBounds(g.base, g.items ?? [g.selection]);
+      if (bounds) {
+        const p = snapGridPoint(
+          { x: bounds.x + delta.x, y: bounds.y + delta.y },
+          gridSpacings[drafting.spacing].metres,
+          building,
+        );
+        delta = { x: p.x - bounds.x, y: p.y - bounds.y };
+      }
+    }
+    return moveSelection(g.base, g.items ?? [g.selection], delta);
   }
   const preview = gesture?.selection ? moved(gesture) : building;
+  const displaySelection = gesture?.marquee
+    ? combineSelection(
+        gesture.initial ?? [],
+        marqueeSelection(
+          building,
+          dragRectangle(gesture.start, gesture.current, building),
+        ),
+      )
+    : selections;
+  const groupBounds = selectionBounds(building, selections);
+  function deleteSelected() {
+    if (selections.length && commit(removeSelection(building, selections)))
+      selectElement(null);
+  }
   useEffect(() => {
     const element = canvas.current;
     if (!element) return;
@@ -203,15 +251,26 @@ export function BuildingEditor({
       drawLayout(
         element,
         preview,
-        selected,
+        gesture?.marquee
+          ? combineSelection(
+              gesture.initial ?? [],
+              marqueeSelection(
+                building,
+                dragRectangle(gesture.start, gesture.current, building),
+              ),
+            )
+          : selections,
         gesture && !gesture.selection
           ? {
               start: gesture.start,
               end: gesture.current,
-              shape: tool,
+              shape: gesture.marquee ? "marquee" : tool,
+              constrain: gesture.constrain,
             }
           : undefined,
         window.devicePixelRatio,
+        undefined,
+        { grid: drafting },
       );
     redraw();
     const observer = new ResizeObserver(redraw);
@@ -221,7 +280,7 @@ export function BuildingEditor({
       observer.disconnect();
       window.removeEventListener("resize", redraw);
     };
-  }, [preview, selected, gesture, tool, theme]);
+  }, [building, preview, selections, gesture, tool, theme, drafting]);
 
   function pointerDown(event: PointerEvent<HTMLCanvasElement>) {
     if (disabled || event.button !== 0) return;
@@ -251,35 +310,60 @@ export function BuildingEditor({
       };
       if (commit({ ...building, [kind]: [...building[kind], opening] })) {
         selectElement({ kind, id: opening.id });
-        setTool("select");
       }
       return;
     }
     event.currentTarget.setPointerCapture(event.pointerId);
     if (tool === "select") {
-      let selection = hit(point);
+      let item = hit(point);
       let endpoint: "start" | "end" | undefined;
-      if (selected?.kind === "walls") {
+      if (
+        selections.length === 1 &&
+        selected?.kind === "walls" &&
+        !event.shiftKey
+      ) {
         const wall = building.walls.find((w) => w.id === selected.id);
         if (wall) {
           if (distance(point, wall.start) < tolerance()) endpoint = "start";
           else if (distance(point, wall.end) < tolerance()) endpoint = "end";
-          if (endpoint) selection = selected;
+          if (endpoint) item = selected;
         }
       }
-      selectElement(selection);
-      if (selection)
+      if (item) {
+        if (event.shiftKey) {
+          setSelections(toggleSelection(selections, item));
+          return;
+        }
+        const items = selections.some((v) => v.id === item!.id)
+          ? selections
+          : [item];
+        setSelections(items);
         setGesture({
           start: point,
           current: point,
           base: building,
-          selection,
+          selection: item,
+          items,
           endpoint,
         });
+      } else {
+        setGesture({
+          start: point,
+          current: point,
+          base: building,
+          marquee: true,
+          initial: event.shiftKey ? selections : [],
+        });
+      }
     } else {
-      const start = tool === "wall" ? snap(point) : point;
+      const start = tool === "wall" || drafting.snap ? snap(point) : point;
       selectElement(null);
-      setGesture({ start, current: start, base: building });
+      setGesture({
+        start,
+        current: start,
+        base: building,
+        constrain: event.shiftKey,
+      });
     }
   }
   function pointerMove(event: PointerEvent<HTMLCanvasElement>) {
@@ -288,30 +372,77 @@ export function BuildingEditor({
     if (gesture)
       setGesture({
         ...gesture,
-        current: tool === "wall" ? snap(point) : point,
+        current:
+          !gesture.selection &&
+          !gesture.marquee &&
+          (tool === "wall" || drafting.snap)
+            ? snap(point)
+            : point,
+        constrain: event.shiftKey,
       });
   }
   function pointerUp(event: PointerEvent<HTMLCanvasElement>) {
     if (!gesture) return;
     const g = {
       ...gesture,
-      current: tool === "wall" ? snap(world(event)) : world(event),
+      current:
+        !gesture.selection &&
+        !gesture.marquee &&
+        (tool === "wall" || drafting.snap)
+          ? snap(world(event))
+          : world(event),
+      constrain: event.shiftKey,
     };
     setGesture(null);
     if (event.currentTarget.hasPointerCapture(event.pointerId))
       event.currentTarget.releasePointerCapture(event.pointerId);
+    if (g.marquee) {
+      setSelections(
+        distance(g.start, g.current) < 0.02
+          ? (g.initial ?? [])
+          : combineSelection(
+              g.initial ?? [],
+              marqueeSelection(
+                building,
+                dragRectangle(g.start, g.current, building),
+              ),
+            ),
+      );
+      return;
+    }
     if (distance(g.start, g.current) < 0.02) return;
     if (g.selection) {
       commit(moved(g));
       return;
     }
     if (isWallTool(tool)) {
-      const next = addWallShape(building, tool, g.start, g.current);
+      const next = addWallShape(
+        building,
+        tool,
+        g.start,
+        g.current,
+        undefined,
+        g.constrain,
+      );
       if (commit(next))
         selectElement({
           kind: "walls",
           id: next.walls[building.walls.length]!.id,
         });
+    } else if (tool === "stairs") {
+      const area = {
+        id: `stairs_${crypto.randomUUID()}`,
+        name: nextObjectName(building, "stair_areas"),
+        ...dragRectangle(g.start, g.current, building),
+        orientation_degrees: 0 as const,
+      };
+      if (
+        commit({
+          ...building,
+          stair_areas: [...(building.stair_areas ?? []), area],
+        })
+      )
+        selectElement({ kind: "stair_areas", id: area.id });
     } else if (tool === "spawn") {
       const rectangle = dragRectangle(g.start, g.current, building);
       const zone = {
@@ -326,12 +457,7 @@ export function BuildingEditor({
       if (commit({ ...building, spawn_zones: [...building.spawn_zones, zone] }))
         selectElement({ kind: "spawn_zones", id: zone.id });
     } else if (tool === "object-square" || tool === "object-rectangle") {
-      const next = addObject(
-        building,
-        g.start,
-        g.current,
-        tool === "object-square",
-      );
+      const next = addObject(building, g.start, g.current, !!g.constrain);
       if (commit(next))
         selectElement({
           kind: "obstructions",
@@ -342,7 +468,9 @@ export function BuildingEditor({
   function changeSelected(field: string, value: number) {
     if (!selected || !selectedElement) return;
     const next = structuredClone(building);
-    const element = next[selected.kind].find((v) => v.id === selected.id)!;
+    const element = (next[selected.kind] ?? []).find(
+      (v) => v.id === selected.id,
+    )!;
     if ("start" in element && field.includes(".")) {
       const [endpoint, axis] = field.split(".") as ["start" | "end", "x" | "y"];
       element[endpoint][axis] = value;
@@ -369,7 +497,22 @@ export function BuildingEditor({
     setError("");
     onChange(next);
   }
+  function replaceLayout(next: BuildingScenario, label: string) {
+    if (
+      JSON.stringify(building) !== savedLayout.current &&
+      !window.confirm(
+        `Replace your edited building with ${label}? Export JSON first to keep a file. Undo can restore the previous layout.`,
+      )
+    )
+      return;
+    if (commit(next)) {
+      savedLayout.current = JSON.stringify(next);
+      selectElement(null);
+      setGesture(null);
+    }
+  }
   function exportLayout() {
+    savedLayout.current = JSON.stringify(building);
     const url = URL.createObjectURL(
       new Blob([JSON.stringify(building, null, 2) + "\n"], {
         type: "application/json",
@@ -389,10 +532,7 @@ export function BuildingEditor({
       const value: unknown = JSON.parse(await file.text());
       const problem = buildingError(value, false);
       if (problem) throw new Error(problem);
-      if (commit(value as BuildingScenario)) {
-        selectElement(null);
-        setGesture(null);
-      }
+      replaceLayout(value as BuildingScenario, "the imported layout");
     } catch (reason) {
       setError(
         reason instanceof SyntaxError
@@ -435,9 +575,9 @@ export function BuildingEditor({
               propertiesButton={propertiesButton}
               onUndo={undo}
               onRedo={redoChange}
-              onNew={() => {
-                if (
-                  commit({
+              onNew={() =>
+                replaceLayout(
+                  {
                     ...building,
                     walls: [],
                     doors: [],
@@ -445,21 +585,22 @@ export function BuildingEditor({
                     spawn_zones: [],
                     blocked_exit_ids: [],
                     obstructions: [],
-                  })
-                ) {
-                  selectElement(null);
-                  setGesture(null);
-                }
-              }}
-              onExample={() => {
-                if (commit(structuredClone(example))) {
-                  selectElement(null);
-                  setGesture(null);
-                }
-              }}
+                    ...(building.stair_areas ? { stair_areas: [] } : {}),
+                  },
+                  "an empty layout",
+                )
+              }
+              onExample={() =>
+                replaceLayout(structuredClone(example), "the example building")
+              }
+              onPreset={(preset) =>
+                replaceLayout(structuredClone(preset.building), preset.label)
+              }
               onImport={() => importInput.current?.click()}
               onExport={exportLayout}
               onProperties={() => setPropertiesOpen(!propertiesOpen)}
+              drafting={drafting}
+              onDrafting={setDrafting}
             />
             <input
               ref={importInput}
@@ -471,29 +612,33 @@ export function BuildingEditor({
             />
           </div>
           <div className="editor-stage">
-            {selectedElement && selected && (
+            {selections.length > 0 && (
               <p
                 className="editor-selection-feedback"
                 role="status"
-                title={objectName(building, selected)}
+                title={selected ? objectName(building, selected) : ""}
               >
-                Selected: {objectName(building, selected)}
+                {selections.length > 1
+                  ? `${selections.length} selected · drag to move · Properties to resize`
+                  : `Selected: ${objectName(building, selected!)}`}
               </p>
             )}
             <p className="editor-help">
               {tool === "select"
-                ? "Drag objects or wall endpoints. Select an object to edit its name and properties."
+                ? "Drag objects or wall endpoints. Drag empty space for marquee; Shift adds objects. Properties opens only on request."
                 : tool === "wall"
                   ? "Drag a straight wall at any angle. Nearby endpoints snap together."
                   : tool === "wall-rectangle"
-                    ? "Drag opposite corners to draw four connected walls. Each segment remains individually editable."
+                    ? "Drag opposite corners freely; Shift makes a square. Creates four independently editable walls."
                     : tool === "wall-circle"
-                      ? "Drag from the centre to set the radius. Saves 24 straight wall segments, not a true curve."
+                      ? "Drag opposite corners for an ellipse; Shift makes a circle. Saves 32 actual straight segments."
                       : tool === "door" || tool === "exit"
                         ? `Click a wall to place ${tool === "exit" ? "an exit" : "a door"}. Adjust its width in Properties.`
-                        : tool === "spawn"
-                          ? "Drag a spawn area, then set its name and occupant count in Properties."
-                          : `Drag to draw ${tool === "object-square" ? "a square" : "a rectangle"} physical obstacle. Name and resize it in Properties.`}
+                        : tool === "stairs"
+                          ? "Drag a walkable stair-area marker. It does not connect floors or block occupants."
+                          : tool === "spawn"
+                            ? "Drag a spawn area, then set its name and occupant count in Properties."
+                            : "Drag freely for a rectangular object; hold Shift for a square. Names and dimensions are editable in Properties."}
             </p>
             <div className="canvas-wrap editor-canvas-wrap">
               <canvas
@@ -501,8 +646,9 @@ export function BuildingEditor({
                 width={1200}
                 height={800}
                 tabIndex={0}
+                data-selected-count={displaySelection.length}
                 role="img"
-                aria-label={`Editable floor plan, ${building.width} by ${building.height} metres. ${building.walls.length} walls, ${building.doors.length} doors, ${building.exits.length} exits, ${building.spawn_zones.length} spawn zones, ${building.obstructions.length} obstructions. ${selectedElement && selected ? `Selected: ${objectName(building, selected)}. ` : ""}Use layout tools to draw or the element inspector to edit.`}
+                aria-label={`Editable floor plan, ${building.width} by ${building.height} metres. ${building.walls.length} walls, ${building.doors.length} doors, ${building.exits.length} exits, ${building.spawn_zones.length} spawn zones, ${building.obstructions.length} obstructions. ${selections.length > 1 ? `${selections.length} selected objects. ` : selectedElement && selected ? `Selected: ${objectName(building, selected)}. ` : ""}Use layout tools to draw or the element inspector to edit.`}
                 style={{
                   aspectRatio: "3 / 2",
                   cursor:
@@ -511,6 +657,15 @@ export function BuildingEditor({
                         ? "grabbing"
                         : "default"
                       : "crosshair",
+                }}
+                onDoubleClick={(event) => {
+                  const target = hit(world(event));
+                  if (target) {
+                    if (!selections.some((s) => s.id === target.id))
+                      selectElement(target);
+                    setPropertiesOpen(true);
+                    setError("");
+                  }
                 }}
                 onPointerDown={pointerDown}
                 onPointerMove={pointerMove}
@@ -522,15 +677,15 @@ export function BuildingEditor({
                   if (disabled) return;
                   if (event.key === "Escape") {
                     setGesture(null);
-                    selectElement(null);
+                    if (propertiesOpen) closeProperties();
+                    else selectElement(null);
                   }
                   if (
                     (event.key === "Delete" || event.key === "Backspace") &&
                     selected
                   ) {
                     event.preventDefault();
-                    if (commit(removeElement(building, selected)))
-                      selectElement(null);
+                    deleteSelected();
                   }
                   if (
                     (event.ctrlKey || event.metaKey) &&
@@ -551,7 +706,9 @@ export function BuildingEditor({
                 <span>
                   {cursor
                     ? `${cursor.x.toFixed(2)}, ${cursor.y.toFixed(2)} m`
-                    : "Continuous coordinates"}
+                    : drafting.snap
+                      ? `Snap ${gridSpacings[drafting.spacing].label} · geometry in metres`
+                      : "Continuous coordinates"}
                 </span>
               </div>
             </div>
@@ -586,7 +743,6 @@ export function BuildingEditor({
                   selectElement(
                     id ? { kind: kind as Selection["kind"], id } : null,
                   );
-                  setTool("select");
                   setGesture(null);
                 }}
               >
@@ -598,9 +754,10 @@ export function BuildingEditor({
                     "exits",
                     "spawn_zones",
                     "obstructions",
+                    "stair_areas",
                   ] as const
                 ).flatMap((kind) =>
-                  building[kind].map((v) => (
+                  (building[kind] ?? []).map((v) => (
                     <option key={v.id} value={`${kind}:${v.id}`}>
                       {objectName(building, { kind, id: v.id })} ·{" "}
                       {v.id.slice(0, 16)}
@@ -609,7 +766,62 @@ export function BuildingEditor({
                 )}
               </select>
             </label>
-            {selectedElement && selected ? (
+            {selections.length > 1 ? (
+              <div className="inspector-fields">
+                <p className="note">
+                  {selections.length} objects selected. Marquee requires full
+                  footprint containment. Shift-click adds or removes an object.
+                </p>
+                {groupBounds && canResizeSelection(building, selections) ? (
+                  <>
+                    <p className="note">
+                      Resize centreline/rectangle bounds. Wall thickness and
+                      occupant counts stay fixed; attached openings scale with
+                      their parent walls.
+                    </p>
+                    {groupBounds.width > 0 && (
+                      <NumberField
+                        label="Selection width"
+                        value={groupBounds.width}
+                        onCommit={(value) =>
+                          commit(
+                            resizeSelection(
+                              building,
+                              selections,
+                              value,
+                              groupBounds.height,
+                            ),
+                          )
+                        }
+                      />
+                    )}
+                    {groupBounds.height > 0 && (
+                      <NumberField
+                        label="Selection height"
+                        value={groupBounds.height}
+                        onCommit={(value) =>
+                          commit(
+                            resizeSelection(
+                              building,
+                              selections,
+                              groupBounds.width,
+                              value,
+                            ),
+                          )
+                        }
+                      />
+                    )}
+                  </>
+                ) : (
+                  <p className="note">
+                    Include the parent walls to resize openings as a group.
+                  </p>
+                )}
+                <button className="delete-button" onClick={deleteSelected}>
+                  Delete selection
+                </button>
+              </div>
+            ) : selectedElement && selected ? (
               <div className="inspector-fields">
                 <ObjectNameField
                   key={`${selected.kind}:${selected.id}:${objectName(building, selected)}`}
@@ -624,9 +836,40 @@ export function BuildingEditor({
                     saved; width and height can be resized independently.
                   </p>
                 )}
+                {selected.kind === "stair_areas" && (
+                  <>
+                    <p className="note">
+                      Walkable single-floor marker only. It does not block
+                      occupants or connect floors.
+                    </p>
+                    <label className="element-select">
+                      Orientation
+                      <select
+                        aria-label="Stair orientation"
+                        value={
+                          building.stair_areas?.find(
+                            (area) => area.id === selected.id,
+                          )?.orientation_degrees ?? 0
+                        }
+                        onChange={(event) =>
+                          changeSelected(
+                            "orientation_degrees",
+                            Number(event.target.value),
+                          )
+                        }
+                      >
+                        {[0, 90, 180, 270].map((angle) => (
+                          <option key={angle} value={angle}>
+                            {angle}°
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </>
+                )}
                 <p className="note">
                   {"wall_id" in selectedElement
-                    ? `Attached to ${selectedElement.wall_id}`
+                    ? `Attached to ${selectedElement.wall_id}. Touching available openings form a continuous gap; blocked exits stay solid. IDs stay separate.`
                     : "Dimensions in metres"}
                 </p>
                 {"start" in selectedElement ? (
@@ -693,8 +936,7 @@ export function BuildingEditor({
                 <button
                   className="delete-button"
                   onClick={() => {
-                    if (commit(removeElement(building, selected)))
-                      selectElement(null);
+                    deleteSelected();
                   }}
                 >
                   Delete selected

@@ -142,6 +142,13 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 100000
+        },
+        "stair_areas": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/StairArea"
+          }
         }
       }
     },
@@ -860,6 +867,50 @@
         "total_waiting_seconds": {
           "type": "number",
           "minimum": 0
+        }
+      }
+    },
+    "StairArea": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "x", "y", "width", "height"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "\\S"
+        },
+        "x": {
+          "type": "number",
+          "maximum": 1000,
+          "minimum": 0
+        },
+        "y": {
+          "type": "number",
+          "maximum": 1000,
+          "minimum": 0
+        },
+        "width": {
+          "type": "number",
+          "maximum": 1000,
+          "exclusiveMinimum": 0
+        },
+        "height": {
+          "type": "number",
+          "maximum": 1000,
+          "exclusiveMinimum": 0
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "[^\\s\\u0085]",
+          "description": "Optional user-facing display name. Stable object references continue to use id; names do not affect simulation."
+        },
+        "orientation_degrees": {
+          "type": "integer",
+          "enum": [0, 90, 180, 270]
         }
       }
     }

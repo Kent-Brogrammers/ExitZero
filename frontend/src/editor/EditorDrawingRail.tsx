@@ -99,21 +99,21 @@ export function EditorDrawingRail({
             {choice(
               "wall-rectangle",
               "Rectangular wall perimeter",
-              "Drag opposite corners · 4 walls",
+              "Drag freely · Shift for square · 4 walls",
               "rectangle",
               close,
             )}
             {choice(
               "wall-circle",
-              "Circular wall perimeter",
-              "Drag centre to radius · 24 segments",
+              "Circle / ellipse wall perimeter",
+              "Drag bounding box · Shift for circle",
               "circle",
               close,
             )}
             <p className="shape-note">
               Perimeters save as individual straight walls. Select a segment to
               edit, name, or delete it; undo restores the entire drawing action.
-              Circles are segmented approximations, not arcs.
+              Curves save as 32 straight segments, not exact arcs.
             </p>
           </>
         )}
@@ -145,16 +145,9 @@ export function EditorDrawingRail({
               </button>
             </div>
             {choice(
-              "object-square",
-              "Square",
-              "Drag to size · physical obstacle",
-              "square",
-              close,
-            )}
-            {choice(
               "object-rectangle",
-              "Rectangle",
-              "Drag opposite corners · physical obstacle",
+              "Rectangle / square",
+              "Drag freely · Shift for square",
               "rectangle",
               close,
             )}
@@ -169,6 +162,17 @@ export function EditorDrawingRail({
                 Circle<small>Requires collision-contract approval</small>
               </span>
             </button>
+            <button
+              type="button"
+              className="shape-choice"
+              aria-label="Ellipse"
+              disabled
+            >
+              <ToolIcon name="circle" />
+              <span>
+                Ellipse<small>Requires collision-contract approval</small>
+              </span>
+            </button>
             <p className="shape-note">
               Squares and rectangles save as rectangular obstructions. Resize
               width/height independently and give any object a name in
@@ -177,48 +181,7 @@ export function EditorDrawingRail({
           </>
         )}
       </StudioPopover>
-      <StudioPopover
-        label="Stairs"
-        side="right"
-        className="editor-shapes"
-        disabled={disabled}
-        indicator={false}
-        triggerClassName="rail-button"
-        triggerContent={content("stairs", "Stairs")}
-        onOpen={onOpenPanel}
-      >
-        {(close) => (
-          <>
-            <div className="control-popover-heading">
-              <h3>Stair areas</h3>
-              <button
-                type="button"
-                className="studio-control studio-control--icon"
-                aria-label="Close stair information"
-                onClick={close}
-              >
-                ×
-              </button>
-            </div>
-            <p className="shape-note">
-              Stair markers need an agreed, persistent area contract before they
-              can be drawn. No stair geometry is saved or simulated yet.
-            </p>
-            <p className="shape-note">
-              A marker will not transport occupants between floors. Multi-floor
-              navigation is tracked separately in{" "}
-              <a
-                href="https://github.com/Kent-Brogrammers/ExitZero/issues/11"
-                target="_blank"
-                rel="noreferrer"
-              >
-                issue #11
-              </a>
-              .
-            </p>
-          </>
-        )}
-      </StudioPopover>
+      {button("stairs", "Stairs", "stairs")}
     </div>
   );
 }

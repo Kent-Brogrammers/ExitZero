@@ -7,6 +7,7 @@ import {
 } from "react";
 import {
   AppearanceContext,
+  appearanceOptions,
   initialTheme,
   THEME_STORAGE_KEY,
   type StudioTheme,
@@ -40,16 +41,28 @@ export function StudioAppearance({ children }: { children: ReactNode }) {
 export function AppearanceSelector() {
   const { theme, setTheme } = useContext(AppearanceContext);
   return (
-    <label className="appearance-setting">
-      Appearance
-      <select
-        aria-label="Studio appearance"
-        value={theme}
-        onChange={(event) => setTheme(event.target.value as StudioTheme)}
-      >
-        <option value="dark">Studio Dark</option>
-        <option value="slate">Studio Slate</option>
-      </select>
-    </label>
+    <div>
+      <label className="appearance-setting">
+        Appearance
+        <select
+          aria-label="Studio appearance"
+          value={theme}
+          onChange={(event) => setTheme(event.target.value as StudioTheme)}
+        >
+          {appearanceOptions.map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </label>
+      {theme.startsWith("blueprint") && (
+        <p className="note">
+          Architectural wall outlines and schematic door swings. Collision still
+          uses full wall thickness and the recorded openings; stair areas are
+          walkable markers.
+        </p>
+      )}
+    </div>
   );
 }

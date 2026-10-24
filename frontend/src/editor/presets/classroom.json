@@ -1,0 +1,166 @@
+{
+  "width": 16,
+  "height": 12,
+  "walls": [
+    {
+      "id": "class-north",
+      "name": "North wall",
+      "start": {
+        "x": 1,
+        "y": 1
+      },
+      "end": {
+        "x": 15,
+        "y": 1
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "class-east",
+      "name": "East wall",
+      "start": {
+        "x": 15,
+        "y": 1
+      },
+      "end": {
+        "x": 15,
+        "y": 11
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "class-south",
+      "name": "South wall",
+      "start": {
+        "x": 15,
+        "y": 11
+      },
+      "end": {
+        "x": 1,
+        "y": 11
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "class-west",
+      "name": "West wall",
+      "start": {
+        "x": 1,
+        "y": 11
+      },
+      "end": {
+        "x": 1,
+        "y": 1
+      },
+      "thickness": 0.2
+    }
+  ],
+  "doors": [
+    {
+      "id": "class-door",
+      "name": "Classroom entrance",
+      "wall_id": "class-north",
+      "offset": 6,
+      "width": 1.2
+    }
+  ],
+  "exits": [
+    {
+      "id": "class-east-exit",
+      "name": "East emergency exit",
+      "wall_id": "class-east",
+      "offset": 7,
+      "width": 1.4
+    },
+    {
+      "id": "class-west-exit",
+      "name": "West emergency exit",
+      "wall_id": "class-west",
+      "offset": 1,
+      "width": 1.4
+    }
+  ],
+  "spawn_zones": [
+    {
+      "id": "class-row-a",
+      "name": "Student row A",
+      "x": 2.5,
+      "y": 5,
+      "width": 10,
+      "height": 0.8,
+      "count": 12
+    },
+    {
+      "id": "class-row-b",
+      "name": "Student row B",
+      "x": 2.5,
+      "y": 8.5,
+      "width": 10,
+      "height": 0.8,
+      "count": 12
+    }
+  ],
+  "obstructions": [
+    {
+      "id": "teacher-desk",
+      "name": "Teacher desk",
+      "x": 2,
+      "y": 2,
+      "width": 2.2,
+      "height": 0.7
+    },
+    {
+      "id": "desk-0-0",
+      "name": "Desk footprint",
+      "x": 3,
+      "y": 4,
+      "width": 1.4,
+      "height": 0.7
+    },
+    {
+      "id": "desk-0-1",
+      "name": "Desk footprint",
+      "x": 7,
+      "y": 4,
+      "width": 1.4,
+      "height": 0.7
+    },
+    {
+      "id": "desk-0-2",
+      "name": "Desk footprint",
+      "x": 11,
+      "y": 4,
+      "width": 1.4,
+      "height": 0.7
+    },
+    {
+      "id": "desk-1-0",
+      "name": "Desk footprint",
+      "x": 3,
+      "y": 7.2,
+      "width": 1.4,
+      "height": 0.7
+    },
+    {
+      "id": "desk-1-1",
+      "name": "Desk footprint",
+      "x": 7,
+      "y": 7.2,
+      "width": 1.4,
+      "height": 0.7
+    },
+    {
+      "id": "desk-1-2",
+      "name": "Desk footprint",
+      "x": 11,
+      "y": 7.2,
+      "width": 1.4,
+      "height": 0.7
+    }
+  ],
+  "blocked_exit_ids": [],
+  "agent_radius": 0.25,
+  "time_step_seconds": 0.1,
+  "seed": 42,
+  "max_steps": 2000
+}

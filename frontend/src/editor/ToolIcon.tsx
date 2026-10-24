@@ -1,4 +1,5 @@
 const paths: Record<string, string> = {
+  grid: "M4 4h16v16H4z M4 10h16 M4 16h16 M10 4v16 M16 4v16",
   undo: "M9 4L4 9l5 5 M4 9h10a6 6 0 0 1 0 12h-3",
   redo: "M15 4l5 5-5 5 M20 9H10a6 6 0 0 0 0 12h3",
   file: "M5 3h9l5 5v13H5z M14 3v6h5 M8 13h8 M8 17h6",

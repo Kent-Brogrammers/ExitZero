@@ -6,6 +6,7 @@ export type EditorTool =
   | "door"
   | "exit"
   | "spawn"
+  | "stairs"
   | "object-square"
   | "object-rectangle";
 
