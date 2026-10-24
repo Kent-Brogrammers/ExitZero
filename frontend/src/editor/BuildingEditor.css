@@ -1,0 +1,64 @@
+.editor-tools,
+.editor-actions,
+.editor-dimensions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.editor-tools button[aria-pressed="true"] {
+  background: #25624f;
+  border-color: #25624f;
+  color: #fff;
+  box-shadow: inset 0 0 0 1px #fff;
+}
+.editor-selection {
+  color: #5c7566;
+  font-size: 12px;
+  margin: 14px 0;
+}
+.editor-canvas-wrap {
+  max-height: 640px;
+  overflow: auto;
+}
+.editor-canvas-wrap canvas {
+  cursor: crosshair;
+  margin: 0 auto;
+}
+.editor-canvas-wrap canvas:focus-visible {
+  outline-offset: -3px;
+}
+.editor-feedback {
+  color: #315d51;
+  font-size: 12px;
+  line-height: 1.6;
+  min-height: 38px;
+  margin: 12px 0;
+}
+.editor-error {
+  color: #9f392f;
+}
+.editor-dimensions {
+  align-items: end;
+  margin: 18px 0 12px;
+}
+.editor-dimensions label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #5c7566;
+  font-size: 12px;
+}
+.editor-dimensions input {
+  width: 80px;
+  padding: 9px;
+  border: 1px solid #cdd9d2;
+  border-radius: 6px;
+  color: #223c38;
+  background: #fff;
+}
+.editor-spawns {
+  color: #65796e;
+  font-size: 11px;
+  line-height: 1.8;
+  padding-left: 18px;
+}
