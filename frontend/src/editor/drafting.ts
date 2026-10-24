@@ -12,6 +12,7 @@ export interface DraftingPreferences {
   visible: boolean;
   snap: boolean;
   spacing: keyof typeof gridSpacings;
+  doorMergeTolerance: number;
 }
 export const DRAFTING_STORAGE_KEY = "exitzero.studio.drafting";
 export function useDraftingPreferences() {
@@ -26,11 +27,25 @@ export function useDraftingPreferences() {
         typeof p.snap === "boolean" &&
         Object.hasOwn(gridSpacings, p.spacing)
       )
-        return p;
+        return {
+          visible: p.visible,
+          snap: p.snap,
+          spacing: p.spacing,
+          doorMergeTolerance: [0.02, 0.05, 0.1, 0.2].includes(
+            p.doorMergeTolerance,
+          )
+            ? p.doorMergeTolerance
+            : 0.1,
+        };
     } catch {
       /* Drawing still works without storage. */
     }
-    return { visible: false, snap: false, spacing: "2ft" };
+    return {
+      visible: false,
+      snap: false,
+      spacing: "2ft",
+      doorMergeTolerance: 0.1,
+    };
   });
   useEffect(() => {
     try {

@@ -16,6 +16,7 @@ export function drawLayout(
     end: Point;
     shape: EditorTool | "marquee";
     constrain?: boolean;
+    points?: readonly Point[];
   },
   pixelRatio = 1,
   palette: CanvasPalette = canvasPalette(canvas),
@@ -219,6 +220,17 @@ export function drawLayout(
       ctx.fillRect(r.x, r.y, r.width, r.height);
       ctx.globalAlpha = 1;
       ctx.strokeRect(r.x, r.y, r.width, r.height);
+    } else if (draft.shape === "wall-freehand") {
+      ctx.setLineDash([]);
+      ctx.lineWidth = 0.2;
+      ctx.globalAlpha = 0.65;
+      if (draft.points?.length) {
+        ctx.beginPath();
+        ctx.moveTo(draft.points[0]!.x, draft.points[0]!.y);
+        for (const p of draft.points.slice(1)) ctx.lineTo(p.x, p.y);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
     } else if (isWallTool(draft.shape)) {
       const points = wallShapePoints(
         draft.shape,

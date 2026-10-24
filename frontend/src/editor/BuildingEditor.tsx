@@ -1,4 +1,12 @@
 import { hitOpening } from "./openings";
+import { mergeEditedDoors, snapDoorToNeighbor } from "./doorEditing";
+import {
+  addFreehandWalls,
+  curvePolyline,
+  sampleCurve,
+  MAX_CURVE_SAMPLES,
+  CURVE_SAMPLE_METRES,
+} from "./freehand";
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 import {
   gridSpacings,
@@ -25,7 +33,6 @@ import {
 } from "./geometry";
 import {
   combineSelection,
-  toggleSelection,
   marqueeSelection,
   selectionBounds,
   moveSelection,
@@ -46,6 +53,9 @@ type Gesture = {
   initial?: Selection[];
   endpoint?: "start" | "end";
   constrain?: boolean;
+  curve?: Point[];
+  tracing?: boolean;
+  overflow?: boolean;
 };
 interface BuildingEditorProps {
   building: BuildingScenario;
@@ -96,12 +106,15 @@ export function BuildingEditor({
   const importInput = useRef<HTMLInputElement>(null);
   const propertiesButton = useRef<HTMLButtonElement>(null);
   const savedLayout = useRef(JSON.stringify(building));
+  const curveGroups = useRef(new Map<string, readonly string[]>());
+  const openingId = useRef(`door_${crypto.randomUUID()}`);
   const [tool, setTool] = useState<EditorTool>("select");
   const [selections, setSelections] = useState<Selection[]>([]);
   const selected = selections.at(-1) ?? null;
   const [propertiesOpen, setPropertiesOpen] = useState(false);
   const [gesture, setGesture] = useState<Gesture | null>(null);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [history, setHistory] = useState<BuildingScenario[]>([]);
   const [redo, setRedo] = useState<BuildingScenario[]>([]);
   const [cursor, setCursor] = useState<Point | null>(null);
@@ -118,7 +131,19 @@ export function BuildingEditor({
     setSelections(selection ? [selection] : []);
   }
 
-  function commit(next: BuildingScenario) {
+  function commit(
+    next: BuildingScenario,
+    mergeDoors = false,
+    afterSelection?: Selection[],
+  ) {
+    const edit = mergeDoors
+      ? mergeEditedDoors(
+          building,
+          next,
+          selected?.kind === "doors" ? selected.id : undefined,
+        )
+      : null;
+    if (edit) next = edit.building;
     const problem = buildingError(next, false);
     if (problem) {
       setError(problem);
@@ -127,12 +152,28 @@ export function BuildingEditor({
     setHistory((items) => [...items.slice(-49), structuredClone(building)]);
     setRedo([]);
     setError("");
+    setNotice(
+      edit?.replacements.size
+        ? "Door openings merged · Undo restores original IDs and names."
+        : "",
+    );
+    if (afterSelection || edit?.replacements.size) {
+      const mapped = (afterSelection ?? selections).map((item) =>
+        item.kind === "doors"
+          ? { ...item, id: edit?.replacements.get(item.id) ?? item.id }
+          : item,
+      );
+      setSelections(
+        mapped.filter((v, i) => mapped.findIndex((m) => m.id === v.id) === i),
+      );
+    }
     onChange(next);
     return true;
   }
   function changeTool(next: EditorTool) {
     setPropertiesOpen(false);
     setTool(next);
+    setNotice("");
     setGesture(null);
     setError("");
     canvas.current?.focus({ preventScroll: true });
@@ -206,16 +247,26 @@ export function BuildingEditor({
       }
     return null;
   }
-  function moved(g: Gesture): BuildingScenario {
-    if (!g.selection) return g.base;
+  function moved(g: Gesture): { building: BuildingScenario; snapped: boolean } {
+    if (!g.selection || (!g.endpoint && distance(g.start, g.current) < 0.02))
+      return { building: g.base, snapped: false };
     if (g.endpoint) {
       const next = structuredClone(g.base);
       next.walls.find((w) => w.id === g.selection!.id)![g.endpoint] = snap(
         g.current,
       );
-      return next;
+      return { building: next, snapped: false };
     }
     let delta = { x: g.current.x - g.start.x, y: g.current.y - g.start.y };
+    const items = g.items ?? [g.selection];
+    if (drafting.snap && items.length === 1 && g.selection.kind === "doors") {
+      const snapped = snapDoorToNeighbor(
+        moveSelection(g.base, items, delta),
+        g.selection.id,
+        drafting.doorMergeTolerance,
+      );
+      if (snapped.snapped) return snapped;
+    }
     if (drafting.snap) {
       const bounds = selectionBounds(g.base, g.items ?? [g.selection]);
       if (bounds) {
@@ -227,9 +278,91 @@ export function BuildingEditor({
         delta = { x: p.x - bounds.x, y: p.y - bounds.y };
       }
     }
-    return moveSelection(g.base, g.items ?? [g.selection], delta);
+    return { building: moveSelection(g.base, items, delta), snapped: false };
   }
-  const preview = gesture?.selection ? moved(gesture) : building;
+  function openingAt(point: Point, kind: "doors" | "exits", id: string) {
+    const closest = building.walls
+      .map((wall) => ({ wall, ...project(point, wall) }))
+      .sort((a, b) => a.distance - b.distance)[0];
+    if (!closest || closest.distance > tolerance()) return null;
+    const width = Math.min(1.2, wallLength(closest.wall));
+    const opening = {
+      id,
+      name: nextObjectName(building, kind),
+      wall_id: closest.wall.id,
+      offset: clamp(
+        closest.offset - width / 2,
+        0,
+        wallLength(closest.wall) - width,
+      ),
+      width,
+    };
+    const candidate = { ...building, [kind]: [...building[kind], opening] };
+    return {
+      opening,
+      ...(kind === "doors" && drafting.snap
+        ? snapDoorToNeighbor(candidate, id, drafting.doorMergeTolerance)
+        : { building: candidate, snapped: false }),
+    };
+  }
+  function curveDraft(g: Gesture) {
+    const raw = [...(g.curve ?? [])];
+    const endpoint = drafting.snap ? snap(g.current) : g.current;
+    if (drafting.snap && raw.length > 1) raw[raw.length - 1] = endpoint;
+    else if (raw.length && distance(raw.at(-1)!, endpoint) > 1e-8)
+      raw.push(endpoint);
+    return curvePolyline(raw, 500 - building.walls.length);
+  }
+  function finishCurve(g: Gesture) {
+    setGesture(null);
+    const result = curveDraft(g);
+    if (g.overflow || result.error) {
+      setError(
+        g.overflow
+          ? "Curve sample limit reached; draw shorter sections."
+          : result.error!,
+      );
+      return;
+    }
+    const next = addFreehandWalls(building, result.points);
+    const ids = next.walls.slice(building.walls.length).map((w) => w.id);
+    if (
+      commit(
+        next,
+        false,
+        ids.map((id) => ({ kind: "walls", id })),
+      )
+    ) {
+      for (const id of ids) curveGroups.current.set(id, ids);
+      setNotice(
+        "Freehand group · Alt-click selects one segment · JSON stores individual walls.",
+      );
+    }
+  }
+  function curveMembers(item: Selection): Selection[] {
+    const ids =
+      item.kind === "walls" ? curveGroups.current.get(item.id) : undefined;
+    return ids
+      ? ids
+          .filter((id) => building.walls.some((w) => w.id === id))
+          .map((id) => ({ kind: "walls", id }))
+      : [item];
+  }
+  const movement = gesture?.selection ? moved(gesture) : null;
+  const placement =
+    !gesture && tool === "door" && cursor
+      ? openingAt(cursor, "doors", openingId.current)
+      : null;
+  const draftEdit = movement ?? placement;
+  const doorPreview = draftEdit
+    ? mergeEditedDoors(
+        building,
+        draftEdit.building,
+        selected?.kind === "doors" ? selected.id : undefined,
+      )
+    : null;
+  const preview = doorPreview?.building ?? building;
+  const freehand = gesture?.curve ? curveDraft(gesture) : null;
   const displaySelection = gesture?.marquee
     ? combineSelection(
         gesture.initial ?? [],
@@ -259,13 +392,30 @@ export function BuildingEditor({
                 dragRectangle(gesture.start, gesture.current, building),
               ),
             )
-          : selections,
+          : placement
+            ? [
+                {
+                  kind: "doors",
+                  id:
+                    doorPreview?.replacements.get(placement.opening.id) ??
+                    placement.opening.id,
+                },
+              ]
+            : selections.map((item) =>
+                item.kind === "doors"
+                  ? {
+                      ...item,
+                      id: doorPreview?.replacements.get(item.id) ?? item.id,
+                    }
+                  : item,
+              ),
         gesture && !gesture.selection
           ? {
               start: gesture.start,
               end: gesture.current,
               shape: gesture.marquee ? "marquee" : tool,
               constrain: gesture.constrain,
+              points: freehand?.points,
             }
           : undefined,
         window.devicePixelRatio,
@@ -280,37 +430,62 @@ export function BuildingEditor({
       observer.disconnect();
       window.removeEventListener("resize", redraw);
     };
-  }, [building, preview, selections, gesture, tool, theme, drafting]);
+  }, [
+    building,
+    preview,
+    selections,
+    gesture,
+    tool,
+    theme,
+    drafting,
+    freehand,
+    placement,
+    doorPreview,
+  ]);
 
   function pointerDown(event: PointerEvent<HTMLCanvasElement>) {
     if (disabled || event.button !== 0) return;
     event.currentTarget.focus({ preventScroll: true });
     const point = world(event);
     setError("");
+    setNotice("");
+    if (tool === "wall-freehand") {
+      if (gesture?.curve && gesture.tracing) {
+        finishCurve({
+          ...gesture,
+          current: point,
+          curve: sampleCurve(gesture.curve, point),
+        });
+      } else {
+        const start = snap(point);
+        selectElement(null);
+        setGesture({
+          start: point,
+          current: point,
+          base: building,
+          curve: [start],
+        });
+        event.currentTarget.setPointerCapture(event.pointerId);
+      }
+      return;
+    }
     if (tool === "door" || tool === "exit") {
-      const closest = building.walls
-        .map((wall) => ({ wall, ...project(point, wall) }))
-        .sort((a, b) => a.distance - b.distance)[0];
-      if (!closest || closest.distance > tolerance()) {
+      const kind = tool === "door" ? "doors" : "exits";
+      const candidate = openingAt(
+        point,
+        kind,
+        tool === "door" ? openingId.current : `exit_${crypto.randomUUID()}`,
+      );
+      if (!candidate) {
         setError("Click close to a wall to place an opening.");
         return;
       }
-      const kind = tool === "door" ? "doors" : "exits";
-      const width = Math.min(1.2, wallLength(closest.wall));
-      const opening = {
-        id: `${tool}_${crypto.randomUUID()}`,
-        name: nextObjectName(building, kind),
-        wall_id: closest.wall.id,
-        offset: clamp(
-          closest.offset - width / 2,
-          0,
-          wallLength(closest.wall) - width,
-        ),
-        width,
-      };
-      if (commit({ ...building, [kind]: [...building[kind], opening] })) {
-        selectElement({ kind, id: opening.id });
-      }
+      if (
+        commit(candidate.building, kind === "doors", [
+          { kind, id: candidate.opening.id },
+        ])
+      )
+        openingId.current = `door_${crypto.randomUUID()}`;
       return;
     }
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -331,12 +506,21 @@ export function BuildingEditor({
       }
       if (item) {
         if (event.shiftKey) {
-          setSelections(toggleSelection(selections, item));
+          const members = event.altKey ? [item] : curveMembers(item);
+          setSelections(
+            members.every((m) => selections.some((v) => v.id === m.id))
+              ? selections.filter((v) => !members.some((m) => m.id === v.id))
+              : combineSelection(selections, members),
+          );
           return;
         }
-        const items = selections.some((v) => v.id === item!.id)
-          ? selections
-          : [item];
+        const items = event.altKey
+          ? [item]
+          : selections.some((v) => v.id === item!.id)
+            ? selections
+            : endpoint
+              ? [item]
+              : curveMembers(item);
         setSelections(items);
         setGesture({
           start: point,
@@ -369,20 +553,48 @@ export function BuildingEditor({
   function pointerMove(event: PointerEvent<HTMLCanvasElement>) {
     const point = world(event);
     setCursor(point);
-    if (gesture)
-      setGesture({
-        ...gesture,
+    setGesture((g) => {
+      if (!g) return g;
+      if (g.curve)
+        return {
+          ...g,
+          current: point,
+          curve: sampleCurve(g.curve, point),
+          overflow:
+            g.overflow ||
+            (g.curve.length >= MAX_CURVE_SAMPLES &&
+              distance(g.curve.at(-1)!, point) >= CURVE_SAMPLE_METRES),
+        };
+      return {
+        ...g,
         current:
-          !gesture.selection &&
-          !gesture.marquee &&
-          (tool === "wall" || drafting.snap)
+          !g.selection && !g.marquee && (tool === "wall" || drafting.snap)
             ? snap(point)
             : point,
         constrain: event.shiftKey,
-      });
+      };
+    });
   }
+
   function pointerUp(event: PointerEvent<HTMLCanvasElement>) {
     if (!gesture) return;
+    if (gesture.curve) {
+      const point = world(event);
+      const g = {
+        ...gesture,
+        current: point,
+        curve: sampleCurve(gesture.curve, point),
+      };
+      const dragged =
+        g.curve.slice(1).some((p) => distance(p, g.start) >= 0.1) ||
+        distance(point, g.start) >= 0.1;
+      if (!dragged && !g.tracing)
+        setGesture({ ...g, curve: [g.curve[0]!], tracing: true });
+      else finishCurve(g);
+      if (event.currentTarget.hasPointerCapture(event.pointerId))
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      return;
+    }
     const g = {
       ...gesture,
       current:
@@ -412,7 +624,7 @@ export function BuildingEditor({
     }
     if (distance(g.start, g.current) < 0.02) return;
     if (g.selection) {
-      commit(moved(g));
+      commit(moved(g).building, true);
       return;
     }
     if (isWallTool(tool)) {
@@ -475,11 +687,15 @@ export function BuildingEditor({
       const [endpoint, axis] = field.split(".") as ["start" | "end", "x" | "y"];
       element[endpoint][axis] = value;
     } else Object.assign(element, { [field]: value });
-    commit(next);
+    commit(
+      next,
+      selected.kind === "doors" && (field === "width" || field === "offset"),
+    );
   }
   function undo() {
     const previous = history.at(-1);
     if (!previous) return;
+    setNotice("");
     setRedo((items) => [...items, building]);
     setHistory((items) => items.slice(0, -1));
     setGesture(null);
@@ -490,6 +706,7 @@ export function BuildingEditor({
   function redoChange() {
     const next = redo.at(-1);
     if (!next) return;
+    setNotice("");
     setHistory((items) => [...items, building]);
     setRedo((items) => items.slice(0, -1));
     setGesture(null);
@@ -506,6 +723,7 @@ export function BuildingEditor({
     )
       return;
     if (commit(next)) {
+      curveGroups.current.clear();
       savedLayout.current = JSON.stringify(next);
       selectElement(null);
       setGesture(null);
@@ -612,33 +830,43 @@ export function BuildingEditor({
             />
           </div>
           <div className="editor-stage">
-            {selections.length > 0 && (
+            {(draftEdit?.snapped || notice || selections.length > 0) && (
               <p
                 className="editor-selection-feedback"
                 role="status"
                 title={selected ? objectName(building, selected) : ""}
               >
-                {selections.length > 1
-                  ? `${selections.length} selected · drag to move · Properties to resize`
-                  : `Selected: ${objectName(building, selected!)}`}
+                {draftEdit?.snapped
+                  ? "Snap & merge preview · complete placement to remove the gap"
+                  : notice
+                    ? notice
+                    : selections.length > 1
+                      ? `${selections.length} selected · drag to move · Properties to resize`
+                      : `Selected: ${objectName(building, selected!)}`}
               </p>
             )}
             <p className="editor-help">
               {tool === "select"
                 ? "Drag objects or wall endpoints. Drag empty space for marquee; Shift adds objects. Properties opens only on request."
-                : tool === "wall"
-                  ? "Drag a straight wall at any angle. Nearby endpoints snap together."
-                  : tool === "wall-rectangle"
-                    ? "Drag opposite corners freely; Shift makes a square. Creates four independently editable walls."
-                    : tool === "wall-circle"
-                      ? "Drag opposite corners for an ellipse; Shift makes a circle. Saves 32 actual straight segments."
-                      : tool === "door" || tool === "exit"
-                        ? `Click a wall to place ${tool === "exit" ? "an exit" : "a door"}. Adjust its width in Properties.`
-                        : tool === "stairs"
-                          ? "Drag a walkable stair-area marker. It does not connect floors or block occupants."
-                          : tool === "spawn"
-                            ? "Drag a spawn area, then set its name and occupant count in Properties."
-                            : "Drag freely for a rectangular object; hold Shift for a square. Names and dimensions are editable in Properties."}
+                : tool === "wall-freehand"
+                  ? freehand?.error &&
+                    gesture?.curve &&
+                    gesture.curve.length > 1
+                    ? freehand.error
+                    : "Drag a curve and release, or click–trace–click. Escape cancels. Endpoints snap to the grid; JSON stores segments. Alt-click selects one segment."
+                  : tool === "wall"
+                    ? "Drag a straight wall at any angle. Nearby endpoints snap together."
+                    : tool === "wall-rectangle"
+                      ? "Drag opposite corners freely; Shift makes a square. Creates four independently editable walls."
+                      : tool === "wall-circle"
+                        ? "Drag opposite corners for an ellipse; Shift makes a circle. Saves 32 actual straight segments."
+                        : tool === "door" || tool === "exit"
+                          ? `Click a wall to place ${tool === "exit" ? "an exit" : "a door"}. Adjust its width in Properties.`
+                          : tool === "stairs"
+                            ? "Drag a walkable stair-area marker. It does not connect floors or block occupants."
+                            : tool === "spawn"
+                              ? "Drag a spawn area, then set its name and occupant count in Properties."
+                              : "Drag freely for a rectangular object; hold Shift for a square. Names and dimensions are editable in Properties."}
             </p>
             <div className="canvas-wrap editor-canvas-wrap">
               <canvas
@@ -660,7 +888,7 @@ export function BuildingEditor({
                 }}
                 onDoubleClick={(event) => {
                   const target = hit(world(event));
-                  if (target) {
+                  if (target && tool !== "wall-freehand") {
                     if (!selections.some((s) => s.id === target.id))
                       selectElement(target);
                     setPropertiesOpen(true);
@@ -671,14 +899,16 @@ export function BuildingEditor({
                 onPointerMove={pointerMove}
                 onPointerUp={pointerUp}
                 onPointerCancel={() => setGesture(null)}
-                onLostPointerCapture={() => setGesture(null)}
+                onLostPointerCapture={() =>
+                  setGesture((g) => (g?.curve && g.tracing ? g : null))
+                }
                 onPointerLeave={() => setCursor(null)}
                 onKeyDown={(event) => {
                   if (disabled) return;
                   if (event.key === "Escape") {
                     setGesture(null);
                     if (propertiesOpen) closeProperties();
-                    else selectElement(null);
+                    else if (!gesture) selectElement(null);
                   }
                   if (
                     (event.key === "Delete" || event.key === "Backspace") &&
@@ -791,6 +1021,7 @@ export function BuildingEditor({
                               value,
                               groupBounds.height,
                             ),
+                            true,
                           )
                         }
                       />
@@ -807,6 +1038,7 @@ export function BuildingEditor({
                               groupBounds.width,
                               value,
                             ),
+                            true,
                           )
                         }
                       />
@@ -869,7 +1101,7 @@ export function BuildingEditor({
                 )}
                 <p className="note">
                   {"wall_id" in selectedElement
-                    ? `Attached to ${selectedElement.wall_id}. Touching available openings form a continuous gap; blocked exits stay solid. IDs stay separate.`
+                    ? `Attached to ${selectedElement.wall_id}. Touching doors merge on placement, movement or resizing; exits stay separate and blocked exits stay solid.`
                     : "Dimensions in metres"}
                 </p>
                 {"start" in selectedElement ? (

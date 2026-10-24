@@ -24,9 +24,10 @@ export const distance = (a: Point, b: Point) =>
   Math.hypot(a.x - b.x, a.y - b.y);
 export const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
-export const wallLength = (wall: Wall) => distance(wall.start, wall.end);
+export const wallLength = (wall: Pick<Wall, "start" | "end">) =>
+  distance(wall.start, wall.end);
 
-export function project(point: Point, wall: Wall) {
+export function project(point: Point, wall: Pick<Wall, "start" | "end">) {
   const length = wallLength(wall);
   const fraction =
     length === 0
