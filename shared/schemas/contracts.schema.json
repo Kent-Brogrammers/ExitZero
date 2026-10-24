@@ -1,0 +1,600 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://exitzero.local/contracts.schema.json",
+  "title": "ExitZero API contracts",
+  "$ref": "#/$defs/BuildingScenario",
+  "$defs": {
+    "Cell": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y"],
+      "properties": {
+        "x": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 511
+        },
+        "y": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 511
+        }
+      }
+    },
+    "Exit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "x", "y"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "\\S"
+        },
+        "x": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 511
+        },
+        "y": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 511
+        }
+      }
+    },
+    "SpawnZone": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height", "count"],
+      "properties": {
+        "x": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 511
+        },
+        "y": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 511
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 512
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 512
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        }
+      }
+    },
+    "BuildingScenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "width",
+        "height",
+        "walls",
+        "doors",
+        "exits",
+        "spawn_zones",
+        "blocked_exit_ids",
+        "blocked_cells",
+        "seed",
+        "max_steps"
+      ],
+      "properties": {
+        "width": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 512
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 512
+        },
+        "walls": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Cell"
+          },
+          "uniqueItems": true,
+          "maxItems": 262144
+        },
+        "doors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Cell"
+          },
+          "uniqueItems": true,
+          "maxItems": 262144
+        },
+        "exits": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Exit"
+          },
+          "minItems": 1,
+          "maxItems": 2044
+        },
+        "spawn_zones": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SpawnZone"
+          },
+          "minItems": 1,
+          "maxItems": 10000
+        },
+        "blocked_exit_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "\\S"
+          },
+          "uniqueItems": true,
+          "maxItems": 2044
+        },
+        "blocked_cells": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Cell"
+          },
+          "uniqueItems": true,
+          "maxItems": 262144
+        },
+        "seed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "max_steps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000
+        }
+      }
+    },
+    "SimulationMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "total_population",
+        "evacuated",
+        "trapped",
+        "remaining",
+        "clearance_steps"
+      ],
+      "properties": {
+        "status": {
+          "enum": ["completed", "incomplete", "timeout"]
+        },
+        "total_population": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "evacuated": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "trapped": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "remaining": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "clearance_steps": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 100000
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "completed"
+              }
+            },
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "remaining": {
+                "const": 0
+              },
+              "trapped": {
+                "const": 0
+              },
+              "clearance_steps": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100000
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "remaining": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10000
+              },
+              "clearance_steps": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "AgentPosition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "x", "y"],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "x": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 511
+        },
+        "y": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 511
+        }
+      }
+    },
+    "AnimationFrame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["step", "agents"],
+      "properties": {
+        "step": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100000
+        },
+        "agents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AgentPosition"
+          },
+          "maxItems": 10000
+        }
+      }
+    },
+    "SimulationResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "total_population",
+        "evacuated",
+        "trapped",
+        "remaining",
+        "clearance_steps",
+        "frames",
+        "cell_visits",
+        "width",
+        "height"
+      ],
+      "properties": {
+        "status": {
+          "enum": ["completed", "incomplete", "timeout"]
+        },
+        "total_population": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "evacuated": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "trapped": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "remaining": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "clearance_steps": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 100000
+        },
+        "frames": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AnimationFrame"
+          }
+        },
+        "cell_visits": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "maxItems": 262144
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 512
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 512
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "completed"
+              }
+            },
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "remaining": {
+                "const": 0
+              },
+              "trapped": {
+                "const": 0
+              },
+              "clearance_steps": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100000
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "remaining": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10000
+              },
+              "clearance_steps": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "StressTestConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_scenarios",
+        "block_each_exit",
+        "blocked_cell_candidates"
+      ],
+      "properties": {
+        "max_scenarios": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "block_each_exit": {
+          "type": "boolean"
+        },
+        "blocked_cell_candidates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Cell"
+          },
+          "maxItems": 100,
+          "uniqueItems": true
+        }
+      }
+    },
+    "StressTestRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["building", "config"],
+      "properties": {
+        "building": {
+          "$ref": "#/$defs/BuildingScenario"
+        },
+        "config": {
+          "$ref": "#/$defs/StressTestConfig"
+        }
+      }
+    },
+    "ScenarioModifications": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blocked_exit_ids", "blocked_cells"],
+      "properties": {
+        "blocked_exit_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "\\S"
+          },
+          "uniqueItems": true
+        },
+        "blocked_cells": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Cell"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "StressScenarioResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scenario_id",
+        "description",
+        "modifications",
+        "metrics",
+        "rank",
+        "severity"
+      ],
+      "properties": {
+        "scenario_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string"
+        },
+        "modifications": {
+          "$ref": "#/$defs/ScenarioModifications"
+        },
+        "metrics": {
+          "$ref": "#/$defs/SimulationMetrics"
+        },
+        "rank": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "severity": {
+          "enum": ["low", "moderate", "high", "critical"]
+        }
+      }
+    },
+    "StressTestResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseline", "scenarios"],
+      "properties": {
+        "baseline": {
+          "$ref": "#/$defs/SimulationMetrics"
+        },
+        "scenarios": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/StressScenarioResult"
+          },
+          "maxItems": 100
+        }
+      }
+    },
+    "OptimizeRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["building", "max_candidates"],
+      "properties": {
+        "building": {
+          "$ref": "#/$defs/BuildingScenario"
+        },
+        "max_candidates": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      }
+    },
+    "OptimizationCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["building", "metrics", "rank"],
+      "properties": {
+        "building": {
+          "$ref": "#/$defs/BuildingScenario"
+        },
+        "metrics": {
+          "$ref": "#/$defs/SimulationMetrics"
+        },
+        "rank": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      }
+    },
+    "OptimizationResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseline", "candidates"],
+      "properties": {
+        "baseline": {
+          "$ref": "#/$defs/SimulationMetrics"
+        },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OptimizationCandidate"
+          },
+          "maxItems": 100
+        }
+      }
+    },
+    "HealthResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "service"],
+      "properties": {
+        "status": {
+          "const": "ok"
+        },
+        "service": {
+          "const": "exitzero"
+        }
+      }
+    },
+    "ApiErrorResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["error"],
+      "properties": {
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "message"],
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

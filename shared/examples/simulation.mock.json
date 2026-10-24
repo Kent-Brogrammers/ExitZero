@@ -1,0 +1,38 @@
+{
+  "status": "incomplete",
+  "total_population": 2,
+  "evacuated": 1,
+  "trapped": 1,
+  "remaining": 1,
+  "clearance_steps": null,
+  "frames": [
+    {
+      "step": 0,
+      "agents": [
+        {
+          "id": 0,
+          "x": 1,
+          "y": 1
+        },
+        {
+          "id": 1,
+          "x": 2,
+          "y": 1
+        }
+      ]
+    },
+    {
+      "step": 1,
+      "agents": [
+        {
+          "id": 1,
+          "x": 2,
+          "y": 1
+        }
+      ]
+    }
+  ],
+  "cell_visits": [0, 0, 0, 0, 0, 1, 2, 0, 0, 0, 0, 0],
+  "width": 4,
+  "height": 3
+}
