@@ -455,3 +455,31 @@
   color: var(--cad-muted);
   font-size: var(--text-small);
 }
+
+.furniture-choices,
+.object-curves {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  border-top: 1px solid var(--cad-border);
+  padding-top: 8px;
+  margin-top: 8px;
+}
+.furniture-choices .shape-choice {
+  align-items: flex-start;
+}
+.furniture-choices .shape-choice small {
+  font-size: 9px;
+}
+
+.object-curves {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.object-curves .shape-choice {
+  gap: 8px;
+}
+.object-curves .shape-choice small {
+  font-size: 9px;
+}

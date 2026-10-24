@@ -174,3 +174,49 @@ it("renders supplied freehand vertices and thickness identically at both pixel d
   expect(normal.context.lineWidth).toBe(0.2);
   expect(retina.context.lineWidth).toBe(0.2);
 });
+
+it("draws a furniture symbol within the unchanged rectangular blocker footprint", () => {
+  const b = {
+    ...structuredClone(example),
+    walls: [],
+    doors: [],
+    exits: [],
+    spawn_zones: [],
+    obstructions: [
+      { id: "desk", name: "Study desk", x: 4, y: 4, width: 2, height: 1 },
+    ],
+  };
+  const { context, element } = canvasFixture(600);
+  const before = JSON.stringify(b);
+  drawLayout(element, b, null, undefined, 2, canvasPalette(element), {
+    furniture: new Map([["desk", "desk"]]),
+  });
+  expect(context.strokeRect).toHaveBeenCalledWith(4, 4, 2, 1);
+  expect(context.lineTo).toHaveBeenCalledWith(5.4, 5);
+  expect(
+    context.fillText.mock.calls.some(
+      ([text]) => String(text) === "Obstruction",
+    ),
+  ).toBe(false);
+  expect(JSON.stringify(b)).toBe(before);
+});
+
+it("uses a plain drafting footprint for imported blockers without inferring furniture type from their names", () => {
+  const b = {
+    ...structuredClone(example),
+    walls: [],
+    doors: [],
+    exits: [],
+    spawn_zones: [],
+    obstructions: [
+      { id: "plain", name: "Desk 1", x: 4, y: 4, width: 2, height: 1 },
+    ],
+  };
+  const { context, element } = canvasFixture(600);
+  drawLayout(element, b, null, undefined, 2, {
+    ...canvasPalette(element),
+    blueprint: "1",
+  });
+  expect(context.strokeRect).toHaveBeenCalledWith(4, 4, 2, 1);
+  expect(context.lineTo).not.toHaveBeenCalledWith(5.4, 5);
+});

@@ -106,6 +106,7 @@ function Playback({
       <div className="playback-stage">
         <div className="canvas-wrap playback-canvas-wrap">
           <canvas
+            data-world-canvas
             ref={canvas}
             width={1200}
             height={800}

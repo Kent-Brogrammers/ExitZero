@@ -81,6 +81,7 @@ export function StudioWelcome({
             </span>
           </div>
           <canvas
+            data-world-canvas
             ref={canvas}
             width={900}
             height={720}
