@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState, type PointerEvent } from "react";
-import { StudioPopover } from "../ui/StudioPopover";
+import { ObjectNameField } from "./ObjectNameField";
+import { objectName, nextObjectName, renameObject } from "./names";
+import { EditorUtilityRail } from "./EditorUtilityRail";
+import { EditorDrawingRail } from "./EditorDrawingRail";
+import { addObject, addWallShape, dragRectangle } from "./shapes";
+import { useStudioTheme } from "../styles/appearance";
+import { isWallTool, type EditorTool } from "./tools";
 import example from "../../../shared/examples/building.json";
-import type { BuildingScenario, Point, Wall } from "../types/simulation";
+import type { BuildingScenario, Point } from "../types/simulation";
 import {
   buildingError,
   canvasView,
@@ -15,10 +21,8 @@ import {
   type Selection,
 } from "./geometry";
 import { drawLayout } from "./draw";
-import { ToolIcon } from "./ToolIcon";
 import "./BuildingEditor.css";
 
-type Tool = "select" | "wall" | "door" | "exit" | "spawn" | "obstruction";
 type Gesture = {
   start: Point;
   current: Point;
@@ -69,10 +73,11 @@ export function BuildingEditor({
   onChange,
   disabled = false,
 }: BuildingEditorProps) {
+  const theme = useStudioTheme();
   const canvas = useRef<HTMLCanvasElement>(null);
   const importInput = useRef<HTMLInputElement>(null);
   const propertiesButton = useRef<HTMLButtonElement>(null);
-  const [tool, setTool] = useState<Tool>("select");
+  const [tool, setTool] = useState<EditorTool>("select");
   const [selected, setSelected] = useState<Selection | null>(null);
   const [propertiesOpen, setPropertiesOpen] = useState(false);
   const [gesture, setGesture] = useState<Gesture | null>(null);
@@ -106,11 +111,12 @@ export function BuildingEditor({
     onChange(next);
     return true;
   }
-  function changeTool(next: Tool) {
+  function changeTool(next: EditorTool) {
     setPropertiesOpen(false);
     setTool(next);
     setGesture(null);
     setError("");
+    canvas.current?.focus({ preventScroll: true });
   }
   function world(event: PointerEvent<HTMLCanvasElement>): Point {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -202,7 +208,7 @@ export function BuildingEditor({
           ? {
               start: gesture.start,
               end: gesture.current,
-              rectangle: tool !== "wall",
+              shape: tool,
             }
           : undefined,
         window.devicePixelRatio,
@@ -215,7 +221,7 @@ export function BuildingEditor({
       observer.disconnect();
       window.removeEventListener("resize", redraw);
     };
-  }, [preview, selected, gesture, tool]);
+  }, [preview, selected, gesture, tool, theme]);
 
   function pointerDown(event: PointerEvent<HTMLCanvasElement>) {
     if (disabled || event.button !== 0) return;
@@ -234,6 +240,7 @@ export function BuildingEditor({
       const width = Math.min(1.2, wallLength(closest.wall));
       const opening = {
         id: `${tool}_${crypto.randomUUID()}`,
+        name: nextObjectName(building, kind),
         wall_id: closest.wall.id,
         offset: clamp(
           closest.offset - width / 2,
@@ -298,38 +305,38 @@ export function BuildingEditor({
       commit(moved(g));
       return;
     }
-    const id = `${tool}_${crypto.randomUUID()}`;
-    if (tool === "wall") {
-      const wall: Wall = { id, start: g.start, end: g.current, thickness: 0.2 };
-      if (commit({ ...building, walls: [...building.walls, wall] }))
-        selectElement({ kind: "walls", id });
-    } else {
-      const rectangle = {
-        id,
-        x: Math.min(g.start.x, g.current.x),
-        y: Math.min(g.start.y, g.current.y),
-        width: Math.abs(g.start.x - g.current.x),
-        height: Math.abs(g.start.y - g.current.y),
+    if (isWallTool(tool)) {
+      const next = addWallShape(building, tool, g.start, g.current);
+      if (commit(next))
+        selectElement({
+          kind: "walls",
+          id: next.walls[building.walls.length]!.id,
+        });
+    } else if (tool === "spawn") {
+      const rectangle = dragRectangle(g.start, g.current, building);
+      const zone = {
+        id: `spawn_${crypto.randomUUID()}`,
+        name: nextObjectName(building, "spawn_zones"),
+        ...rectangle,
+        count: Math.min(
+          10000,
+          Math.max(1, Math.floor((rectangle.width * rectangle.height) / 1.5)),
+        ),
       };
-      if (tool === "spawn") {
-        const zone = {
-          ...rectangle,
-          count: Math.min(
-            10000,
-            Math.max(1, Math.floor((rectangle.width * rectangle.height) / 1.5)),
-          ),
-        };
-        if (
-          commit({ ...building, spawn_zones: [...building.spawn_zones, zone] })
-        )
-          selectElement({ kind: "spawn_zones", id });
-      } else if (
-        commit({
-          ...building,
-          obstructions: [...building.obstructions, rectangle],
-        })
-      )
-        selectElement({ kind: "obstructions", id });
+      if (commit({ ...building, spawn_zones: [...building.spawn_zones, zone] }))
+        selectElement({ kind: "spawn_zones", id: zone.id });
+    } else if (tool === "object-square" || tool === "object-rectangle") {
+      const next = addObject(
+        building,
+        g.start,
+        g.current,
+        tool === "object-square",
+      );
+      if (commit(next))
+        selectElement({
+          kind: "obstructions",
+          id: next.obstructions.at(-1)!.id,
+        });
     }
   }
   function changeSelected(field: string, value: number) {
@@ -414,159 +421,79 @@ export function BuildingEditor({
       <fieldset className="editor-controls" disabled={disabled}>
         <div className="editor-workspace">
           <div className="editor-commandbar">
-            <div
-              className="editor-toolbar"
-              role="toolbar"
-              aria-label="Layout tools"
-            >
-              {(
-                [
-                  ["select", "Select / move"],
-                  ["wall", "Wall"],
-                  ["door", "Door"],
-                  ["exit", "Exit"],
-                  ["spawn", "Spawn zone"],
-                  ["obstruction", "Obstruction"],
-                ] as [Tool, string][]
-              ).map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  aria-label={label}
-                  title={label}
-                  aria-pressed={tool === value}
-                  onClick={() => changeTool(value)}
-                >
-                  <ToolIcon name={value} />
-                  <span>
-                    {value === "select"
-                      ? "Select"
-                      : value === "spawn"
-                        ? "Spawn"
-                        : label}
-                  </span>
-                </button>
-              ))}
-            </div>
-            <div
-              className="editor-actions"
-              role="group"
-              aria-label="Editor actions"
-            >
-              <div
-                className="studio-control-group"
-                role="group"
-                aria-label="History controls"
-              >
-                <button
-                  className="studio-control"
-                  onClick={undo}
-                  disabled={disabled || !history.length}
-                >
-                  Undo
-                </button>
-                <button
-                  className="studio-control"
-                  onClick={redoChange}
-                  disabled={disabled || !redo.length}
-                >
-                  Redo
-                </button>
-              </div>
-              <span className="control-separator" aria-hidden="true" />
-              <StudioPopover
-                label="File"
-                className="editor-file"
-                disabled={disabled}
-              >
-                {(close) => (
-                  <div className="file-actions">
-                    <button
-                      className="studio-control"
-                      onClick={() => {
-                        if (
-                          commit({
-                            ...building,
-                            walls: [],
-                            doors: [],
-                            exits: [],
-                            spawn_zones: [],
-                            blocked_exit_ids: [],
-                            obstructions: [],
-                          })
-                        ) {
-                          selectElement(null);
-                          setGesture(null);
-                        }
-                        close();
-                      }}
-                    >
-                      New layout
-                    </button>
-                    <button
-                      className="studio-control"
-                      onClick={() => {
-                        if (commit(structuredClone(example))) {
-                          selectElement(null);
-                          setGesture(null);
-                        }
-                        close();
-                      }}
-                    >
-                      Load example
-                    </button>
-                    <hr />
-                    <button
-                      className="studio-control"
-                      onClick={() => {
-                        close();
-                        importInput.current?.click();
-                      }}
-                    >
-                      Import JSON
-                    </button>
-                    <button
-                      className="studio-control"
-                      onClick={() => {
-                        exportLayout();
-                        close();
-                      }}
-                    >
-                      Export JSON
-                    </button>
-                  </div>
-                )}
-              </StudioPopover>
-              <span className="control-separator" aria-hidden="true" />
-              <button
-                type="button"
-                className="studio-control"
-                ref={propertiesButton}
-                aria-expanded={propertiesOpen}
-                aria-controls="editor-properties"
-                onClick={() => setPropertiesOpen(!propertiesOpen)}
-              >
-                Properties
-              </button>
-              <input
-                ref={importInput}
-                hidden
-                type="file"
-                accept=".json,application/json"
-                aria-label="Import layout JSON"
-                onChange={(event) => void importLayout(event.target.files?.[0])}
-              />
-            </div>
+            <EditorDrawingRail
+              tool={tool}
+              disabled={disabled}
+              onTool={changeTool}
+              onOpenPanel={() => setPropertiesOpen(false)}
+            />
+            <EditorUtilityRail
+              disabled={disabled}
+              canUndo={history.length > 0}
+              canRedo={redo.length > 0}
+              propertiesOpen={propertiesOpen}
+              propertiesButton={propertiesButton}
+              onUndo={undo}
+              onRedo={redoChange}
+              onNew={() => {
+                if (
+                  commit({
+                    ...building,
+                    walls: [],
+                    doors: [],
+                    exits: [],
+                    spawn_zones: [],
+                    blocked_exit_ids: [],
+                    obstructions: [],
+                  })
+                ) {
+                  selectElement(null);
+                  setGesture(null);
+                }
+              }}
+              onExample={() => {
+                if (commit(structuredClone(example))) {
+                  selectElement(null);
+                  setGesture(null);
+                }
+              }}
+              onImport={() => importInput.current?.click()}
+              onExport={exportLayout}
+              onProperties={() => setPropertiesOpen(!propertiesOpen)}
+            />
+            <input
+              ref={importInput}
+              hidden
+              type="file"
+              accept=".json,application/json"
+              aria-label="Import layout JSON"
+              onChange={(event) => void importLayout(event.target.files?.[0])}
+            />
           </div>
           <div className="editor-stage">
+            {selectedElement && selected && (
+              <p
+                className="editor-selection-feedback"
+                role="status"
+                title={objectName(building, selected)}
+              >
+                Selected: {objectName(building, selected)}
+              </p>
+            )}
             <p className="editor-help">
               {tool === "select"
-                ? "Drag objects or wall endpoints. Select an object to edit its properties."
+                ? "Drag objects or wall endpoints. Select an object to edit its name and properties."
                 : tool === "wall"
-                  ? "Drag to draw a wall at any angle. Nearby wall endpoints snap together."
-                  : tool === "door" || tool === "exit"
-                    ? `Click a wall to place ${tool === "exit" ? "an exit" : "a door"}. Select it to adjust its width.`
-                    : `Drag a rectangle to place a ${tool === "spawn" ? "spawn zone" : "physical obstruction"}.`}
+                  ? "Drag a straight wall at any angle. Nearby endpoints snap together."
+                  : tool === "wall-rectangle"
+                    ? "Drag opposite corners to draw four connected walls. Each segment remains individually editable."
+                    : tool === "wall-circle"
+                      ? "Drag from the centre to set the radius. Saves 24 straight wall segments, not a true curve."
+                      : tool === "door" || tool === "exit"
+                        ? `Click a wall to place ${tool === "exit" ? "an exit" : "a door"}. Adjust its width in Properties.`
+                        : tool === "spawn"
+                          ? "Drag a spawn area, then set its name and occupant count in Properties."
+                          : `Drag to draw ${tool === "object-square" ? "a square" : "a rectangle"} physical obstacle. Name and resize it in Properties.`}
             </p>
             <div className="canvas-wrap editor-canvas-wrap">
               <canvas
@@ -575,7 +502,7 @@ export function BuildingEditor({
                 height={800}
                 tabIndex={0}
                 role="img"
-                aria-label={`Editable floor plan, ${building.width} by ${building.height} metres. ${building.walls.length} walls, ${building.doors.length} doors, ${building.exits.length} exits, ${building.spawn_zones.length} spawn zones. Use layout tools to draw or the element inspector to edit.`}
+                aria-label={`Editable floor plan, ${building.width} by ${building.height} metres. ${building.walls.length} walls, ${building.doors.length} doors, ${building.exits.length} exits, ${building.spawn_zones.length} spawn zones, ${building.obstructions.length} obstructions. ${selectedElement && selected ? `Selected: ${objectName(building, selected)}. ` : ""}Use layout tools to draw or the element inspector to edit.`}
                 style={{
                   aspectRatio: "3 / 2",
                   cursor:
@@ -673,12 +600,10 @@ export function BuildingEditor({
                     "obstructions",
                   ] as const
                 ).flatMap((kind) =>
-                  building[kind].map((v, i) => (
+                  building[kind].map((v) => (
                     <option key={v.id} value={`${kind}:${v.id}`}>
-                      {kind === "spawn_zones"
-                        ? "Spawn zone"
-                        : kind.slice(0, -1)}{" "}
-                      {i + 1} · {v.id.slice(0, 16)}
+                      {objectName(building, { kind, id: v.id })} ·{" "}
+                      {v.id.slice(0, 16)}
                     </option>
                   )),
                 )}
@@ -686,6 +611,19 @@ export function BuildingEditor({
             </label>
             {selectedElement && selected ? (
               <div className="inspector-fields">
+                <ObjectNameField
+                  key={`${selected.kind}:${selected.id}:${objectName(building, selected)}`}
+                  name={objectName(building, selected)}
+                  onCommit={(name) =>
+                    commit(renameObject(building, selected, name))
+                  }
+                />
+                {selected.kind === "obstructions" && (
+                  <p className="note">
+                    Rectangular physical obstacle. Names and dimensions are
+                    saved; width and height can be resized independently.
+                  </p>
+                )}
                 <p className="note">
                   {"wall_id" in selectedElement
                     ? `Attached to ${selectedElement.wall_id}`

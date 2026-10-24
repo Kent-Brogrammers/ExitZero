@@ -19,64 +19,130 @@
 .editor-panel .editor-commandbar {
   display: contents;
 }
-.editor-panel .editor-toolbar {
+.editor-panel .editor-rail {
   position: absolute;
-  left: 22px;
   top: 50%;
   transform: translateY(-50%);
-  z-index: 6;
+  z-index: 12;
   display: flex;
   flex-direction: column;
   padding: 6px;
   gap: 3px;
-  background: #17171fe8;
+  background: var(--cad-rail);
   backdrop-filter: blur(14px);
-  border: 1px solid #ffffff08;
+  border: 1px solid var(--cad-rail-border);
   border-radius: 7px;
   box-shadow: 0 12px 34px #0003;
 }
-.editor-panel .editor-toolbar button {
+.editor-toolbar {
+  left: 16px;
+}
+.editor-utility-rail {
+  right: 16px;
+}
+.editor-panel .editor-rail .rail-button {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
+  width: 54px;
+  height: 54px;
   gap: 5px;
-  min-width: 46px;
-  padding: 9px 5px;
+  padding: 6px 2px;
   font-size: 9px;
   border-color: transparent;
-  background: transparent;
   color: var(--cad-muted);
+  background: transparent;
 }
-.editor-panel .editor-toolbar button svg {
+.editor-rail .rail-button svg {
   width: 19px;
   height: 19px;
 }
-.editor-panel .editor-toolbar button[aria-pressed="true"],
-.editor-panel .editor-toolbar button[aria-pressed="true"]:hover {
+.editor-panel .editor-rail .rail-button[aria-pressed="true"],
+.editor-panel .editor-rail .rail-button[aria-expanded="true"] {
   color: var(--cad-accent);
-  background: #5fa8f712;
+  background: var(--cad-selected);
 }
-.editor-panel .editor-toolbar button:hover:not(:disabled) {
+.editor-panel .editor-rail .rail-button:hover:not(:disabled) {
   color: var(--cad-text);
-  background: #ffffff06;
+  background: var(--cad-hover);
 }
-.editor-panel .editor-actions {
-  position: absolute;
-  top: 18px;
-  right: 22px;
-  z-index: 12;
+.editor-panel .editor-rail .rail-button:disabled {
+  color: var(--cad-disabled);
+}
+.rail-history {
   display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 4px;
-  background: #17171fe8;
-  backdrop-filter: blur(14px);
-  border: 1px solid #ffffff08;
-  border-radius: var(--radius-control);
+  flex-direction: column;
+  gap: 3px;
+}
+.rail-separator {
+  height: 1px;
+  width: 30px;
+  margin: 3px auto;
+  background: var(--cad-border);
 }
 .editor-file .studio-popover-panel {
   width: 180px;
   padding: 6px;
+}
+.editor-shapes .studio-popover-panel {
+  width: 274px;
+  max-height: min(470px, calc(100dvh - 150px));
+  padding: 12px;
+}
+.editor-panel .editor-rail .rail-button > span {
+  white-space: normal;
+  line-height: 1.15;
+  text-align: center;
+}
+.editor-panel .editor-rail .rail-button.is-selected {
+  color: var(--cad-accent);
+  background: var(--cad-selected);
+}
+.shape-choice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  border: 0;
+  padding: 8px;
+  text-align: left;
+  font-size: var(--text-control);
+}
+.shape-choice > svg {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  color: var(--cad-muted);
+}
+.shape-choice > span {
+  display: grid;
+  gap: 5px;
+}
+.shape-choice small,
+.shape-note {
+  color: var(--cad-muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+.shape-choice[aria-pressed="true"] {
+  color: var(--cad-accent);
+  background: var(--cad-selected);
+}
+.shape-choice:disabled {
+  opacity: 1;
+  color: var(--cad-disabled);
+}
+.shape-choice:disabled small {
+  color: var(--cad-disabled);
+}
+.shape-note {
+  margin: 12px 4px 0;
+}
+.shape-note a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 .editor-panel .editor-stage {
   position: absolute;
@@ -96,7 +162,7 @@
 }
 .editor-panel .editor-canvas-wrap {
   position: absolute;
-  inset: 0;
+  inset: 0 88px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -121,16 +187,16 @@
 }
 .editor-panel .editor-inspector {
   position: absolute;
-  top: 72px;
-  right: 22px;
+  top: 18px;
+  right: 96px;
   z-index: 10;
   width: 254px;
   max-height: calc(100% - 146px);
   overflow-y: auto;
   padding: 18px;
-  background: #17171ff5;
+  background: var(--cad-inspector);
   backdrop-filter: blur(18px);
-  border: 1px solid #ffffff0d;
+  border: 1px solid var(--cad-rail-border);
   border-radius: 6px;
   box-shadow: 0 16px 50px #0006;
 }
@@ -236,26 +302,40 @@
 }
 
 @media (max-width: 760px) {
+  .editor-panel .editor-rail {
+    flex-direction: row;
+    max-width: calc(100% - 24px);
+  }
   .editor-panel .editor-toolbar {
     top: auto;
     left: 50%;
     bottom: 70px;
     transform: translateX(-50%);
-    flex-direction: row;
-    max-width: calc(100% - 24px);
   }
-  .editor-panel .editor-toolbar button {
-    min-width: 42px;
-    padding: 8px 4px;
-  }
-  .editor-panel .editor-actions {
+  .editor-panel .editor-utility-rail {
     top: 12px;
-    left: auto;
-    right: 12px;
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+  }
+  .editor-panel .editor-rail .rail-button {
+    width: 42px;
+    height: 48px;
+  }
+  .rail-history {
+    flex-direction: row;
+  }
+  .rail-separator {
+    width: 1px;
+    height: 26px;
+    margin: auto 3px;
+  }
+  .editor-panel .editor-canvas-wrap {
+    inset: 82px 0 140px;
   }
   .editor-panel .editor-inspector {
     right: 12px;
-    top: 80px;
+    top: 82px;
     width: min(254px, calc(100% - 24px));
     max-height: calc(100% - 220px);
   }
@@ -278,5 +358,62 @@
     left: 16px;
     bottom: 150px;
     max-width: calc(100% - 32px);
+  }
+}
+
+.editor-selection-feedback {
+  position: absolute;
+  top: 16px;
+  left: 96px;
+  right: 96px;
+  z-index: 4;
+  margin: 0;
+  color: var(--cad-accent);
+  font-size: var(--text-control);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+.object-name-field {
+  margin-bottom: 14px;
+}
+.object-name-field label {
+  display: grid;
+  gap: 7px;
+  color: var(--cad-muted);
+  font-size: var(--text-small);
+}
+.object-name-field input {
+  width: 100%;
+  min-width: 0;
+  height: var(--control-height);
+  padding: 0 8px;
+  background: var(--cad-surface);
+  color: var(--cad-text);
+  border: 1px solid var(--cad-border-strong);
+  border-radius: var(--radius-control);
+  font-size: var(--text-control);
+}
+.object-name-field input[aria-invalid="true"] {
+  border-color: var(--cad-danger);
+}
+.name-hint,
+.name-error {
+  margin: 6px 0 0;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--cad-muted);
+}
+.name-error {
+  color: var(--cad-danger);
+}
+@media (max-width: 760px) {
+  .editor-selection-feedback {
+    top: 78px;
+    left: 16px;
+    right: 16px;
+    font-size: var(--text-small);
   }
 }

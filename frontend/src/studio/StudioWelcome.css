@@ -47,7 +47,7 @@
   margin: 0;
 }
 .welcome-copy h1 > span {
-  color: #8b7dd3;
+  color: var(--cad-shelter);
 }
 .welcome-description {
   max-width: 350px;

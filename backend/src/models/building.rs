@@ -12,6 +12,13 @@ pub struct Point {
 #[serde(deny_unknown_fields)]
 pub struct Wall {
     pub id: String,
+    /// Display metadata only; simulation and references use the stable id.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_name",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub name: Option<String>,
     pub start: Point,
     pub end: Point,
     pub thickness: f64,
@@ -27,6 +34,13 @@ impl Wall {
 #[serde(deny_unknown_fields)]
 pub struct Opening {
     pub id: String,
+    /// Display metadata only; simulation and references use the stable id.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_name",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub name: Option<String>,
     pub wall_id: String,
     /// Distance in metres from the wall's start to the beginning of the opening.
     pub offset: f64,
@@ -37,6 +51,13 @@ pub struct Opening {
 #[serde(deny_unknown_fields)]
 pub struct Obstruction {
     pub id: String,
+    /// Display metadata only; simulation and references use the stable id.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_name",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub name: Option<String>,
     pub x: f64,
     pub y: f64,
     pub width: f64,
@@ -47,6 +68,13 @@ pub struct Obstruction {
 #[serde(deny_unknown_fields)]
 pub struct SpawnZone {
     pub id: String,
+    /// Display metadata only; simulation and references use the stable id.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_name",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub name: Option<String>,
     pub x: f64,
     pub y: f64,
     pub width: f64,
@@ -70,6 +98,14 @@ pub struct BuildingScenario {
     pub time_step_seconds: f64,
     pub seed: u64,
     pub max_steps: u32,
+}
+
+// Missing names are permitted; a present name must be a string, not null.
+fn deserialize_name<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    String::deserialize(deserializer).map(Some)
 }
 
 fn positive(value: f64, maximum: f64) -> bool {
@@ -158,6 +194,24 @@ impl BuildingScenario {
             || self.obstructions.len() > 100
         {
             return Err("require 1–1000 exits and 1–100 spawn zones; limits are 500 walls, 1000 doors, and 100 obstructions".into());
+        }
+        for name in self
+            .walls
+            .iter()
+            .map(|v| &v.name)
+            .chain(self.doors.iter().map(|v| &v.name))
+            .chain(self.exits.iter().map(|v| &v.name))
+            .chain(self.spawn_zones.iter().map(|v| &v.name))
+            .chain(self.obstructions.iter().map(|v| &v.name))
+            .flatten()
+        {
+            if name
+                .trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}')
+                .is_empty()
+                || name.chars().count() > 80
+            {
+                return Err("object names must be nonblank and at most 80 characters".into());
+            }
         }
         let mut ids = HashSet::new();
         for id in self

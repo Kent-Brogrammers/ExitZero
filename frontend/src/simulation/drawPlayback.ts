@@ -1,4 +1,5 @@
 import { drawLayout } from "../editor/draw";
+import { canvasPalette, type CanvasPalette } from "../styles/canvasPalette";
 import { canvasView } from "../editor/geometry";
 import type {
   AnimationFrame,
@@ -18,9 +19,10 @@ export function drawPlayback(
   building: BuildingScenario,
   frame: AnimationFrame | null,
   pixelRatio: number,
+  palette: CanvasPalette = canvasPalette(canvas),
 ) {
-  drawLayout(canvas, building, null, undefined, pixelRatio);
-  drawAgents(canvas, building, frame, pixelRatio);
+  drawLayout(canvas, building, null, undefined, pixelRatio, palette);
+  drawAgents(canvas, building, frame, pixelRatio, palette);
 }
 
 function drawAgents(
@@ -28,6 +30,7 @@ function drawAgents(
   building: BuildingScenario,
   frame: AnimationFrame | null,
   pixelRatio: number,
+  palette: CanvasPalette,
 ) {
   const context = canvas.getContext("2d");
   const display = canvas.getBoundingClientRect();
@@ -36,8 +39,8 @@ function drawAgents(
   const ratio = Number.isFinite(pixelRatio) ? Math.max(1, pixelRatio) : 1;
   context.save();
   context.setTransform(1, 0, 0, 1, 0, 0);
-  context.fillStyle = "#5fa8f7";
-  context.strokeStyle = "#0a0a10";
+  context.fillStyle = palette.selection;
+  context.strokeStyle = palette.background;
   context.lineWidth = ratio;
   context.beginPath();
   for (const agent of frame.agents) {
@@ -62,6 +65,7 @@ export function createPlaybackRenderer(
   building: BuildingScenario,
   layout = canvas.ownerDocument.createElement("canvas"),
 ) {
+  const palette = canvasPalette(canvas);
   let width = 0,
     height = 0,
     ratio = 0;
@@ -74,11 +78,11 @@ export function createPlaybackRenderer(
     const context = canvas.getContext("2d"),
       cache = layout.getContext("2d");
     if (!context || !cache) {
-      drawPlayback(canvas, building, frame, nextRatio);
+      drawPlayback(canvas, building, frame, nextRatio, palette);
       return;
     }
     if (width !== nextWidth || height !== nextHeight || ratio !== nextRatio) {
-      drawLayout(canvas, building, null, undefined, nextRatio);
+      drawLayout(canvas, building, null, undefined, nextRatio, palette);
       width = canvas.width;
       height = canvas.height;
       ratio = nextRatio;
@@ -90,6 +94,6 @@ export function createPlaybackRenderer(
       context.clearRect(0, 0, width, height);
       context.drawImage(layout, 0, 0);
     }
-    drawAgents(canvas, building, frame, nextRatio);
+    drawAgents(canvas, building, frame, nextRatio, palette);
   };
 }

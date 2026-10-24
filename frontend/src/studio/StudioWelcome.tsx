@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { BuildingScenario } from "../types/simulation";
 import { drawLayout } from "../editor/draw";
+import { useStudioTheme } from "../styles/appearance";
 import "./StudioWelcome.css";
 
 interface StudioWelcomeProps {
@@ -16,6 +17,7 @@ export function StudioWelcome({
   onLoadExample,
   disabled = false,
 }: StudioWelcomeProps) {
+  const theme = useStudioTheme();
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const element = canvas.current;
@@ -30,7 +32,7 @@ export function StudioWelcome({
       observer.disconnect();
       window.removeEventListener("resize", redraw);
     };
-  }, [building]);
+  }, [building, theme]);
 
   return (
     <section className="studio-welcome" aria-label="Welcome to ExitZero Studio">

@@ -1,12 +1,16 @@
 import type { BuildingScenario, Point } from "../types/simulation";
 import { canvasView, openingSegment, type Selection } from "./geometry";
+import { dragRectangle, wallShapePoints } from "./shapes";
+import { isWallTool, type EditorTool } from "./tools";
+import { canvasPalette, type CanvasPalette } from "../styles/canvasPalette";
 
 export function drawLayout(
   canvas: HTMLCanvasElement,
   building: BuildingScenario,
   selected: Selection | null,
-  draft?: { start: Point; end: Point; rectangle: boolean },
+  draft?: { start: Point; end: Point; shape: EditorTool },
   pixelRatio = 1,
+  palette: CanvasPalette = canvasPalette(canvas),
 ) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
@@ -21,22 +25,26 @@ export function drawLayout(
   const px = ratio / scale;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "#0a0a10";
+  ctx.fillStyle = palette.background;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.setTransform(scale, 0, 0, scale, x, y);
-  ctx.fillStyle = "#101017";
+  ctx.fillStyle = palette.surface;
   ctx.fillRect(0, 0, building.width, building.height);
   ctx.lineCap = "round";
   const selectedId = selected?.id;
   for (const rectangle of [...building.spawn_zones, ...building.obstructions]) {
     const spawn = "count" in rectangle;
-    ctx.fillStyle = spawn ? "#1c1c26" : "#25221d";
+    ctx.fillStyle = spawn ? palette.spawn : palette.obstacle;
     ctx.strokeStyle =
-      rectangle.id === selectedId ? "#5fa8f7" : spawn ? "#686575" : "#a18c73";
+      rectangle.id === selectedId
+        ? palette.selection
+        : spawn
+          ? palette.spawnBorder
+          : palette.obstacleBorder;
     ctx.lineWidth = (rectangle.id === selectedId ? 2 : 1) * px;
     ctx.fillRect(rectangle.x, rectangle.y, rectangle.width, rectangle.height);
     ctx.strokeRect(rectangle.x, rectangle.y, rectangle.width, rectangle.height);
-    ctx.fillStyle = spawn ? "#adaab8" : "#d7c2a6";
+    ctx.fillStyle = spawn ? palette.wall : palette.obstacleText;
     ctx.font = `${12 * px}px system-ui`;
     ctx.fillText(
       spawn
@@ -53,16 +61,16 @@ export function drawLayout(
     ctx.lineTo(wall.end.x, wall.end.y);
     if (wall.id === selectedId) {
       ctx.lineWidth = wall.thickness + 6 * px;
-      ctx.strokeStyle = "#5fa8f7";
+      ctx.strokeStyle = palette.selection;
       ctx.stroke();
     }
     ctx.lineWidth = wall.thickness;
-    ctx.strokeStyle = "#adaab8";
+    ctx.strokeStyle = palette.wall;
     ctx.stroke();
   }
   for (const [kind, openings, color] of [
-    ["doors", building.doors, "#c7a66f"],
-    ["exits", building.exits, "#38c99b"],
+    ["doors", building.doors, palette.door],
+    ["exits", building.exits, palette.exit],
   ] as const) {
     for (const opening of openings) {
       const wall = building.walls.find((v) => v.id === opening.wall_id);
@@ -72,11 +80,11 @@ export function drawLayout(
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
       ctx.lineWidth = wall.thickness + 2 * px;
-      ctx.strokeStyle = "#101017";
+      ctx.strokeStyle = palette.surface;
       ctx.stroke();
       ctx.lineWidth = opening.id === selectedId ? 5 * px : 3 * px;
       ctx.strokeStyle = building.blocked_exit_ids.includes(opening.id)
-        ? "#e39486"
+        ? palette.danger
         : color;
       ctx.stroke();
       ctx.font = `${11 * px}px system-ui`;
@@ -94,33 +102,40 @@ export function drawLayout(
       for (const point of [wall.start, wall.end]) {
         ctx.beginPath();
         ctx.arc(point.x, point.y, 5 * px, 0, Math.PI * 2);
-        ctx.fillStyle = "#101017";
-        ctx.strokeStyle = "#5fa8f7";
+        ctx.fillStyle = palette.surface;
+        ctx.strokeStyle = palette.selection;
         ctx.lineWidth = 2 * px;
         ctx.fill();
         ctx.stroke();
       }
   }
   if (draft) {
-    ctx.strokeStyle = "#5fa8f7";
+    ctx.strokeStyle = palette.selection;
     ctx.lineWidth = 2 * px;
     ctx.setLineDash([6 * px, 4 * px]);
-    if (draft.rectangle)
-      ctx.strokeRect(
-        draft.start.x,
-        draft.start.y,
-        draft.end.x - draft.start.x,
-        draft.end.y - draft.start.y,
+    if (isWallTool(draft.shape)) {
+      const points = wallShapePoints(
+        draft.shape,
+        draft.start,
+        draft.end,
+        building,
       );
-    else {
       ctx.beginPath();
-      ctx.moveTo(draft.start.x, draft.start.y);
-      ctx.lineTo(draft.end.x, draft.end.y);
+      ctx.moveTo(points[0]!.x, points[0]!.y);
+      for (const point of points.slice(1)) ctx.lineTo(point.x, point.y);
       ctx.stroke();
+    } else {
+      const r = dragRectangle(
+        draft.start,
+        draft.end,
+        building,
+        draft.shape === "object-square",
+      );
+      ctx.strokeRect(r.x, r.y, r.width, r.height);
     }
     ctx.setLineDash([]);
   }
-  ctx.fillStyle = "#aaa8b8";
+  ctx.fillStyle = palette.muted;
   ctx.font = `${12 * px}px system-ui`;
   ctx.fillText(`${building.width} × ${building.height} m`, 12 * px, 20 * px);
 }

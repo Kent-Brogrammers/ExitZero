@@ -220,6 +220,7 @@ mod tests {
                 height: 10.0,
                 walls: vec![Wall {
                     id: "north".into(),
+                    name: None,
                     start: Point { x: 0.0, y: 0.0 },
                     end: Point { x: 20.0, y: 0.0 },
                     thickness: 0.2,
@@ -228,12 +229,14 @@ mod tests {
                 exits: vec![
                     Opening {
                         id: "left".into(),
+                        name: None,
                         wall_id: "north".into(),
                         offset: 1.0,
                         width: 2.0,
                     },
                     Opening {
                         id: "right".into(),
+                        name: None,
                         wall_id: "north".into(),
                         offset: 16.0,
                         width: 2.0,
@@ -241,6 +244,7 @@ mod tests {
                 ],
                 spawn_zones: vec![SpawnZone {
                     id: "occupants".into(),
+                    name: None,
                     x: 2.0,
                     y: 3.0,
                     width: 6.0,
@@ -268,6 +272,7 @@ mod tests {
     fn obstruction(id: &str, x: f64) -> Obstruction {
         Obstruction {
             id: id.into(),
+            name: None,
             x,
             y: 3.0,
             width: 1.0,
@@ -1016,12 +1021,14 @@ pub(crate) mod real_integration {
         let mut building = room();
         building.walls.push(crate::models::Wall {
             id: "divider".into(),
+            name: None,
             start: Point { x: 6.0, y: 0.0 },
             end: Point { x: 6.0, y: 8.0 },
             thickness: 0.2,
         });
         building.spawn_zones.push(crate::models::SpawnZone {
             id: "right-occupant".into(),
+            name: None,
             x: 8.0,
             y: 4.0,
             width: 0.4,
@@ -1367,6 +1374,7 @@ pub(crate) mod real_integration {
         request.config.obstruction_candidates = vec![
             crate::models::Obstruction {
                 id: "detour".into(),
+                name: None,
                 x: 0.5,
                 y: 2.0,
                 width: 2.0,
@@ -1374,6 +1382,7 @@ pub(crate) mod real_integration {
             },
             crate::models::Obstruction {
                 id: "barrier".into(),
+                name: None,
                 x: 0.0,
                 y: 2.0,
                 width: 12.0,

@@ -13,6 +13,10 @@ interface StudioPopoverProps {
   indicator?: ReactNode;
   className?: string;
   disabled?: boolean;
+  side?: "below" | "left" | "right";
+  triggerContent?: ReactNode;
+  triggerClassName?: string;
+  onOpen?: () => void;
 }
 
 /** A small disclosure: normal Tab navigation, outside-click and Escape dismissal. */
@@ -22,12 +26,16 @@ export function StudioPopover({
   indicator,
   className = "",
   disabled = false,
+  side = "below",
+  triggerContent,
+  triggerClassName = "",
+  onOpen,
 }: StudioPopoverProps) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
-  const [right, setRight] = useState(0);
+  const [position, setPosition] = useState({ right: 0, top: 0 });
   const id = useId();
   const visible = open && !disabled;
   function close() {
@@ -37,21 +45,42 @@ export function StudioPopover({
 
   useLayoutEffect(() => {
     if (!visible) return;
-    const position = () => {
+    const place = () => {
       const anchor = trigger.current?.getBoundingClientRect();
       const width = panel.current?.offsetWidth;
-      if (!anchor || !width) return;
-      // Keep the disclosure anchored to its trigger while respecting viewport edges.
+      const height = panel.current?.offsetHeight;
+      if (!anchor || !width || !height) return;
+      const besideLeft = side === "left" && anchor.left >= width + 20;
+      const besideRight =
+        side === "right" && anchor.right + width + 20 <= window.innerWidth;
+      const beside = besideLeft || besideRight;
+      const desiredRight = besideLeft
+        ? anchor.left - 8
+        : besideRight
+          ? anchor.right + width + 8
+          : anchor.right;
       const edge = Math.min(
         window.innerWidth - 12,
-        Math.max(width + 12, anchor.right),
+        Math.max(width + 12, desiredRight),
       );
-      setRight(anchor.right - edge);
+      const top = Math.max(
+        12,
+        Math.min(
+          beside ? anchor.top : anchor.bottom + 8,
+          window.innerHeight - height - 12,
+        ),
+      );
+      setPosition({ right: anchor.right - edge, top: top - anchor.top });
     };
-    position();
-    window.addEventListener("resize", position);
-    return () => window.removeEventListener("resize", position);
-  }, [visible]);
+    place();
+    const observer = new ResizeObserver(place);
+    if (panel.current) observer.observe(panel.current);
+    window.addEventListener("resize", place);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", place);
+    };
+  }, [visible, side]);
 
   useEffect(() => {
     if (!visible) return;
@@ -88,13 +117,17 @@ export function StudioPopover({
       <button
         ref={trigger}
         type="button"
-        className="studio-control"
+        className={`studio-control ${triggerClassName}`}
         disabled={disabled}
+        aria-label={label}
         aria-expanded={visible}
         aria-controls={visible ? id : undefined}
-        onClick={() => setOpen(!visible)}
+        onClick={() => {
+          if (!visible) onOpen?.();
+          setOpen(!visible);
+        }}
       >
-        {label}
+        {triggerContent ?? label}
         {indicator ?? (
           <span className="control-caret" aria-hidden="true">
             ⌄
@@ -105,7 +138,7 @@ export function StudioPopover({
         <div
           id={id}
           ref={panel}
-          style={{ right }}
+          style={position}
           className="studio-popover-panel"
           role="region"
           aria-label={`${label} options`}
