@@ -14,6 +14,7 @@ import {
   type Selection,
 } from "./geometry";
 import { drawLayout } from "./draw";
+import { ToolIcon } from "./ToolIcon";
 
 type Tool = "select" | "wall" | "door" | "exit" | "spawn" | "obstruction";
 type Gesture = {
@@ -396,149 +397,152 @@ export function BuildingEditor({
         <span className="badge">Freeform · metres</span>
       </div>
       <fieldset className="editor-controls" disabled={disabled}>
-        <div
-          className="editor-toolbar"
-          role="toolbar"
-          aria-label="Layout tools"
-        >
-          {(
-            [
-              ["select", "Select / move"],
-              ["wall", "Wall"],
-              ["door", "Door"],
-              ["exit", "Exit"],
-              ["spawn", "Spawn zone"],
-              ["obstruction", "Obstruction"],
-            ] as [Tool, string][]
-          ).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={tool === value}
-              onClick={() => changeTool(value)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <div className="editor-actions">
-          <button onClick={undo} disabled={disabled || !history.length}>
-            Undo
-          </button>
-          <button onClick={redoChange} disabled={disabled || !redo.length}>
-            Redo
-          </button>
-          <button
-            onClick={() => {
-              if (
-                commit({
-                  ...building,
-                  walls: [],
-                  doors: [],
-                  exits: [],
-                  spawn_zones: [],
-                  blocked_exit_ids: [],
-                  obstructions: [],
-                })
-              ) {
-                setSelected(null);
-                setGesture(null);
-              }
-            }}
-          >
-            New layout
-          </button>
-          <button
-            onClick={() => {
-              if (commit(structuredClone(example))) {
-                setSelected(null);
-                setGesture(null);
-              }
-            }}
-          >
-            Load example
-          </button>
-          <button onClick={exportLayout}>Export JSON</button>
-          <button onClick={() => importInput.current?.click()}>
-            Import JSON
-          </button>
-          <input
-            ref={importInput}
-            hidden
-            type="file"
-            accept=".json,application/json"
-            aria-label="Import layout JSON"
-            onChange={(event) => void importLayout(event.target.files?.[0])}
-          />
-        </div>
-        <p className="editor-help">
-          {tool === "select"
-            ? "Select and drag an element. Drag a selected wall’s endpoint to reshape it. Use the inspector for precise measurements."
-            : tool === "wall"
-              ? "Drag to draw a wall at any angle. Nearby wall endpoints snap together."
-              : tool === "door" || tool === "exit"
-                ? `Click a wall to place ${tool === "exit" ? "an exit" : "a door"}. Select it to adjust its width.`
-                : `Drag a rectangle to place a ${tool === "spawn" ? "spawn zone" : "physical obstruction"}.`}
-        </p>
         <div className="editor-workspace">
-          <div className="canvas-wrap editor-canvas-wrap">
-            <canvas
-              ref={canvas}
-              width={1200}
-              height={800}
-              tabIndex={0}
-              role="img"
-              aria-label={`Editable floor plan, ${building.width} by ${building.height} metres. ${building.walls.length} walls, ${building.doors.length} doors, ${building.exits.length} exits, ${building.spawn_zones.length} spawn zones. Use layout tools to draw or the element inspector to edit.`}
-              style={{
-                aspectRatio: "3 / 2",
-                cursor:
-                  tool === "select"
-                    ? gesture
-                      ? "grabbing"
-                      : "default"
-                    : "crosshair",
-              }}
-              onPointerDown={pointerDown}
-              onPointerMove={pointerMove}
-              onPointerUp={pointerUp}
-              onPointerCancel={() => setGesture(null)}
-              onLostPointerCapture={() => setGesture(null)}
-              onPointerLeave={() => setCursor(null)}
-              onKeyDown={(event) => {
-                if (disabled) return;
-                if (event.key === "Escape") {
-                  setGesture(null);
-                  setSelected(null);
-                }
-                if (
-                  (event.key === "Delete" || event.key === "Backspace") &&
-                  selected
-                ) {
-                  event.preventDefault();
-                  if (commit(removeElement(building, selected)))
+          <div
+            className="editor-toolbar"
+            role="toolbar"
+            aria-label="Layout tools"
+          >
+            {(
+              [
+                ["select", "Select / move"],
+                ["wall", "Wall"],
+                ["door", "Door"],
+                ["exit", "Exit"],
+                ["spawn", "Spawn zone"],
+                ["obstruction", "Obstruction"],
+              ] as [Tool, string][]
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={tool === value}
+                onClick={() => changeTool(value)}
+              >
+                <ToolIcon name={value} />
+                <span>{label}</span>
+              </button>
+            ))}
+          </div>
+          <div className="editor-stage">
+            <div className="editor-actions">
+              <button onClick={undo} disabled={disabled || !history.length}>
+                Undo
+              </button>
+              <button onClick={redoChange} disabled={disabled || !redo.length}>
+                Redo
+              </button>
+              <button
+                onClick={() => {
+                  if (
+                    commit({
+                      ...building,
+                      walls: [],
+                      doors: [],
+                      exits: [],
+                      spawn_zones: [],
+                      blocked_exit_ids: [],
+                      obstructions: [],
+                    })
+                  ) {
                     setSelected(null);
-                }
-                if (
-                  (event.ctrlKey || event.metaKey) &&
-                  event.key.toLowerCase() === "z"
-                ) {
-                  event.preventDefault();
-                  if (event.shiftKey) redoChange();
-                  else undo();
-                }
-              }}
-            />
-            <div className="canvas-caption">
-              <span>
-                {building.walls.length} walls · {building.doors.length} doors ·{" "}
-                {building.exits.length} exits · {building.spawn_zones.length}{" "}
-                spawn zones
-              </span>
-              <span>
-                {cursor
-                  ? `${cursor.x.toFixed(2)}, ${cursor.y.toFixed(2)} m`
-                  : "Continuous coordinates"}
-              </span>
+                    setGesture(null);
+                  }
+                }}
+              >
+                New layout
+              </button>
+              <button
+                onClick={() => {
+                  if (commit(structuredClone(example))) {
+                    setSelected(null);
+                    setGesture(null);
+                  }
+                }}
+              >
+                Load example
+              </button>
+              <button onClick={exportLayout}>Export JSON</button>
+              <button onClick={() => importInput.current?.click()}>
+                Import JSON
+              </button>
+              <input
+                ref={importInput}
+                hidden
+                type="file"
+                accept=".json,application/json"
+                aria-label="Import layout JSON"
+                onChange={(event) => void importLayout(event.target.files?.[0])}
+              />
+            </div>
+            <p className="editor-help">
+              {tool === "select"
+                ? "Select and drag an element. Drag a selected wall’s endpoint to reshape it. Use the inspector for precise measurements."
+                : tool === "wall"
+                  ? "Drag to draw a wall at any angle. Nearby wall endpoints snap together."
+                  : tool === "door" || tool === "exit"
+                    ? `Click a wall to place ${tool === "exit" ? "an exit" : "a door"}. Select it to adjust its width.`
+                    : `Drag a rectangle to place a ${tool === "spawn" ? "spawn zone" : "physical obstruction"}.`}
+            </p>
+            <div className="canvas-wrap editor-canvas-wrap">
+              <canvas
+                ref={canvas}
+                width={1200}
+                height={800}
+                tabIndex={0}
+                role="img"
+                aria-label={`Editable floor plan, ${building.width} by ${building.height} metres. ${building.walls.length} walls, ${building.doors.length} doors, ${building.exits.length} exits, ${building.spawn_zones.length} spawn zones. Use layout tools to draw or the element inspector to edit.`}
+                style={{
+                  aspectRatio: "3 / 2",
+                  cursor:
+                    tool === "select"
+                      ? gesture
+                        ? "grabbing"
+                        : "default"
+                      : "crosshair",
+                }}
+                onPointerDown={pointerDown}
+                onPointerMove={pointerMove}
+                onPointerUp={pointerUp}
+                onPointerCancel={() => setGesture(null)}
+                onLostPointerCapture={() => setGesture(null)}
+                onPointerLeave={() => setCursor(null)}
+                onKeyDown={(event) => {
+                  if (disabled) return;
+                  if (event.key === "Escape") {
+                    setGesture(null);
+                    setSelected(null);
+                  }
+                  if (
+                    (event.key === "Delete" || event.key === "Backspace") &&
+                    selected
+                  ) {
+                    event.preventDefault();
+                    if (commit(removeElement(building, selected)))
+                      setSelected(null);
+                  }
+                  if (
+                    (event.ctrlKey || event.metaKey) &&
+                    event.key.toLowerCase() === "z"
+                  ) {
+                    event.preventDefault();
+                    if (event.shiftKey) redoChange();
+                    else undo();
+                  }
+                }}
+              />
+              <div className="canvas-caption">
+                <span>
+                  {building.walls.length} walls · {building.doors.length} doors
+                  · {building.exits.length} exits ·{" "}
+                  {building.spawn_zones.length} spawn zones
+                </span>
+                <span>
+                  {cursor
+                    ? `${cursor.x.toFixed(2)}, ${cursor.y.toFixed(2)} m`
+                    : "Continuous coordinates"}
+                </span>
+              </div>
             </div>
           </div>
           <aside className="editor-inspector" aria-label="Element inspector">
