@@ -1,7 +1,34 @@
 :root {
-  font-family: "DM Sans", system-ui, sans-serif;
-  color: #223c38;
-  background: #f1f4f1;
+  --cad-bg: #17191e;
+  --cad-panel: #252930;
+  --cad-surface: #1d2026;
+  --cad-control: #2b3038;
+  --cad-hover: #303640;
+  --cad-border: #343a43;
+  --cad-border-strong: #475261;
+  --cad-text: #e2e7ed;
+  --cad-muted: #a6b0bf;
+  --cad-subtle: #96a1b0;
+  --cad-accent: #5fa8f7;
+  --cad-accent-hover: #82bcfa;
+  --cad-selected: #243b55;
+  --cad-success: #38c99b;
+  --cad-warning: #d7aa6e;
+  --cad-warning-bg: #342c23;
+  --cad-warning-border: #70583a;
+  --cad-danger: #e39486;
+  --cad-danger-bg: #392928;
+  --cad-danger-border: #78514a;
+  --cad-wall: #a8b3c1;
+  --cad-door: #cbb68b;
+  --cad-spawn: #243842;
+  --cad-spawn-border: #7293a9;
+  color-scheme: dark;
+  accent-color: var(--cad-accent);
+  scrollbar-color: var(--cad-border-strong) var(--cad-surface);
+  font-family: "Segoe UI", system-ui, sans-serif;
+  color: var(--cad-text);
+  background: var(--cad-bg);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
@@ -17,43 +44,44 @@ a {
   text-decoration: none;
 }
 button,
-input {
+input,
+select {
   font: inherit;
 }
 button {
   cursor: pointer;
-  background: #fff;
-  color: #2c5148;
-  border: 1px solid #cdd9d2;
-  border-radius: 6px;
-  padding: 10px 16px;
+  background: var(--cad-control);
+  color: var(--cad-text);
+  border: 1px solid var(--cad-border);
+  border-radius: 4px;
+  padding: 7px 12px;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
 }
-button:hover {
-  background: #edf4ef;
+button:hover:not(:disabled) {
+  background: var(--cad-hover);
 }
 button:disabled {
-  opacity: 0.5;
+  opacity: 0.55;
   cursor: not-allowed;
 }
 button.primary {
-  background: #25624f;
-  border-color: #25624f;
-  color: #fff;
+  background: var(--cad-accent);
+  border-color: var(--cad-accent);
+  color: var(--cad-bg);
 }
-button.primary:hover {
-  background: #1c503f;
+button.primary:hover:not(:disabled) {
+  background: var(--cad-accent-hover);
 }
 :focus-visible {
-  outline: 3px solid #c9954b;
-  outline-offset: 4px;
+  outline: 2px solid var(--cad-accent);
+  outline-offset: 2px;
 }
 .app-header {
   min-height: 80px;
   padding: 18px 4%;
-  background: #142e2d;
-  color: #e8f0eb;
+  background: var(--cad-bg);
+  color: var(--cad-text);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -63,27 +91,27 @@ button.primary:hover {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-family: "Manrope", system-ui, sans-serif;
+  font-family: inherit;
   font-size: 23px;
   font-weight: 800;
-  letter-spacing: -1px;
+  letter-spacing: -0.5px;
 }
 .brand-icon {
-  border: 1px solid #74978a;
-  border-radius: 6px;
+  border: 1px solid var(--cad-border-strong);
+  border-radius: 4px;
   padding: 1px 7px;
   font-size: 26px;
 }
 .brand-caption {
-  font-family: "DM Sans", system-ui, sans-serif;
+  font-family: "Segoe UI", system-ui, sans-serif;
   letter-spacing: 0;
   font-size: 11px;
   font-weight: 400;
   max-width: 85px;
   padding-left: 12px;
-  border-left: 1px solid #516964;
+  border-left: 1px solid var(--cad-border-strong);
   margin-left: 6px;
-  color: #b9cec5;
+  color: var(--cad-muted);
 }
 nav {
   display: flex;
@@ -91,32 +119,32 @@ nav {
   font-size: 13px;
 }
 nav a:hover {
-  color: #b7dfc9;
+  color: var(--cad-accent);
 }
 .connection {
   display: flex;
   align-items: center;
   gap: 7px;
   font-size: 12px;
-  color: #c3d2ca;
+  color: var(--cad-muted);
 }
 .status-dot {
   width: 7px;
   height: 7px;
-  background: #d2b06a;
+  background: var(--cad-warning);
   border-radius: 50%;
 }
 .online .status-dot {
-  background: #7fc7a1;
+  background: var(--cad-success);
 }
 .offline .status-dot {
-  background: #ec9f8e;
+  background: var(--cad-danger);
 }
 .text-button {
   padding: 3px 7px;
-  color: #e8f0eb;
+  color: var(--cad-text);
   background: transparent;
-  border-color: #74978a;
+  border-color: var(--cad-border-strong);
 }
 main {
   width: min(1440px, 92%);
@@ -130,7 +158,7 @@ main {
   gap: 16px;
 }
 .eyebrow {
-  color: #658176;
+  color: var(--cad-subtle);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 1.6px;
@@ -140,7 +168,7 @@ main {
 h1,
 h2,
 h3 {
-  font-family: "Manrope", system-ui, sans-serif;
+  font-family: inherit;
 }
 h1 {
   font-size: clamp(25px, 3vw, 36px);
@@ -149,7 +177,7 @@ h1 {
   line-height: 1.2;
 }
 .page-heading p:last-child {
-  color: #67796e;
+  color: var(--cad-muted);
   font-size: 14px;
   margin: 0;
 }
@@ -166,21 +194,21 @@ h3 {
   font-size: 10px;
   line-height: 1.5;
   padding: 5px 9px;
-  border: 1px solid #d6e1d9;
+  border: 1px solid var(--cad-border);
   border-radius: 4px;
-  color: #5f786a;
+  color: var(--cad-muted);
   white-space: nowrap;
 }
 .badge.mock {
-  background: #fff5df;
-  border-color: #e3cc97;
-  color: #856629;
+  background: var(--cad-warning-bg);
+  border-color: var(--cad-warning-border);
+  color: var(--cad-warning);
 }
 .panel {
-  background: #fff;
-  border: 1px solid #dbe3dc;
-  border-radius: 8px;
-  padding: 24px;
+  background: var(--cad-panel);
+  border: 1px solid var(--cad-border);
+  border-radius: 4px;
+  padding: 18px;
   min-width: 0;
 }
 .controls {
@@ -197,7 +225,7 @@ h3 {
   font-size: 13px;
 }
 .scenario-summary span {
-  color: #718177;
+  color: var(--cad-muted);
   font-size: 12px;
 }
 .control-buttons {
@@ -206,7 +234,7 @@ h3 {
   gap: 8px;
 }
 .request-message {
-  color: #5c7566;
+  color: var(--cad-muted);
   font-size: 12px;
   margin: 12px 2px 24px;
   min-height: 18px;
@@ -226,8 +254,8 @@ h3 {
   flex-wrap: wrap;
 }
 .canvas-wrap {
-  background: #f8faf8;
-  border: 1px solid #e0e7e3;
+  background: var(--cad-surface);
+  border: 1px solid var(--cad-border);
   border-radius: 4px;
   overflow: hidden;
 }
@@ -242,7 +270,7 @@ canvas {
   gap: 20px;
   font-size: 11px;
   margin: 16px 0;
-  color: #65796e;
+  color: var(--cad-muted);
 }
 .legend span {
   display: flex;
@@ -256,20 +284,20 @@ canvas {
   border-radius: 2px;
 }
 .wall {
-  background: #455b59;
+  background: var(--cad-wall);
 }
 .door {
-  background: #d1a662;
+  background: var(--cad-door);
 }
 .exit {
-  background: #2c8c72;
+  background: var(--cad-success);
 }
 .spawn {
-  background: #deece7;
-  border: 1px solid #9cbfae;
+  background: var(--cad-spawn);
+  border: 1px solid var(--cad-spawn-border);
 }
 .note {
-  color: #7a887f;
+  color: var(--cad-subtle);
   font-size: 11px;
   line-height: 1.7;
   margin: 12px 0 0;
@@ -282,7 +310,7 @@ canvas {
   justify-content: center;
   text-align: center;
   padding: 30px 16px;
-  color: #6a8073;
+  color: var(--cad-muted);
 }
 .empty-state p {
   font-size: 13px;
@@ -292,11 +320,11 @@ canvas {
 }
 .empty-symbol {
   font-size: 40px;
-  color: #97b0a2;
-  background: #f1f6f2;
+  color: var(--cad-subtle);
+  background: var(--cad-surface);
   width: 76px;
   height: 76px;
-  border-radius: 50%;
+  border-radius: 4px;
   margin-bottom: 22px;
 }
 .empty-state.compact {
@@ -317,10 +345,10 @@ canvas {
   cursor: pointer;
 }
 .preview-control input {
-  accent-color: #25624f;
+  accent-color: var(--cad-accent);
 }
 .preview-control > span {
-  color: #7c8b81;
+  color: var(--cad-subtle);
   font-size: 11px;
 }
 .analytics-grid {
@@ -341,7 +369,7 @@ canvas {
 }
 .metrics span {
   font-size: 11px;
-  color: #6c8072;
+  color: var(--cad-subtle);
 }
 .metrics strong {
   font-size: 21px;
@@ -353,7 +381,7 @@ canvas {
   font-size: 11px;
 }
 footer {
-  color: #7a8c7f;
+  color: var(--cad-subtle);
   font-size: 11px;
   padding: 28px 0;
   line-height: 1.8;
@@ -422,16 +450,16 @@ footer {
   margin-bottom: 10px;
 }
 .editor-toolbar button[aria-pressed="true"] {
-  background: #25624f;
-  color: white;
-  border-color: #25624f;
+  background: var(--cad-selected);
+  color: var(--cad-accent);
+  border-color: var(--cad-accent);
 }
 .editor-actions button {
   padding: 6px 10px;
   font-size: 11px;
 }
 .editor-help {
-  color: #61766a;
+  color: var(--cad-muted);
   font-size: 12px;
   line-height: 1.7;
   margin: 16px 0;
@@ -453,12 +481,12 @@ footer {
   justify-content: space-between;
   padding: 10px 12px;
   gap: 10px;
-  border-top: 1px solid #e0e7e3;
-  color: #657b6d;
+  border-top: 1px solid var(--cad-border);
+  color: var(--cad-muted);
   font-size: 11px;
 }
 .editor-inspector {
-  border-left: 1px solid #e0e7e3;
+  border-left: 1px solid var(--cad-border);
   padding-left: 20px;
   min-width: 0;
 }
@@ -471,20 +499,21 @@ footer {
   justify-content: space-between;
   gap: 8px;
   font-size: 11px;
-  color: #62766a;
+  color: var(--cad-muted);
   margin: 8px 0;
 }
 .number-field input {
   width: 100px;
   min-width: 0;
-  border: 1px solid #d1ddd5;
+  border: 1px solid var(--cad-border);
   border-radius: 4px;
   padding: 6px;
-  color: #294a3c;
+  color: var(--cad-text);
+  background: var(--cad-surface);
 }
 .element-select {
   font-size: 11px;
-  color: #62766a;
+  color: var(--cad-muted);
   display: block;
 }
 .element-select select {
@@ -492,11 +521,11 @@ footer {
   width: 100%;
   margin-top: 8px;
   padding: 7px 4px;
-  background: white;
-  border: 1px solid #d1ddd5;
+  background: var(--cad-surface);
+  border: 1px solid var(--cad-border);
   border-radius: 4px;
   font: inherit;
-  color: #294a3c;
+  color: var(--cad-text);
 }
 .inspector-fields {
   margin-top: 16px;
@@ -504,7 +533,7 @@ footer {
 .workspace-settings {
   margin-top: 22px;
   padding-top: 16px;
-  border-top: 1px solid #e0e7e3;
+  border-top: 1px solid var(--cad-border);
 }
 .block-toggle {
   display: flex;
@@ -514,16 +543,16 @@ footer {
   margin: 12px 0;
 }
 button.delete-button {
-  color: #a44e3c;
-  border-color: #dfc6bf;
+  color: var(--cad-danger);
+  border-color: var(--cad-danger-border);
   font-size: 11px;
   padding: 7px 10px;
   margin-top: 8px;
 }
 .editor-error {
-  color: #a24732;
-  background: #fff1e9;
-  border: 1px solid #eacbb9;
+  color: var(--cad-danger);
+  background: var(--cad-danger-bg);
+  border: 1px solid var(--cad-danger-border);
   padding: 12px;
   font-size: 12px;
   border-radius: 4px;
@@ -534,7 +563,7 @@ button.delete-button {
   }
   .editor-inspector {
     border-left: 0;
-    border-top: 1px solid #e0e7e3;
+    border-top: 1px solid var(--cad-border);
     padding: 18px 0 0;
   }
   .inspector-fields {
@@ -547,4 +576,28 @@ button.delete-button {
     padding: 8px 10px;
     font-size: 12px;
   }
+}
+
+/* Presentation only: shared chart data and analytics components stay unchanged. */
+.analytics-grid .recharts-cartesian-axis-tick-value {
+  fill: var(--cad-muted);
+}
+.analytics-grid .recharts-cartesian-grid line {
+  stroke: var(--cad-border);
+}
+.analytics-grid .recharts-bar-rectangle path {
+  fill: var(--cad-success);
+}
+.analytics-grid .recharts-default-tooltip {
+  background-color: var(--cad-panel) !important;
+  border-color: var(--cad-border-strong) !important;
+  border-radius: 4px;
+  color: var(--cad-text);
+  font-size: 12px;
+}
+.analytics-grid .recharts-tooltip-item {
+  color: var(--cad-success) !important;
+}
+.analytics-grid .recharts-tooltip-cursor {
+  fill: var(--cad-hover);
 }

@@ -10,6 +10,8 @@ import {
 import mock from "../../../shared/examples/simulation.mock.json";
 import type { SimulationResult, StressTestResult } from "../types/simulation";
 
+import ScenarioComparison from "./ScenarioComparison";
+
 interface AnalyticsDashboardProps {
   result: SimulationResult | null;
   stressResult: StressTestResult | null;
@@ -29,7 +31,7 @@ export default function AnalyticsDashboard({
       ]
     : [];
 
-  // TODO(Developer 4): traffic heatmap and ranked scenario comparison.
+  // TODO(Developer 4): world-coordinate traffic heatmap.
   return (
     <section className="analytics-grid" id="analytics" aria-label="Analytics">
       <div className="panel">
@@ -128,17 +130,7 @@ export default function AnalyticsDashboard({
       <div className="panel">
         <p className="eyebrow">04 / Stress testing</p>
         <h2>Vulnerability comparison</h2>
-        <div className="empty-state compact">
-          <h3>
-            {stressResult
-              ? `${stressResult.scenarios.length} scenarios received`
-              : "No scenarios evaluated"}
-          </h3>
-          <p>
-            Blocked-exit and obstruction analysis is not implemented. Rank by
-            un-evacuated occupants before clearance time.
-          </p>
-        </div>
+        <ScenarioComparison result={stressResult} />
         <p className="note">
           Traffic samples represent accumulated visits at world positions, not
           instantaneous crowd density.
