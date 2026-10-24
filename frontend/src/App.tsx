@@ -1,9 +1,8 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import example from "../../shared/examples/building.json";
 import { buildingError } from "./editor/geometry";
-import { BuildingEditor } from "./editor/BuildingEditor";
+import { BuildingWorkspace } from "./editor/BuildingWorkspace";
 import { api } from "./services/api";
-import { SimulationView } from "./simulation/SimulationView";
 import type {
   BuildingScenario,
   SimulationResult,
@@ -84,7 +83,7 @@ export default function App() {
   }
 
   return (
-    <>
+    <div className="workspace-app">
       <header className="app-header">
         <a className="brand" href="#building">
           <span className="brand-icon" aria-hidden="true">
@@ -115,12 +114,8 @@ export default function App() {
       </header>
       <main>
         <div className="page-heading">
-          <div>
-            <p className="eyebrow">Local engineering workspace</p>
-            <h1>Understand the way out.</h1>
-            <p>Design a building. Test its exits. Find a safer layout.</p>
-          </div>
-          <span className="badge">Foundation / v0.1</span>
+          <h1>Evacuation workspace</h1>
+          <span className="badge">Design. Simulate. Stress test.</span>
         </div>
         <section className="controls panel" aria-label="Simulation controls">
           <div className="scenario-summary">
@@ -160,14 +155,12 @@ export default function App() {
         <p className="request-message" role="status">
           {layoutProblem ?? message}
         </p>
-        <div className="workspace-grid">
-          <BuildingEditor
-            building={building}
-            onChange={changeBuilding}
-            disabled={busy}
-          />
-          <SimulationView building={building} result={result} />
-        </div>
+        <BuildingWorkspace
+          building={building}
+          onChange={changeBuilding}
+          result={result}
+          disabled={busy}
+        />
         <div className="preview-control">
           <label>
             <input
@@ -191,6 +184,6 @@ export default function App() {
           optimization are not implemented.
         </footer>
       </main>
-    </>
+    </div>
   );
 }
