@@ -184,13 +184,15 @@ export function LiveSimulationView({
               </div>
             </dl>
           </div>
-          <p className="note">
-            Live crowding shows current occupant positions and cools as people
-            leave. Colors are relative to the current frame, not cumulative
-            traffic or a validated congestion measurement. Peak snapshots are
-            available in Analytics after this run. Rewind and replay become
-            available when it finishes.
-          </p>
+          <details className="live-crowding-details note">
+            <summary>About live crowding</summary>
+            <p>
+              Colors show current positions, relative to this frame. They are
+              not accumulated traffic or validated congestion measurements.
+              Rewind, replay and peak crowding snapshots are available after the
+              run.
+            </p>
+          </details>
         </div>
       </div>
     </div>

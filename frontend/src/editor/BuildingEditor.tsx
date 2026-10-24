@@ -153,9 +153,7 @@ export function BuildingEditor({
     if (kind) next.set(selected.id, kind);
     else next.delete(selected.id);
     setFurnitureSymbols(next);
-    setNotice(
-      "Drawing style changed · geometry is unchanged · style lasts this session.",
-    );
+    setNotice("Drawing style updated · session only · geometry unchanged.");
   }
 
   function closeProperties() {
@@ -196,7 +194,7 @@ export function BuildingEditor({
     setError("");
     setNotice(
       edit?.replacements.size
-        ? "Openings merged · Undo restores original IDs, names and blocked status."
+        ? "Openings merged · Undo restores the originals."
         : "",
     );
     if (afterSelection || edit?.replacements.size) {
@@ -387,7 +385,7 @@ export function BuildingEditor({
     ) {
       for (const id of ids) curveGroups.current.set(id, ids);
       setNotice(
-        "Freehand group · Alt-click selects one segment · JSON stores individual walls.",
+        "Freehand group · Alt-click for one segment · JSON saves individual walls.",
       );
     }
   }
@@ -534,7 +532,7 @@ export function BuildingEditor({
       const kind = tool === "door" ? "doors" : "exits";
       const candidate = openingAt(point, kind, openingId.current);
       if (!candidate) {
-        setError("Click close to a wall to place an opening.");
+        setError("Click near a wall to place an opening.");
         return;
       }
       if (
@@ -689,7 +687,7 @@ export function BuildingEditor({
       if (commit(next, false, [{ kind: "obstructions", id }])) {
         setFurnitureSymbols(new Map(furnitureSymbols).set(id, furniture));
         setNotice(
-          `${furniturePresets[furniture].label} placed · physical rectangular obstacle · symbol lasts this session`,
+          `${furniturePresets[furniture].label} placed · rectangular obstacle · session-only style`,
         );
       }
       return;
@@ -911,38 +909,38 @@ export function BuildingEditor({
                 title={selected ? objectName(building, selected) : ""}
               >
                 {draftEdit?.snapped
-                  ? "Snap & merge preview · complete placement to remove the gap"
+                  ? "Snap preview · confirm placement to merge"
                   : notice
                     ? notice
                     : selections.length > 1
-                      ? `${selections.length} selected · drag to move · Properties to resize`
+                      ? `${selections.length} selected`
                       : `Selected: ${objectName(building, selected!)}`}
               </p>
             )}
             <p className="editor-help">
               {furnitureKind(tool)
-                ? "Click to place a preset or drag its full rectangular footprint. Furniture blocks movement. Properties stays closed until requested."
+                ? "Click to place or drag a footprint. Furniture blocks its full rectangle."
                 : tool === "select"
-                  ? "Drag objects or wall endpoints. Drag empty space for marquee; Shift adds objects. Properties opens only on request."
+                  ? "Drag to move or marquee select · Shift-click to add · Double-click for Properties"
                   : tool === "wall-freehand"
                     ? freehand?.error &&
                       gesture?.curve &&
                       gesture.curve.length > 1
                       ? freehand.error
-                      : "Drag a curve and release, or click–trace–click. Escape cancels. Endpoints snap to the grid; JSON stores segments. Alt-click selects one segment."
+                      : "Drag or click–trace–click · Escape cancels · Alt-click selects one segment"
                     : tool === "wall"
                       ? "Drag a straight wall at any angle. Nearby endpoints snap together."
                       : tool === "wall-rectangle"
-                        ? "Drag opposite corners freely; Shift makes a square. Creates four independently editable walls."
+                        ? "Drag opposite corners · Shift for square · Creates four walls"
                         : tool === "wall-circle"
-                          ? "Drag opposite corners for an ellipse; Shift makes a circle. Saves 32 actual straight segments."
+                          ? "Drag an ellipse · Shift for circle · Saves 32 connected wall segments"
                           : tool === "door" || tool === "exit"
                             ? `Click a wall to place ${tool === "exit" ? "an exit" : "a door"}. Adjust its width in Properties.`
                             : tool === "stairs"
                               ? "Drag a walkable stair-area marker. It does not connect floors or block occupants."
                               : tool === "spawn"
                                 ? "Drag a spawn area, then set its name and occupant count in Properties."
-                                : "Drag freely for a rectangular object; hold Shift for a square. Names and dimensions are editable in Properties."}
+                                : "Drag a rectangle · Shift for square · Edit dimensions in Properties"}
             </p>
             <div className="canvas-wrap editor-canvas-wrap">
               <canvas
@@ -1163,10 +1161,10 @@ export function BuildingEditor({
                       </select>
                     </label>
                     <p className="note">
-                      Every style blocks the full rectangle, including Chair.
-                      Names and dimensions are saved. Drawing styles last this
-                      editor session and support Undo/Redo; JSON import/reload
-                      restores plain objects.
+                      All styles, including Chair, block the full rectangle.
+                      JSON saves names and geometry. Styles support Undo/Redo
+                      but last only this session; import/reload restores plain
+                      objects.
                     </p>
                   </>
                 )}
@@ -1203,7 +1201,7 @@ export function BuildingEditor({
                 )}
                 <p className="note">
                   {"wall_id" in selectedElement
-                    ? `Attached to ${selectedElement.wall_id}. Touching openings of the same kind merge on placement, movement or resizing. Exits must have matching blocked states; blocked exits stay solid.`
+                    ? `On ${objectName(building, { kind: "walls", id: selectedElement.wall_id })}. Touching openings of the same kind merge. Exits merge only with matching blocked states; blocked exits stay solid.`
                     : "Dimensions in metres"}
                 </p>
                 {"start" in selectedElement ? (
@@ -1278,8 +1276,7 @@ export function BuildingEditor({
               </div>
             ) : (
               <p className="note">
-                Select an element on the canvas or from this list. Changes are
-                local until you export the layout.
+                Select an object. Export JSON to save your layout.
               </p>
             )}
             <details className="workspace-settings">
@@ -1321,10 +1318,6 @@ export function BuildingEditor({
           Spawn zone
         </span>
       </div>
-      <p className="note">
-        Layouts use continuous metre coordinates. Save your work with Export
-        JSON; simulation and playback remain separate workstreams.
-      </p>
     </section>
   );
 }

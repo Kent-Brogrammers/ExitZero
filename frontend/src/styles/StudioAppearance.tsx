@@ -62,15 +62,11 @@ export function AppearanceSelector() {
           ))}
         </select>
       </label>
-      <p className="note">
-        The Studio shell stays dark; appearance changes apply only to floor-plan
-        canvases.
-      </p>
+      <p className="note">Canvas only. Studio controls stay dark.</p>
       {theme.startsWith("blueprint") && (
         <p className="note">
-          Architectural wall outlines and schematic door swings. Collision still
-          uses full wall thickness and the recorded openings; stair areas are
-          walkable markers.
+          Blueprint symbols change appearance only. Walls keep their full
+          thickness and openings; stair markers remain walkable.
         </p>
       )}
     </div>

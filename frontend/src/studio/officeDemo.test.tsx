@@ -124,8 +124,16 @@ describe("curated office demo", () => {
     );
     expect(html).toContain("View office demo");
     expect(html).toContain("Open Studio");
+    expect(html).toContain("Design for");
+    expect(html).toContain("the unexpected");
+    expect(html).toContain('<footer class="welcome-bottom">');
+    expect(html).toContain("© 2026 Kent Brogrammers");
+    expect(html).toContain(
+      'href="https://github.com/Kent-Brogrammers/ExitZero"',
+    );
+    expect(html).not.toMatch(/all rights reserved/i);
     expect(html).toContain("Load example building");
-    expect(html).toContain("saved Rust run and real recorded traffic");
+    expect(html).toContain("Saved Rust simulation with recorded traffic");
   });
   it("keeps the unrelated synthetic fixture disabled for a demo recording", async () => {
     const result = await loadOfficeDemo();
