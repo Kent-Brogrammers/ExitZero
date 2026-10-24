@@ -1,99 +1,291 @@
-.playback-preview-toggle {
+.simulation-panel {
+  position: relative;
+  height: 100%;
+}
+.simulation-panel .playback-source {
+  position: absolute;
+  top: 20px;
+  left: 24px;
+  right: 24px;
+  z-index: 6;
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  margin-bottom: 18px;
+  justify-content: space-between;
+  gap: 10px;
 }
-.playback-preview-toggle input,
-.playback-timeline input {
+.simulation-panel .playback-preview-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--cad-muted);
+  font-size: 10px;
+}
+.simulation-panel .playback-synthetic-note {
+  position: absolute;
+  top: 49px;
+  left: 24px;
+  right: 24px;
+  z-index: 6;
+  margin: 0;
+  padding: 0;
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--cad-warning);
+  pointer-events: none;
+}
+.simulation-panel .playback-workspace,
+.simulation-panel .playback-stage,
+.simulation-panel .playback-canvas-wrap {
+  position: absolute;
+  inset: 0;
+}
+.simulation-panel .playback-canvas-wrap {
+  top: 86px;
+  bottom: 130px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.simulation-panel .playback-canvas-wrap canvas {
+  width: 100%;
+  height: 100%;
+}
+.simulation-panel .canvas-caption {
+  display: none;
+}
+.simulation-panel .playback-transport {
+  position: absolute;
+  left: 50%;
+  bottom: 50px;
+  transform: translateX(-50%);
+  width: min(1000px, calc(100% - 100px));
+  z-index: 6;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 20px;
+  padding: 10px 14px;
+  background: #17171fe8;
+  backdrop-filter: blur(14px);
+  border: 1px solid #ffffff08;
+  border-radius: 7px;
+  box-shadow: 0 8px 30px #0003;
+}
+.simulation-panel .playback-bottomline {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  width: min(1000px, calc(100% - 100px));
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.simulation-panel .playback-readout {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin: 0;
+}
+.simulation-panel .playback-help {
+  position: absolute;
+  left: 50%;
+  bottom: 115px;
+  transform: translateX(-50%);
+  width: min(1000px, calc(100% - 100px));
+  z-index: 5;
+  text-align: center;
+  pointer-events: none;
+}
+.simulation-panel .playback-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.simulation-panel .playback-controls button {
+  font-size: 11px;
+  padding: 6px 10px;
+}
+.simulation-panel .playback-speed {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-left: 8px;
+  font-size: 10px;
+  color: var(--cad-muted);
+}
+.simulation-panel .playback-speed select {
+  background: transparent;
+  color: var(--cad-text);
+  border: 1px solid var(--cad-border-strong);
+  border-radius: var(--radius-control);
+  padding: 6px;
+  font-size: 11px;
+}
+.simulation-panel .playback-status {
+  color: var(--cad-muted);
+  font-size: 10px;
+  margin-left: 8px;
+}
+.simulation-panel .playback-timeline {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  font-size: 10px;
+  color: var(--cad-muted);
+}
+.simulation-panel .playback-timeline label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.simulation-panel .playback-timeline input {
+  flex: 1;
+  min-width: 80px;
   accent-color: var(--cad-accent);
 }
-.playback-synthetic-note {
-  background: var(--cad-warning-bg);
-  border: 1px solid var(--cad-warning-border);
-  border-radius: 4px;
-  color: var(--cad-warning);
-  font-size: 12px;
-  line-height: 1.7;
-  padding: 12px;
-  margin: 0 0 18px;
+.simulation-panel .playback-timeline > span {
+  white-space: nowrap;
+  font-family: var(--font-mono);
 }
-.playback-controls {
+
+.simulation-panel .playback-readout > div {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
+  align-items: baseline;
   gap: 8px;
-  margin-bottom: 16px;
 }
-.playback-speed {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
+.simulation-panel .playback-readout dt {
+  font-size: 10px;
   color: var(--cad-muted);
 }
-.playback-speed select {
-  font: inherit;
-  padding: 9px;
-  color: var(--cad-text);
-  background: var(--cad-surface);
-  border: 1px solid var(--cad-border);
-  border-radius: 4px;
-}
-.playback-status {
-  margin-left: auto;
-  font-size: 12px;
-  color: var(--cad-muted);
-}
-.playback-canvas-wrap canvas {
-  aspect-ratio: 3 / 2;
-}
-.playback-timeline {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-  font-size: 12px;
-  color: var(--cad-muted);
-  margin-top: 18px;
-}
-.playback-timeline input {
-  flex: 1;
-  min-width: 120px;
-}
-.playback-readout {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 18px 36px;
-  margin: 22px 0 12px;
-}
-.playback-readout dt {
-  font-size: 11px;
-  color: var(--cad-subtle);
-  margin-bottom: 6px;
-}
-.playback-readout dd {
+.simulation-panel .playback-readout dd {
   margin: 0;
-  font-size: 18px;
-  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  font-family: var(--font-mono);
 }
-.playback-duration {
-  color: var(--cad-subtle);
-  font-size: 12px;
+.simulation-panel .playback-duration {
+  color: var(--cad-muted);
+  font-size: 10px;
 }
-.playback-outcome,
-.playback-error {
+.simulation-panel .recording-details {
+  position: relative;
+  color: var(--cad-muted);
+  font-size: 10px;
+}
+.simulation-panel .recording-details > summary:hover {
+  color: var(--cad-text);
+}
+.simulation-panel .recording-popover {
+  position: absolute;
+  bottom: 26px;
+  right: 0;
+  width: 320px;
+  max-height: min(60vh, 400px);
+  overflow-y: auto;
+  padding: 18px;
+  z-index: 20;
+  background: var(--cad-panel);
+  border: 1px solid var(--cad-border-strong);
+  border-radius: var(--radius-control);
+  box-shadow: 0 12px 36px #0006;
+}
+.simulation-panel .playback-outcome {
   font-size: 12px;
   line-height: 1.7;
-  margin: 16px 0 0;
+  margin: 14px 0;
+  color: var(--cad-text);
 }
-.playback-error {
+.simulation-panel .playback-analytics-link {
+  display: inline-block;
+  color: var(--cad-text);
+  margin-top: 12px;
+}
+.simulation-panel .playback-help {
+  flex-shrink: 0;
+}
+.simulation-panel .playback-help .note {
+  font-size: 10px;
+  margin: 8px 0 0;
+}
+.simulation-panel .playback-error {
   color: var(--cad-danger);
+  font-size: 11px;
+  margin: 8px 0 0;
 }
-@media (max-width: 480px) {
-  .playback-status {
-    width: 100%;
-    margin: 4px 0 0;
+
+@media (max-width: 1100px) {
+  .simulation-panel .playback-transport,
+  .simulation-panel .playback-bottomline,
+  .simulation-panel .playback-help {
+    width: calc(100% - 48px);
+  }
+  .simulation-panel .playback-status {
+    display: none;
+  }
+  .simulation-panel .playback-readout {
+    gap: 8px 16px;
+  }
+}
+@media (max-width: 760px) {
+  .simulation-panel .playback-canvas-wrap {
+    top: 112px;
+    bottom: 206px;
+  }
+  .simulation-panel .playback-source {
+    left: 16px;
+    right: 16px;
+    top: 16px;
+  }
+  .simulation-panel .playback-synthetic-note {
+    top: 46px;
+    left: 16px;
+    right: 16px;
+    font-size: 9px;
+  }
+  .simulation-panel .playback-transport {
+    width: calc(100% - 24px);
+    bottom: 78px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 9px;
+    padding: 10px;
+  }
+  .simulation-panel .playback-controls {
+    justify-content: center;
+  }
+  .simulation-panel .playback-bottomline {
+    width: calc(100% - 32px);
+    bottom: 16px;
+    align-items: flex-start;
+  }
+  .simulation-panel .playback-readout {
+    gap: 6px 14px;
+    max-width: 75%;
+  }
+  .simulation-panel .playback-readout dt,
+  .simulation-panel .playback-readout dd {
+    font-size: 9px;
+  }
+  .simulation-panel .playback-duration {
+    display: none;
+  }
+  .simulation-panel .playback-help {
+    bottom: 190px;
+    width: calc(100% - 32px);
+  }
+  .simulation-panel .playback-help .note {
+    font-size: 9px;
+  }
+  .simulation-panel .recording-popover {
+    position: fixed;
+    bottom: 30px;
+    right: 0;
+    width: min(320px, calc(100vw - 32px));
+    max-height: 55vh;
   }
 }

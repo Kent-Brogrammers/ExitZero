@@ -1,0 +1,56 @@
+:root {
+  --cad-bg: #0a0a10;
+  --cad-panel: #17171f;
+  --cad-surface: #101017;
+  --cad-control: #1a1a23;
+  --cad-hover: #22222d;
+  --cad-border: #262630;
+  --cad-border-strong: #41414e;
+  --cad-text: #f1f0f7;
+  --cad-muted: #aaa8b8;
+  --cad-subtle: #93909f;
+  --cad-accent: #5fa8f7;
+  --cad-accent-hover: #82bcfa;
+  --cad-selected: #19222c;
+  --cad-success: #38c99b;
+  --cad-warning: #d7aa6e;
+  --cad-warning-bg: #342c23;
+  --cad-warning-border: #70583a;
+  --cad-danger: #e39486;
+  --cad-danger-bg: #392928;
+  --cad-danger-border: #78514a;
+  --cad-wall: #adaab8;
+  --cad-door: #c7a66f;
+  --cad-spawn: #1c1c26;
+  --studio-primary: #7969d8;
+  --studio-primary-hover: #8a7ae5;
+  --cad-shelter: #b09ae3;
+  --cad-spawn-border: #686575;
+  color-scheme: dark;
+  accent-color: var(--cad-accent);
+  scrollbar-color: var(--cad-border-strong) var(--cad-surface);
+}
+
+/* Presentation only: shared chart data and analytics components stay unchanged. */
+.analytics-grid .recharts-cartesian-axis-tick-value {
+  fill: var(--cad-muted);
+}
+.analytics-grid .recharts-cartesian-grid line {
+  stroke: var(--cad-border);
+}
+.analytics-grid .recharts-bar-rectangle path {
+  fill: var(--cad-wall);
+}
+.analytics-grid .recharts-default-tooltip {
+  background-color: var(--cad-panel) !important;
+  border-color: var(--cad-border-strong) !important;
+  border-radius: var(--radius-control);
+  color: var(--cad-text);
+  font-size: 12px;
+}
+.analytics-grid .recharts-tooltip-item {
+  color: var(--cad-success) !important;
+}
+.analytics-grid .recharts-tooltip-cursor {
+  fill: var(--cad-hover);
+}

@@ -47,6 +47,7 @@ describe("recorded simulation playback", () => {
     const { player, pending } = setup();
     expect(player.getSnapshot()).toEqual({
       index: 0,
+      time: 0,
       playing: false,
       speed: 1,
       started: false,
@@ -102,6 +103,7 @@ describe("recorded simulation playback", () => {
     player.reset();
     expect(player.getSnapshot()).toEqual({
       index: 0,
+      time: 0,
       playing: false,
       speed: 2,
       started: false,
@@ -237,6 +239,7 @@ describe("recorded simulation playback", () => {
     const replacement = createPlayback({ ...syntheticResult }, clock);
     expect(replacement.getSnapshot()).toEqual({
       index: 0,
+      time: 0,
       playing: false,
       speed: 1,
       started: false,
@@ -247,12 +250,78 @@ describe("recorded simulation playback", () => {
     player.dispose();
   });
 
-  it("retains a stable store snapshot between frame changes", () => {
+  it("throttles readouts while rendering every animation frame", () => {
     const { player, advance } = setup();
     player.play();
     const state = player.getSnapshot();
-    advance(100);
+    const render = vi.fn();
+    const unsubscribe = player.subscribeRender(render);
+    advance(40);
+    advance(40);
     expect(player.getSnapshot()).toBe(state);
+    expect(player.getTime()).toBeCloseTo(0.08);
+    expect(render).toHaveBeenCalledTimes(2);
+    advance(40);
+    expect(player.getSnapshot().time).toBeCloseTo(0.12);
+    unsubscribe();
+    advance(40);
+    expect(render).toHaveBeenCalledTimes(3);
+  });
+  it("steps by recorded frame rather than simulation tick, and cancels playback", () => {
+    const { player, advance, pending } = setup();
+    player.play();
+    advance(1300);
+    player.step(1);
+    expect(player.getSnapshot()).toMatchObject({
+      index: 2,
+      time: 2.5,
+      playing: false,
+    });
+    expect(pending.size).toBe(0);
+    player.step(-1);
+    expect(player.getSnapshot()).toMatchObject({ index: 1, time: 1 });
+    player.step(-1);
+    player.step(-1);
+    expect(player.getSnapshot().index).toBe(0);
+    player.seek(4);
+    player.step(1);
+    expect(player.getSnapshot().index).toBe(4);
+  });
+
+  it("publishes exact positions immediately on rapid seeks, pause and reset", () => {
+    const { player, advance, pending } = setup();
+    const render = vi.fn();
+    player.subscribeRender(render);
+    player.play();
+    advance(23);
+    player.pause();
+    expect(player.getSnapshot().time).toBeCloseTo(0.023);
+    for (const index of [3, 0, 4, 2, 1]) player.seek(index);
+    expect(player.getSnapshot()).toMatchObject({
+      index: 1,
+      time: 1,
+      playing: false,
+    });
+    player.reset();
+    expect(player.getTime()).toBe(0);
+    expect(render).toHaveBeenCalled();
+    expect(pending.size).toBe(0);
+  });
+
+  it("keeps simulation speed independent of rendering frequency", () => {
+    const fast = setup(),
+      slow = setup();
+    fast.player.setSpeed(2);
+    slow.player.setSpeed(2);
+    fast.player.play();
+    slow.player.play();
+    for (let i = 0; i < 100; i++) fast.advance(10);
+    for (let i = 0; i < 4; i++) slow.advance(250);
+    expect(fast.player.getTime()).toBeCloseTo(2);
+    expect(slow.player.getTime()).toBeCloseTo(2);
+    expect(fast.player.getSnapshot().index).toBe(
+      slow.player.getSnapshot().index,
+    );
   });
 });
 

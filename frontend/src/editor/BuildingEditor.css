@@ -1,0 +1,296 @@
+.editor-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.editor-panel .editor-controls {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+.editor-panel .editor-workspace {
+  position: relative;
+  height: 100%;
+}
+.editor-panel .editor-commandbar {
+  display: contents;
+}
+.editor-panel .editor-toolbar {
+  position: absolute;
+  left: 22px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  gap: 3px;
+  background: #17171fe8;
+  backdrop-filter: blur(14px);
+  border: 1px solid #ffffff08;
+  border-radius: 7px;
+  box-shadow: 0 12px 34px #0003;
+}
+.editor-panel .editor-toolbar button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  min-width: 46px;
+  padding: 9px 5px;
+  font-size: 9px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--cad-muted);
+}
+.editor-panel .editor-toolbar button svg {
+  width: 19px;
+  height: 19px;
+}
+.editor-panel .editor-toolbar button[aria-pressed="true"],
+.editor-panel .editor-toolbar button[aria-pressed="true"]:hover {
+  color: var(--cad-accent);
+  background: #5fa8f712;
+}
+.editor-panel .editor-toolbar button:hover:not(:disabled) {
+  color: var(--cad-text);
+  background: #ffffff06;
+}
+.editor-panel .editor-actions {
+  position: absolute;
+  top: 18px;
+  right: 22px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 3px;
+}
+.editor-panel .editor-actions button {
+  border: 0;
+  font-size: 10px;
+  padding: 7px 10px;
+  color: var(--cad-muted);
+  background: #101017b8;
+  border-radius: 4px;
+}
+.editor-panel .editor-actions button:hover:not(:disabled) {
+  color: var(--cad-text);
+  background: var(--cad-hover);
+}
+.editor-panel .editor-actions button[aria-expanded="true"] {
+  color: var(--cad-text);
+  background: var(--cad-hover);
+}
+.editor-panel .editor-stage {
+  position: absolute;
+  inset: 0;
+}
+.editor-panel .editor-help {
+  position: absolute;
+  bottom: 49px;
+  left: 24px;
+  right: 24px;
+  z-index: 4;
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--cad-muted);
+  pointer-events: none;
+}
+.editor-panel .editor-canvas-wrap {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.editor-panel .editor-canvas-wrap canvas {
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  user-select: none;
+}
+.editor-panel .canvas-caption {
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  bottom: 19px;
+  z-index: 4;
+  border: 0;
+  padding: 0;
+  pointer-events: none;
+  color: var(--cad-subtle);
+  font-size: 9px;
+}
+.editor-panel .editor-inspector {
+  position: absolute;
+  top: 66px;
+  right: 22px;
+  z-index: 10;
+  width: 254px;
+  max-height: calc(100% - 146px);
+  overflow-y: auto;
+  padding: 18px;
+  background: #17171ff5;
+  backdrop-filter: blur(18px);
+  border: 1px solid #ffffff0d;
+  border-radius: 6px;
+  box-shadow: 0 16px 50px #0006;
+}
+.editor-panel .inspector-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.editor-panel .inspector-heading h3 {
+  font-size: 12px;
+  font-weight: 400;
+  margin: 0;
+}
+.editor-panel .inspector-heading button {
+  padding: 0 6px;
+  font-size: 18px;
+  border-color: transparent;
+  color: var(--cad-muted);
+}
+.editor-panel .number-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--cad-muted);
+  margin: 9px 0;
+}
+.editor-panel .number-field input {
+  width: 90px;
+  min-width: 0;
+  border: 1px solid var(--cad-border-strong);
+  border-radius: var(--radius-control);
+  padding: 7px;
+  color: var(--cad-text);
+  background: var(--cad-surface);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.editor-panel .element-select {
+  font-size: 11px;
+  color: var(--cad-muted);
+  display: block;
+}
+.editor-panel .element-select select {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 5px;
+  background: var(--cad-surface);
+  border: 1px solid var(--cad-border-strong);
+  border-radius: var(--radius-control);
+  font: inherit;
+  color: var(--cad-text);
+}
+.editor-panel .inspector-fields {
+  margin-top: 16px;
+}
+.editor-panel .workspace-settings {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--cad-border);
+}
+.editor-panel .workspace-settings summary {
+  font-size: 11px;
+  color: var(--cad-muted);
+  cursor: pointer;
+  margin-bottom: 10px;
+}
+.editor-panel .block-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  margin: 12px 0;
+}
+.editor-panel .delete-button {
+  color: var(--cad-danger);
+  border-color: var(--cad-danger-border);
+  font-size: 11px;
+  padding: 7px 10px;
+  margin-top: 8px;
+}
+.editor-panel > .editor-error {
+  position: absolute;
+  left: 24px;
+  bottom: 80px;
+  z-index: 15;
+  max-width: min(520px, calc(100% - 48px));
+  background: var(--cad-panel);
+  margin: 0;
+  padding: 9px 12px;
+  color: var(--cad-danger);
+  border: 1px solid var(--cad-danger-border);
+  font-size: 11px;
+  border-radius: var(--radius-control);
+}
+.editor-panel > .legend,
+.editor-panel > .note {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .editor-panel .editor-toolbar {
+    top: auto;
+    left: 50%;
+    bottom: 70px;
+    transform: translateX(-50%);
+    flex-direction: row;
+    max-width: calc(100% - 24px);
+  }
+  .editor-panel .editor-toolbar button {
+    min-width: 42px;
+    padding: 8px 4px;
+  }
+  .editor-panel .editor-actions {
+    top: 12px;
+    left: 12px;
+    right: 12px;
+    justify-content: center;
+  }
+  .editor-panel .editor-actions button {
+    padding: 6px 8px;
+    font-size: 9px;
+  }
+  .editor-panel .editor-inspector {
+    right: 12px;
+    top: 80px;
+    width: min(254px, calc(100% - 24px));
+    max-height: calc(100% - 220px);
+  }
+  .editor-panel .editor-help {
+    bottom: 42px;
+    left: 16px;
+    right: 16px;
+    font-size: 9px;
+  }
+  .editor-panel .canvas-caption {
+    left: 16px;
+    right: 16px;
+    bottom: 14px;
+    font-size: 8px;
+  }
+}
+
+@media (max-width: 760px) {
+  .editor-panel > .editor-error {
+    left: 16px;
+    bottom: 150px;
+    max-width: calc(100% - 32px);
+  }
+}
