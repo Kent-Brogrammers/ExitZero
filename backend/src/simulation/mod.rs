@@ -1,3 +1,6 @@
+mod geometry;
+mod math;
+
 use crate::models::{BuildingScenario, SimulationResult};
 use std::fmt;
 
