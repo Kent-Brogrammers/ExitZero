@@ -16,6 +16,7 @@ import type {
 
 import ScenarioComparison from "./ScenarioComparison";
 import TrafficHeatmap from "./TrafficHeatmap";
+import CrowdingRanking from "./CrowdingRanking";
 import { outcomeExplanation } from "./presentation";
 
 interface AnalyticsDashboardProps {
@@ -139,6 +140,7 @@ export default function AnalyticsDashboard({
         )}
       </div>
       <TrafficHeatmap building={building} result={result} />
+      <CrowdingRanking building={building} result={result} />
       <div className="panel comparison-panel">
         <p className="eyebrow">04 / Stress testing</p>
         <h2>Vulnerability comparison</h2>

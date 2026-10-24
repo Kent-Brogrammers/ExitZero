@@ -1,0 +1,61 @@
+.analytics-grid > .crowding-panel {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+.crowding-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+.crowding-card {
+  background: var(--cad-surface);
+  border: 1px solid var(--cad-border);
+  border-radius: 8px;
+  padding: 12px;
+  min-width: 0;
+}
+.crowding-card-heading {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+.crowding-card-heading span,
+.crowding-card p {
+  color: var(--cad-muted);
+  font-size: 12px;
+}
+.crowding-card canvas {
+  display: block;
+  width: 100%;
+  height: 200px;
+  margin-top: 12px;
+}
+.playback-stage > .crowding-panel {
+  padding: 16px;
+}
+.crowding-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0;
+  color: var(--cad-muted);
+  font-size: 12px;
+}
+.crowding-gradient {
+  display: inline-block;
+  width: 140px;
+  height: 9px;
+  border-radius: 5px;
+  background: linear-gradient(
+    to right,
+    #235ad7,
+    #17c6d5,
+    #46de8f,
+    #fbcf4b,
+    #fa5944
+  );
+}

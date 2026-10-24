@@ -11,7 +11,12 @@ import type {
   SimulationResult,
 } from "../types/simulation";
 import { LiveSimulationView } from "./LiveSimulationView";
-import { createPlaybackRenderer } from "./drawPlayback";
+import { createPlaybackRenderer, drawAgents } from "./drawPlayback";
+import { drawLayout } from "../editor/draw";
+import { canvasPalette } from "../styles/canvasPalette";
+import { trafficField, fieldPixels } from "../analytics/trafficField";
+import { createRecordedTrails } from "./recordedTrails";
+import { frameIndexAtTime } from "./playback";
 import { useStudioTheme } from "../styles/appearance";
 import { createFrameSampler } from "./interpolation";
 import { createPlayback, PLAYBACK_SPEEDS } from "./playback";
@@ -43,6 +48,7 @@ function Playback({
   onOpenAnalytics,
 }: PlaybackProps) {
   const theme = useStudioTheme();
+
   const mismatch =
     result !== null &&
     (result.width !== building.width || result.height !== building.height);
@@ -87,8 +93,62 @@ function Playback({
     const element = canvas.current;
     if (!element) return;
     const render = createPlaybackRenderer(element, building);
-    const redraw = () =>
-      render(sample(player.getTime()), window.devicePixelRatio);
+    const palette = canvasPalette(element);
+    const trailSampler = recording ? createRecordedTrails(recording) : null;
+    const finalData =
+      recording && trailSampler
+        ? trailSampler(recording.frames.length - 1)
+        : null;
+    const finalPeak =
+      finalData && recording
+        ? trafficField(finalData, recording.width, recording.height, 0.6).peak
+        : 0;
+    trailSampler?.(0);
+    const layer = document.createElement("canvas");
+    let lastIndex = -1;
+    const redraw = () => {
+      const time = player.getTime();
+      const agents = sample(time);
+      const ratio = window.devicePixelRatio || 1;
+      if (!recording || !trailSampler) {
+        render(agents, ratio);
+        return;
+      }
+      const index = frameIndexAtTime(
+        recording.frames,
+        recording.time_step_seconds,
+        time,
+      );
+      if (index !== lastIndex) {
+        const field = trafficField(
+          trailSampler(index),
+          recording.width,
+          recording.height,
+          0.6,
+        );
+        layer.width = field.columns;
+        layer.height = field.rows;
+        const ctx = layer.getContext("2d");
+        if (ctx) {
+          const pixels = ctx.createImageData(field.columns, field.rows);
+          pixels.data.set(fieldPixels({ ...field, peak: finalPeak }));
+          ctx.putImageData(pixels, 0, 0);
+        }
+        lastIndex = index;
+      }
+      drawLayout(element, building, null, undefined, ratio, palette, {
+        underlay: (ctx) => {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(0, 0, building.width, building.height);
+          ctx.clip();
+          ctx.imageSmoothingEnabled = true;
+          ctx.drawImage(layer, 0, 0, building.width, building.height);
+          ctx.restore();
+        },
+      });
+      drawAgents(element, building, agents, ratio, palette);
+    };
     const unsubscribe = player.subscribeRender(redraw);
     redraw();
     const observer = new ResizeObserver(redraw);
@@ -99,7 +159,7 @@ function Playback({
       observer.disconnect();
       window.removeEventListener("resize", redraw);
     };
-  }, [building, player, sample, theme]);
+  }, [building, player, sample, theme, recording]);
 
   const status = state.playing
     ? "Playing"
@@ -153,6 +213,14 @@ function Playback({
             <span>{frames.length} recorded frames</span>
           </div>
         </div>
+        {recording && (
+          <p className="note live-trails-note">
+            LIVE PLAYBACK TRAILS · Accumulates recorded occupant positions as
+            playback advances. Pause freezes the layer; reset clears it; seeking
+            rebuilds it. Colors use a fixed scale for this recording. Sampled
+            frame observations are not the backend's full traffic totals.
+          </p>
+        )}
         <div className="playback-dock">
           <div className="playback-transport">
             <div

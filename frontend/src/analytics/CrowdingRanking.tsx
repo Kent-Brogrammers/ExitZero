@@ -1,0 +1,201 @@
+import { useEffect, useMemo, useRef } from "react";
+import type { BuildingScenario, SimulationResult } from "../types/simulation";
+import { drawLayout } from "../editor/draw";
+import { canvasPalette } from "../styles/canvasPalette";
+import { drawAgents } from "../simulation/drawPlayback";
+import {
+  CROWD_ZONE,
+  createCrowdingTracker,
+  frameCrowding,
+  type CrowdingSpot,
+} from "./crowding";
+import "./crowding.css";
+import { trafficBins } from "./traffic";
+import { trafficField, fieldPixels } from "./trafficField";
+
+function snapshotField(building: BuildingScenario, spot: CrowdingSpot) {
+  const zones = frameCrowding(spot.frame, building.width, building.height);
+  const samples = zones.map((zone) => ({
+    x: zone.x + Math.min(CROWD_ZONE, building.width - zone.x) / 2,
+    y: zone.y + Math.min(CROWD_ZONE, building.height - zone.y) / 2,
+    visits: zone.count,
+  }));
+  return trafficField(
+    trafficBins(samples, building.width, building.height),
+    building.width,
+    building.height,
+    1.4,
+  );
+}
+function Snapshot({
+  building,
+  spot,
+  rank,
+  field,
+  peak,
+}: {
+  building: BuildingScenario;
+  spot: CrowdingSpot;
+  rank: number;
+  field: ReturnType<typeof trafficField>;
+  peak: number;
+}) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const target = canvas.current;
+    if (!target) return;
+    const layer = document.createElement("canvas");
+    layer.width = field.columns;
+    layer.height = field.rows;
+    const layerContext = layer.getContext("2d");
+    if (layerContext) {
+      const pixels = layerContext.createImageData(field.columns, field.rows);
+      pixels.data.set(fieldPixels({ ...field, peak }));
+      layerContext.putImageData(pixels, 0, 0);
+    }
+    const redraw = () => {
+      const palette = canvasPalette(target);
+      drawLayout(
+        target,
+        building,
+        null,
+        undefined,
+        window.devicePixelRatio || 1,
+        palette,
+        {
+          underlay: (ctx) => {
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(0, 0, building.width, building.height);
+            ctx.clip();
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = "high";
+            ctx.drawImage(layer, 0, 0, building.width, building.height);
+            ctx.restore();
+            ctx.strokeStyle = "#ffbc67";
+            ctx.lineWidth = 0.08;
+            ctx.strokeRect(
+              spot.x,
+              spot.y,
+              Math.min(CROWD_ZONE, building.width - spot.x),
+              Math.min(CROWD_ZONE, building.height - spot.y),
+            );
+          },
+        },
+      );
+      drawAgents(
+        target,
+        building,
+        spot.frame,
+        window.devicePixelRatio || 1,
+        palette,
+      );
+    };
+    const observer = new ResizeObserver(redraw);
+    observer.observe(target);
+    redraw();
+    return () => observer.disconnect();
+  }, [building, spot, field, peak]);
+  return (
+    <article className="crowding-card">
+      <div className="crowding-card-heading">
+        <strong>
+          #{rank} · {spot.count} occupants together
+        </strong>
+        <span>
+          {(spot.frame.step * building.time_step_seconds).toFixed(2)} s
+        </span>
+      </div>
+      <canvas
+        ref={canvas}
+        role="img"
+        aria-label={`Crowding heatmap snapshot ${rank}: ${spot.count} occupants in the highlighted zone at x ${spot.x}, y ${spot.y} metres, step ${spot.frame.step}.`}
+      />
+      <p>
+        Zone: ({spot.x}, {spot.y}) m ·{" "}
+        {Math.min(CROWD_ZONE, building.width - spot.x).toFixed(1)} ×{" "}
+        {Math.min(CROWD_ZONE, building.height - spot.y).toFixed(1)} m
+        {spot.frame.step === 0 ? " · Initial occupancy" : ""}
+      </p>
+    </article>
+  );
+}
+function Cards({
+  building,
+  spots,
+}: {
+  building: BuildingScenario;
+  spots: CrowdingSpot[];
+}) {
+  const fields = useMemo(
+    () => spots.map((spot) => snapshotField(building, spot)),
+    [building, spots],
+  );
+  const peak = Math.max(0, ...fields.map((field) => field.peak));
+  return (
+    <section
+      className="panel crowding-panel"
+      aria-label="Peak crowding rankings"
+    >
+      <h2>Most crowded spots · peak snapshots</h2>
+      <p className="note">
+        Top three distinct 2 × 2 m zones by simultaneous occupants in observed
+        frames. Includes initial occupancy. Boundary zones may be smaller;
+        ranking compares counts, not density. This indicates crowding, not
+        proven congestion.
+      </p>
+      <div className="crowding-legend">
+        <span>Fewer occupants</span>
+        <span className="crowding-gradient" aria-hidden="true" />
+        <span>More occupants</span>
+        <span>Outlined zone = ranked spot</span>
+      </div>
+      <p className="note">
+        Each image shows crowding at its own peak timestamp, using the same
+        color scale across these snapshots. Heat is smoothed from per-zone
+        counts; colors may spread beyond zone edges. The occupant count, not
+        color, determines rank.
+      </p>
+      {spots.length ? (
+        <div className="crowding-cards">
+          {spots.map((spot, i) => (
+            <Snapshot
+              key={`${spot.x},${spot.y}`}
+              building={building}
+              spot={spot}
+              rank={i + 1}
+              field={fields[i]!}
+              peak={peak}
+            />
+          ))}
+        </div>
+      ) : (
+        <p className="note">
+          Crowding snapshots will appear as occupant frames arrive.
+        </p>
+      )}
+    </section>
+  );
+}
+export default function CrowdingRanking({
+  building,
+  result,
+}: {
+  building?: BuildingScenario;
+  result: SimulationResult | null;
+}) {
+  const spots = useMemo(() => {
+    if (!result) return [];
+    const tracker = createCrowdingTracker(result.width, result.height);
+    for (const frame of result.frames) tracker.add(frame);
+    return tracker.getSnapshot();
+  }, [result]);
+  if (
+    !result ||
+    !building ||
+    result.width !== building.width ||
+    result.height !== building.height
+  )
+    return null;
+  return <Cards building={building} spots={spots} />;
+}
