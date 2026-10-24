@@ -66,8 +66,16 @@ export function mergeEditedDoors(
           group.find((d) => old.has(d.id)) ??
           group[0]!;
         const removed = group.filter((d) => d.id !== survivor.id);
-        // The current contract only references exit IDs. Never erase a referenced ID in malformed input.
-        if (!removed.some((d) => candidate.blocked_exit_ids.includes(d.id))) {
+        // Preserve stable IDs referenced by a scheduled opening change.
+        if (
+          !removed.some(
+            (d) =>
+              candidate.blocked_exit_ids.includes(d.id) ||
+              candidate.opening_events?.some(
+                (event) => event.opening_id === d.id,
+              ),
+          )
+        ) {
           merged.set(survivor.id, {
             ...survivor,
             offset: group[0]!.offset,

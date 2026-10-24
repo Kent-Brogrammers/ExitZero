@@ -149,6 +149,16 @@
           "items": {
             "$ref": "#/$defs/StairArea"
           }
+        },
+        "awareness": {
+          "$ref": "#/$defs/AgentAwareness"
+        },
+        "opening_events": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "$ref": "#/$defs/OpeningStateChange"
+          }
         }
       }
     },
@@ -271,6 +281,17 @@
             "$ref": "#/$defs/AgentPosition"
           },
           "maxItems": 10000
+        },
+        "blocked_opening_ids": {
+          "type": "array",
+          "maxItems": 2000,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "\\S"
+          }
         }
       }
     },
@@ -966,6 +987,44 @@
           }
         }
       ]
+    },
+    "AgentAwareness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sight_range_metres", "communication_range_metres"],
+      "properties": {
+        "sight_range_metres": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "communication_range_metres": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1000
+        }
+      }
+    },
+    "OpeningStateChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["step", "opening_id", "blocked"],
+      "properties": {
+        "step": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 99999
+        },
+        "opening_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "\\S"
+        },
+        "blocked": {
+          "type": "boolean"
+        }
+      }
     }
   }
 }

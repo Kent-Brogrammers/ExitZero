@@ -227,6 +227,7 @@ mod tests {
         SimulationResult {
             metrics,
             frames: vec![AnimationFrame {
+                blocked_opening_ids: None,
                 step: 0,
                 agents: (0..4)
                     .map(|id| AgentPosition {

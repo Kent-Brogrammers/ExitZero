@@ -44,12 +44,26 @@ export interface BuildingScenario {
   exits: Opening[];
   spawn_zones: SpawnZone[];
   blocked_exit_ids: string[];
+  /** Omitted settings use 8 m sight and 3 m communication ranges. Zero disables a range. */
+  awareness?: AgentAwareness;
+  opening_events?: OpeningStateChange[];
   obstructions: Obstruction[];
   stair_areas?: StairArea[];
   agent_radius: number;
   time_step_seconds: number;
   seed: number;
   max_steps: number;
+}
+
+export interface AgentAwareness {
+  sight_range_metres: number;
+  communication_range_metres: number;
+}
+
+export interface OpeningStateChange {
+  step: number;
+  opening_id: string;
+  blocked: boolean;
 }
 
 export type SimulationStatus = "completed" | "incomplete" | "timeout";
@@ -71,6 +85,8 @@ export interface AgentPosition extends Point {
 export interface AnimationFrame {
   step: number;
   agents: AgentPosition[];
+  /** Physical state at this time; absent in older recordings. */
+  blocked_opening_ids?: string[];
 }
 
 export interface AgentStatistics {
@@ -87,7 +103,7 @@ export interface AgentStatistics {
   evacuation_seconds: number | null;
   /** Successful exit; null if this occupant did not evacuate. */
   exit_id: string | null;
-  /** Graph search found a route; false does not prove physical entrapment. */
+  /** Latest route search using personal opening knowledge; false does not prove entrapment. */
   route_found: boolean;
 }
 

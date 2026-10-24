@@ -38,6 +38,8 @@ fn room() -> BuildingScenario {
             pinned_zone("right", 9.0, 1.0),
         ],
         blocked_exit_ids: vec![],
+        awareness: Default::default(),
+        opening_events: vec![],
         obstructions: vec![],
         stair_areas: vec![],
         agent_radius: 0.2,
@@ -65,6 +67,223 @@ fn live_frames_arrive_during_physics_and_preserve_the_recording() {
         serde_json::to_value(streamed).unwrap(),
         serde_json::to_value(result.frames).unwrap()
     );
+}
+
+#[test]
+fn an_unknown_exit_state_does_not_change_distant_crowd_guidance() {
+    let mut open = room();
+    open.spawn_zones = vec![
+        pinned_zone("left", 4.6, 4.0),
+        pinned_zone("right", 5.4, 4.0),
+    ];
+    open.awareness.sight_range_metres = 0.0;
+    open.awareness.communication_range_metres = 0.0;
+    open.max_steps = 20;
+    let mut closed = open.clone();
+    closed.blocked_exit_ids = vec!["north_exit".into()];
+    let open_result = simulate(&open).unwrap();
+    let closed_result = simulate(&closed).unwrap();
+    assert_eq!(open_result.frames.len(), closed_result.frames.len());
+    for (open_frame, closed_frame) in open_result.frames.iter().zip(&closed_result.frames) {
+        assert!(
+            open_frame.agents.iter().all(|agent| agent.y > 0.8),
+            "stay outside local wall avoidance range"
+        );
+        assert_eq!(
+            serde_json::to_value(&open_frame.agents).unwrap(),
+            serde_json::to_value(&closed_frame.agents).unwrap(),
+            "unknown closure changed steering at step {}",
+            open_frame.step
+        );
+    }
+}
+
+#[test]
+fn a_wall_covering_the_example_exit_is_not_known_at_spawn() {
+    let mut open: BuildingScenario =
+        serde_json::from_str(include_str!("../../../shared/examples/building.json")).unwrap();
+    open.awareness.sight_range_metres = 0.0;
+    open.awareness.communication_range_metres = 0.0;
+    open.max_steps = 2;
+    let mut covered = open.clone();
+    covered.walls.push(Wall {
+        id: "cover".into(),
+        name: None,
+        start: Point { x: 2.0, y: 9.0 },
+        end: Point { x: 2.0, y: 12.0 },
+        thickness: 0.2,
+    });
+    let expected = simulate(&open).unwrap();
+    let actual = simulate(&covered).unwrap();
+    for (a, b) in expected.frames.iter().zip(&actual.frames) {
+        assert_eq!(
+            serde_json::to_value(&a.agents).unwrap(),
+            serde_json::to_value(&b.agents).unwrap(),
+            "an unseen wall covering the exit changed initial movement at step {}",
+            a.step
+        );
+    }
+}
+
+#[test]
+fn mid_run_exit_closure_is_discovered_and_agents_use_another_exit() {
+    let mut scenario = room();
+    scenario.spawn_zones = vec![pinned_zone("person", 5.0, 5.0)];
+    scenario.exits.push(Opening {
+        id: "south_exit".into(),
+        name: None,
+        wall_id: "south".into(),
+        offset: 3.0,
+        width: 4.0,
+    });
+    scenario.opening_events = vec![crate::models::OpeningStateChange {
+        step: 10,
+        opening_id: "north_exit".into(),
+        blocked: true,
+    }];
+    let result = simulate(&scenario).unwrap();
+    assert_eq!(result.metrics.status, SimulationStatus::Completed);
+    assert_eq!(
+        result.analytics.as_ref().unwrap().agents[0]
+            .exit_id
+            .as_deref(),
+        Some("south_exit")
+    );
+    assert!(result.frames.iter().filter(|f| f.step >= 10).all(|f| {
+        f.blocked_opening_ids
+            .as_ref()
+            .unwrap()
+            .contains(&"north_exit".into())
+    }));
+    assert!(
+        result.frames.iter().filter(|f| f.step < 10).all(|f| f
+            .blocked_opening_ids
+            .as_ref()
+            .unwrap()
+            .is_empty())
+    );
+    for pair in result.frames.windows(2) {
+        let mask = pair[0]
+            .blocked_opening_ids
+            .as_ref()
+            .unwrap()
+            .iter()
+            .cloned()
+            .collect();
+        let geometry = Geometry::with_blocked_openings(&scenario, &[], mask);
+        for agent in &pair[0].agents {
+            if let Some(next) = pair[1].agents.iter().find(|a| a.id == agent.id) {
+                assert!(geometry.can_move(
+                    Point {
+                        x: agent.x,
+                        y: agent.y
+                    },
+                    Point {
+                        x: next.x,
+                        y: next.y
+                    }
+                ));
+            }
+        }
+    }
+}
+
+#[test]
+fn a_future_reopening_keeps_a_run_alive_until_agents_can_discover_it() {
+    let mut scenario = room();
+    scenario.spawn_zones = vec![pinned_zone("person", 5.0, 1.0)];
+    scenario.blocked_exit_ids = vec!["north_exit".into()];
+    scenario.opening_events = vec![crate::models::OpeningStateChange {
+        step: 20,
+        opening_id: "north_exit".into(),
+        blocked: false,
+    }];
+    let result = simulate(&scenario).unwrap();
+    assert_eq!(result.metrics.status, SimulationStatus::Completed);
+    assert!(
+        result.analytics.as_ref().unwrap().agents[0]
+            .evacuation_step
+            .unwrap()
+            > 20
+    );
+}
+
+#[test]
+fn an_unseen_closed_door_is_never_traversed() {
+    let mut scenario = room();
+    scenario.walls.push(Wall {
+        id: "partition".into(),
+        name: None,
+        start: Point { x: 0.0, y: 5.0 },
+        end: Point { x: 10.0, y: 5.0 },
+        thickness: 0.2,
+    });
+    scenario.doors.push(Opening {
+        id: "door".into(),
+        name: None,
+        wall_id: "partition".into(),
+        offset: 4.0,
+        width: 2.0,
+    });
+    scenario.spawn_zones = vec![pinned_zone("person", 5.0, 8.0)];
+    scenario.awareness.sight_range_metres = 0.0;
+    scenario.opening_events = vec![crate::models::OpeningStateChange {
+        step: 2,
+        opening_id: "door".into(),
+        blocked: true,
+    }];
+    scenario.max_steps = 100;
+    let result = simulate(&scenario).unwrap();
+    assert_eq!(result.metrics.evacuated, 0);
+    for frame in &result.frames {
+        assert!(frame.agents[0].y >= 5.0 + scenario.agent_radius + 0.1 - 1e-8);
+    }
+}
+
+#[test]
+fn discovering_a_closed_door_reroutes_through_an_alternative_door() {
+    let mut scenario = room();
+    scenario.walls.push(Wall {
+        id: "partition".into(),
+        name: None,
+        start: Point { x: 0.0, y: 5.0 },
+        end: Point { x: 10.0, y: 5.0 },
+        thickness: 0.2,
+    });
+    scenario.doors = vec![
+        Opening {
+            id: "closed".into(),
+            name: None,
+            wall_id: "partition".into(),
+            offset: 4.0,
+            width: 2.0,
+        },
+        Opening {
+            id: "alternative".into(),
+            name: None,
+            wall_id: "partition".into(),
+            offset: 7.5,
+            width: 2.0,
+        },
+    ];
+    scenario.spawn_zones = vec![pinned_zone("person", 5.0, 8.0)];
+    scenario.awareness.sight_range_metres = 1.0;
+    scenario.awareness.communication_range_metres = 0.0;
+    scenario.opening_events = vec![crate::models::OpeningStateChange {
+        step: 0,
+        opening_id: "closed".into(),
+        blocked: true,
+    }];
+    let result = simulate(&scenario).unwrap();
+    assert_eq!(result.metrics.status, SimulationStatus::Completed);
+    // The unobserved closure does not change the initial plan toward x=5.
+    assert!((result.frames[1].agents[0].x - 5.0).abs() < 1e-6);
+    assert!(result.frames[1].agents[0].y < 8.0);
+    assert!(result.frames.iter().any(|f| {
+        f.agents
+            .iter()
+            .any(|a| a.x > 7.5 && (a.y - 5.0).abs() < 0.2)
+    }));
 }
 
 #[test]
@@ -666,4 +885,185 @@ fn final_safety_check_rechecks_neighbors_after_stopping_a_move() {
             ));
         }
     }
+}
+
+#[test]
+fn unseen_hazards_and_obstructions_do_not_change_distant_movement() {
+    let mut scenario = room();
+    scenario.spawn_zones = vec![pinned_zone("person", 5.0, 8.0)];
+    scenario.awareness.sight_range_metres = 0.5;
+    scenario.awareness.communication_range_metres = 0.0;
+    scenario.max_steps = 10;
+    let baseline = simulate(&scenario).unwrap();
+    let emergency = super::Emergency {
+        center: Point { x: 5.0, y: 4.0 },
+        radius: 0.6,
+    };
+    let hazard_result = super::simulate_with_emergencies(&scenario, &[emergency]).unwrap();
+    scenario.obstructions.push(crate::models::Obstruction {
+        id: "hidden_crate".into(),
+        name: None,
+        x: 4.5,
+        y: 3.5,
+        width: 1.0,
+        height: 1.0,
+    });
+    let obstruction_result = simulate(&scenario).unwrap();
+    for result in [&hazard_result, &obstruction_result] {
+        assert_eq!(result.frames.len(), baseline.frames.len());
+        for (actual, expected) in result.frames.iter().zip(&baseline.frames) {
+            assert_eq!(
+                serde_json::to_value(&actual.agents).unwrap(),
+                serde_json::to_value(&expected.agents).unwrap(),
+                "a distant, unwitnessed blocker changed motion at step {}",
+                actual.step
+            );
+        }
+    }
+}
+
+#[test]
+fn approaching_an_unknown_hazard_triggers_a_safe_detour_after_discovery() {
+    let mut scenario = room();
+    scenario.spawn_zones = vec![pinned_zone("person", 5.0, 8.0)];
+    scenario.awareness.sight_range_metres = 1.0;
+    scenario.awareness.communication_range_metres = 0.0;
+    let emergency = super::Emergency {
+        center: Point { x: 5.0, y: 4.0 },
+        radius: 1.0,
+    };
+    let result = super::simulate_with_emergencies(&scenario, &[emergency]).unwrap();
+    assert_eq!(result.metrics.status, SimulationStatus::Completed);
+    assert_collision_free(&scenario, &result);
+    let first_turn = result
+        .frames
+        .iter()
+        .position(|frame| {
+            frame
+                .agents
+                .first()
+                .is_some_and(|agent| (agent.x - 5.0).abs() > 1e-8)
+        })
+        .expect("a detour must steer around the hazard");
+    let before_turn = &result.frames[first_turn - 1].agents[0];
+    assert!(
+        before_turn.y <= 6.0 + 1e-8,
+        "the person must approach within sight before choosing a detour"
+    );
+    for pair in result.frames.windows(2) {
+        let start = &pair[0].agents[0];
+        let end = pair[1]
+            .agents
+            .first()
+            .map_or(Point { x: 5.0, y: 0.0 }, |agent| Point {
+                x: agent.x,
+                y: agent.y,
+            });
+        assert!(
+            math::distance_to_segment(
+                emergency.center,
+                Point {
+                    x: start.x,
+                    y: start.y
+                },
+                end
+            ) > emergency.radius + scenario.agent_radius
+        );
+    }
+    assert_eq!(
+        serde_json::to_value(&result).unwrap(),
+        serde_json::to_value(super::simulate_with_emergencies(&scenario, &[emergency]).unwrap())
+            .unwrap()
+    );
+}
+
+#[test]
+fn approaching_an_unknown_obstruction_triggers_a_safe_detour_after_discovery() {
+    let mut scenario = room();
+    scenario.spawn_zones = vec![pinned_zone("person", 5.0, 8.0)];
+    scenario.awareness.sight_range_metres = 0.75;
+    scenario.awareness.communication_range_metres = 0.0;
+    scenario.obstructions.push(crate::models::Obstruction {
+        id: "debris".into(),
+        name: None,
+        x: 4.0,
+        y: 3.5,
+        width: 2.0,
+        height: 1.5,
+    });
+    let result = simulate(&scenario).unwrap();
+    assert_eq!(result.metrics.status, SimulationStatus::Completed);
+    assert_collision_free(&scenario, &result);
+    let first_turn = result
+        .frames
+        .iter()
+        .position(|frame| {
+            frame
+                .agents
+                .first()
+                .is_some_and(|agent| (agent.x - 5.0).abs() > 1e-8)
+        })
+        .expect("a detour must go around debris");
+    assert!(
+        result.frames[first_turn - 1].agents[0].y <= 5.75 + 1e-8,
+        "the person should learn about the obstruction only once it is visible"
+    );
+}
+
+#[test]
+fn agents_approach_an_unknown_walled_off_exit_before_discovering_another_route() {
+    let mut scenario = room();
+    scenario.spawn_zones = vec![pinned_zone("person", 5.0, 4.0)];
+    scenario.awareness.sight_range_metres = 0.75;
+    scenario.awareness.communication_range_metres = 0.0;
+    scenario.exits.push(Opening {
+        id: "south_exit".into(),
+        name: None,
+        wall_id: "south".into(),
+        offset: 3.0,
+        width: 4.0,
+    });
+    scenario.walls.extend([
+        Wall {
+            id: "pocket_front".into(),
+            name: None,
+            start: Point { x: 3.0, y: 2.0 },
+            end: Point { x: 7.0, y: 2.0 },
+            thickness: 0.2,
+        },
+        Wall {
+            id: "pocket_left".into(),
+            name: None,
+            start: Point { x: 3.0, y: 0.0 },
+            end: Point { x: 3.0, y: 2.0 },
+            thickness: 0.2,
+        },
+        Wall {
+            id: "pocket_right".into(),
+            name: None,
+            start: Point { x: 7.0, y: 0.0 },
+            end: Point { x: 7.0, y: 2.0 },
+            thickness: 0.2,
+        },
+    ]);
+    let result = simulate(&scenario).unwrap();
+    assert!(
+        result.frames[1].agents[0].y < 4.0,
+        "the initial plan must approach the nearer north exit, not use unseen enclosure walls"
+    );
+    assert!(
+        result
+            .frames
+            .iter()
+            .any(|frame| frame.agents.iter().any(|agent| agent.y < 3.0)),
+        "the person should approach and investigate the barrier"
+    );
+    assert_eq!(result.metrics.status, SimulationStatus::Completed);
+    assert_eq!(
+        result.analytics.as_ref().unwrap().agents[0]
+            .exit_id
+            .as_deref(),
+        Some("south_exit")
+    );
+    assert_collision_free(&scenario, &result);
 }

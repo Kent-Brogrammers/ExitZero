@@ -236,6 +236,53 @@ export default function App() {
                     </button>
                   </div>
                   <AppearanceSelector />
+                  <fieldset disabled={busy}>
+                    <legend>Agent awareness</legend>
+                    {(
+                      [
+                        ["sight_range_metres", "Sight range (m)", 8],
+                        [
+                          "communication_range_metres",
+                          "Communication range (m)",
+                          3,
+                        ],
+                      ] as const
+                    ).map(([key, label, fallback]) => (
+                      <label key={key}>
+                        {label}
+                        <input
+                          type="number"
+                          min={0}
+                          max={1000}
+                          step={0.5}
+                          value={building.awareness?.[key] ?? fallback}
+                          onChange={(event) => {
+                            const value = event.currentTarget.valueAsNumber;
+                            if (
+                              !Number.isFinite(value) ||
+                              value < 0 ||
+                              value > 1000
+                            )
+                              return;
+                            changeBuilding({
+                              ...building,
+                              awareness: {
+                                sight_range_metres: 8,
+                                communication_range_metres: 3,
+                                ...building.awareness,
+                                [key]: value,
+                              },
+                            });
+                          }}
+                        />
+                      </label>
+                    ))}
+                    <p className="note">
+                      Agents assume exits are open until they see or hear
+                      otherwise. Walls block sight and communication. Set
+                      communication to 0 to disable sharing.
+                    </p>
+                  </fieldset>
                   <dl className="settings-values">
                     <div>
                       <dt>Coordinates</dt>

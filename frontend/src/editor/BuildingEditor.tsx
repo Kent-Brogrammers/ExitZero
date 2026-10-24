@@ -802,6 +802,7 @@ export function BuildingEditor({
                     exits: [],
                     spawn_zones: [],
                     blocked_exit_ids: [],
+                    ...(building.opening_events ? { opening_events: [] } : {}),
                     obstructions: [],
                     ...(building.stair_areas ? { stair_areas: [] } : {}),
                   },

@@ -216,6 +216,8 @@ mod tests {
     fn request() -> StressTestRequest {
         StressTestRequest {
             building: BuildingScenario {
+                awareness: Default::default(),
+                opening_events: vec![],
                 stair_areas: vec![],
                 width: 20.0,
                 height: 10.0,
@@ -307,6 +309,7 @@ mod tests {
         SimulationResult {
             metrics,
             frames: vec![AnimationFrame {
+                blocked_opening_ids: None,
                 step: 0,
                 agents: (0..4)
                     .map(|id| AgentPosition {
