@@ -4,6 +4,7 @@ use crate::models::{BuildingScenario, Point, Wall};
 pub(super) struct Geometry<'a> {
     scenario: &'a BuildingScenario,
     emergencies: &'a [Emergency],
+    solid_walls: Vec<[Point; 4]>,
 }
 
 // Create geometry operations for a borrowed building scenario.
@@ -16,10 +17,47 @@ impl<'a> Geometry<'a> {
         scenario: &'a BuildingScenario,
         emergencies: &'a [Emergency],
     ) -> Self {
-        Self {
+        let mut geometry = Self {
             scenario,
             emergencies,
-        }
+            solid_walls: Vec::new(),
+        };
+        // Openings cut flat ends through a wall, not rounded capsule ends.
+        // Build these shapes once instead of splitting every wall on every check.
+        geometry.solid_walls = scenario
+            .walls
+            .iter()
+            .flat_map(|wall| {
+                geometry
+                    .solid_wall_segments(wall)
+                    .into_iter()
+                    .map(|(start, end)| {
+                        let length = math::distance_to_point(start, end);
+                        let nx = -(end.y - start.y) / length * wall.thickness / 2.0;
+                        let ny = (end.x - start.x) / length * wall.thickness / 2.0;
+                        [
+                            Point {
+                                x: start.x + nx,
+                                y: start.y + ny,
+                            },
+                            Point {
+                                x: end.x + nx,
+                                y: end.y + ny,
+                            },
+                            Point {
+                                x: end.x - nx,
+                                y: end.y - ny,
+                            },
+                            Point {
+                                x: start.x - nx,
+                                y: start.y - ny,
+                            },
+                        ]
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        geometry
     }
 
     pub(super) fn emergencies(&self) -> &[Emergency] {
@@ -47,13 +85,9 @@ impl<'a> Geometry<'a> {
         }
 
         // Check only solid wall portions; doors and available exits are gaps.
-        for wall in &self.scenario.walls {
-            let clearance = self.scenario.agent_radius + wall.thickness / 2.0;
-            for (start, end) in self.solid_wall_segments(wall) {
-                let distance = math::distance_to_segment(pos, start, end);
-                if distance < clearance {
-                    return false;
-                }
+        for polygon in &self.solid_walls {
+            if math::distance_to_polygon(pos, polygon) < self.scenario.agent_radius {
+                return false;
             }
         }
 
@@ -126,13 +160,9 @@ impl<'a> Geometry<'a> {
             return false;
         }
         //Checking path against all walls
-        for wall in &self.scenario.walls {
-            let clearance = self.scenario.agent_radius + wall.thickness / 2.0;
-            for (start, end) in self.solid_wall_segments(wall) {
-                let distance = math::distance_between_segments(from, to, start, end);
-                if distance < clearance {
-                    return false;
-                }
+        for polygon in &self.solid_walls {
+            if math::distance_segment_to_polygon(from, to, polygon) < self.scenario.agent_radius {
+                return false;
             }
         }
         //Checking path against all obstracles

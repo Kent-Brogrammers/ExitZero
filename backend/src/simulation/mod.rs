@@ -10,6 +10,7 @@ mod emergency;
 mod geometry;
 mod math;
 mod navigation;
+mod steering;
 pub use emergency::Emergency;
 
 #[derive(Debug)]
@@ -63,11 +64,18 @@ pub fn simulate_with_emergencies(
     agent::spawn_agents(&mut agents, scenario, &geometry)?;
 
     let navigation = navigation::Navigation::new(scenario, &geometry);
-    let routes: Vec<_> = agents
+    let mut routes: Vec<_> = agents
         .iter()
         .map(|agent| navigation.find_route(agent.position, &geometry))
         .collect();
     let mut next_waypoint = vec![0; agents.len()];
+    let mut steering: Vec<_> = agents
+        .iter()
+        .map(|agent| steering::Steering::new(agent.id, scenario.seed))
+        .collect();
+    let retry_ticks = (2.0 / scenario.time_step_seconds)
+        .ceil()
+        .min(f64::from(scenario.max_steps)) as u32;
     let mut statistics: Vec<_> = agents
         .iter()
         .zip(&routes)
@@ -125,39 +133,83 @@ pub fn simulate_with_emergencies(
             if evacuated[i] {
                 continue;
             }
-            let Some(route) = &routes[i] else { continue };
-            let waypoint = route.waypoints[next_waypoint[i]];
-            let proposed = math::move_toward(before[i], waypoint, movement_budget);
-            if !geometry.can_move(before[i], proposed) {
-                statistics[i].waiting_steps += 1;
-                continue;
+            let recovering = steering[i].needs_replan(retry_ticks);
+            if recovering {
+                let occupants: Vec<_> = before
+                    .iter()
+                    .enumerate()
+                    .filter(|(j, _)| *j != i && !evacuated[*j])
+                    .map(|(_, &position)| position)
+                    .collect();
+                if let Some(route) = navigation.find_route_with_crowd(
+                    before[i],
+                    &geometry,
+                    &occupants,
+                    scenario.agent_radius,
+                ) {
+                    routes[i] = Some(route);
+                    next_waypoint[i] = 0;
+                }
             }
-
+            let Some(route) = &routes[i] else { continue };
+            // Waypoints describe a corridor, not mandatory stopping points.
+            // Skip intermediate corners/door centres as soon as a later point
+            // becomes visible, so agents do not all queue on an exact coordinate.
+            for future in (next_waypoint[i] + 1..route.waypoints.len()).rev() {
+                if geometry.can_move(before[i], route.waypoints[future])
+                    && !(0..agents.len()).any(|j| {
+                        j != i
+                            && !evacuated[j]
+                            && math::distance_to_segment(
+                                before[j],
+                                before[i],
+                                route.waypoints[future],
+                            ) < 2.0 * scenario.agent_radius
+                    })
+                {
+                    next_waypoint[i] = future;
+                    break;
+                }
+            }
+            let waypoint = route.waypoints[next_waypoint[i]];
+            steering[i].observe(before[i], waypoint, movement_budget);
             // Accepted agents follow their swept path. Unprocessed agents are
             // conservatively treated as stationary for this tick. This prevents
             // both overlap and agents crossing through each other between frames.
-            let blocked = (0..agents.len()).any(|j| {
-                if i == j || evacuated[j] {
-                    return false;
-                }
-                let other_end = if processed[j] {
-                    agents[j].position
-                } else {
-                    before[j]
-                };
-                math::moving_circles_overlap(
-                    before[i],
-                    proposed,
-                    scenario.agent_radius,
-                    before[j],
-                    other_end,
-                    scenario.agent_radius,
-                )
-            });
-            if blocked {
+            let proposed = steering[i]
+                .candidates(before[i], waypoint, movement_budget, retry_ticks)
+                .into_iter()
+                .find(|&candidate| {
+                    if !geometry.can_move(before[i], candidate)
+                        // Keep the current waypoint visible after a sidestep.
+                        || !geometry.can_move(candidate, waypoint)
+                    {
+                        return false;
+                    }
+                    !(0..agents.len()).any(|j| {
+                        if i == j || evacuated[j] {
+                            return false;
+                        }
+                        let other_end = if processed[j] {
+                            agents[j].position
+                        } else {
+                            before[j]
+                        };
+                        math::moving_circles_overlap(
+                            before[i],
+                            candidate,
+                            scenario.agent_radius,
+                            before[j],
+                            other_end,
+                            scenario.agent_radius,
+                        )
+                    })
+                });
+            let Some(proposed) = proposed else {
                 statistics[i].waiting_steps += 1;
+                steering[i].waited(retry_ticks);
                 continue;
-            }
+            };
 
             agents[i].position = proposed;
             statistics[i].distance_metres += math::distance_to_point(before[i], proposed);
@@ -186,9 +238,9 @@ pub fn simulate_with_emergencies(
             frames.push(frame(step, &agents, &evacuated));
         }
         idle_steps = if progress { 0 } else { idle_steps + 1 };
-        // A full priority cycle without any movement is a stalled run, not a
-        // claim that these remaining occupants are geometrically unreachable.
-        if idle_steps >= agents.len().max(1) {
+        // Allow both a full priority cycle and side-preference recovery before
+        // reporting a stalled run. This still does not prove entrapment.
+        if idle_steps >= agents.len().max(2 * retry_ticks as usize + 1) {
             break SimulationStatus::Incomplete;
         }
     };
