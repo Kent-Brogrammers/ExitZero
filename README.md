@@ -6,7 +6,15 @@ A local freeform building evacuation simulator workspace for a four-person hacka
 
 Install a current stable Rust toolchain with Cargo, rustfmt, and Clippy, plus **Node.js 24 LTS and npm**. Node 22.12+ or 26 also works. Docker, databases, authentication, and external APIs are not needed.
 
-In one terminal, from the repository root:
+To start both servers from the repository root:
+
+```sh
+./dev.sh
+```
+
+The script installs frontend dependencies if `node_modules` is missing. Press Ctrl+C to stop both servers; if either server exits, the other stops too.
+
+To run them separately, in one terminal:
 
 ```sh
 cd backend
