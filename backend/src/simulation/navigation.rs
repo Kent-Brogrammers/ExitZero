@@ -257,32 +257,6 @@ impl Navigation {
         }
         None
     }
-
-    /// Choose the nearest exit with a clear straight path for this agent.
-    /// None means no DIRECT route was found, not that the agent is trapped.
-    /// This does not check other agents or find detours around obstacles.
-    pub(super) fn find_direct_route(&self, from: Point, geometry: &Geometry<'_>) -> Option<Route> {
-        let mut best: Option<(&ExitTarget, f64)> = None;
-
-        for exit in &self.exits {
-            let distance = math::distance_to_point(from, exit.position);
-            // Keep the first exit in scenario order when distances tie.
-            if best
-                .as_ref()
-                .is_some_and(|(_, current)| distance >= *current)
-            {
-                continue;
-            }
-            if geometry.can_move(from, exit.position) {
-                best = Some((exit, distance));
-            }
-        }
-
-        best.map(|(exit, _)| Route {
-            exit_id: exit.id.clone(),
-            waypoints: vec![exit.position],
-        })
-    }
 }
 
 fn crowd_cost(start: Point, end: Point, occupants: &[Point], radius: f64) -> f64 {

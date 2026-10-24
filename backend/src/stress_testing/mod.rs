@@ -1088,7 +1088,6 @@ pub(crate) mod real_integration {
                 x: wall.start.x + (wall.end.x - wall.start.x) * offset / wall.length(),
                 y: wall.start.y + (wall.end.y - wall.start.y) * offset / wall.length(),
             };
-            let clearance = building.agent_radius + wall.thickness / 2.0;
             let mut cursor = 0.0;
             for (start, end) in gaps
                 .iter()
@@ -1096,43 +1095,73 @@ pub(crate) mod real_integration {
                 .chain(std::iter::once((wall.length(), wall.length())))
             {
                 if start > cursor {
-                    assert!(
-                        segment_distance(from, to, at(cursor), at(start)) + 1e-7 >= clearance,
-                        "swept path {from:?} -> {to:?} crosses solid wall '{}'",
-                        wall.id
+                    // The engine now cuts rectangular wall solids at opening
+                    // jambs. Independently check the swept disc in wall-local
+                    // coordinates, including flat ends and physical thickness.
+                    let origin = at(cursor);
+                    let dx = (wall.end.x - wall.start.x) / wall.length();
+                    let dy = (wall.end.y - wall.start.y) / wall.length();
+                    let local = |point: Point| Point {
+                        x: (point.x - origin.x) * dx + (point.y - origin.y) * dy,
+                        y: -(point.x - origin.x) * dy + (point.y - origin.y) * dx,
+                    };
+                    assert_rectangle_clear(
+                        local(from),
+                        local(to),
+                        (0.0, -wall.thickness / 2.0, start - cursor, wall.thickness),
+                        building.agent_radius,
+                        &wall.id,
                     );
                 }
                 cursor = end;
             }
         }
         for obstruction in &building.obstructions {
-            let left = obstruction.x;
-            let right = left + obstruction.width;
-            let top = obstruction.y;
-            let bottom = top + obstruction.height;
-            let inside = |p: Point| p.x >= left && p.x <= right && p.y >= top && p.y <= bottom;
-            assert!(
-                !inside(from) && !inside(to),
-                "agent entered obstruction '{}'",
-                obstruction.id
+            assert_rectangle_clear(
+                from,
+                to,
+                (
+                    obstruction.x,
+                    obstruction.y,
+                    obstruction.width,
+                    obstruction.height,
+                ),
+                building.agent_radius,
+                &obstruction.id,
             );
-            let corners = [
-                Point { x: left, y: top },
-                Point { x: right, y: top },
-                Point {
-                    x: right,
-                    y: bottom,
-                },
-                Point { x: left, y: bottom },
-            ];
-            for index in 0..4 {
-                assert!(
-                    segment_distance(from, to, corners[index], corners[(index + 1) % 4]) + 1e-7
-                        >= building.agent_radius,
-                    "swept path crosses obstruction '{}'",
-                    obstruction.id
-                );
-            }
+        }
+    }
+
+    fn assert_rectangle_clear(
+        from: Point,
+        to: Point,
+        bounds: (f64, f64, f64, f64),
+        radius: f64,
+        label: &str,
+    ) {
+        let (left, top, width, height) = bounds;
+        let right = left + width;
+        let bottom = top + height;
+        let inside = |p: Point| p.x >= left && p.x <= right && p.y >= top && p.y <= bottom;
+        assert!(
+            !inside(from) && !inside(to),
+            "agent entered solid '{label}'"
+        );
+        let corners = [
+            Point { x: left, y: top },
+            Point { x: right, y: top },
+            Point {
+                x: right,
+                y: bottom,
+            },
+            Point { x: left, y: bottom },
+        ];
+        for index in 0..4 {
+            assert!(
+                segment_distance(from, to, corners[index], corners[(index + 1) % 4]) + 1e-7
+                    >= radius,
+                "swept path crosses solid '{label}'"
+            );
         }
     }
 

@@ -89,12 +89,12 @@ impl Steering {
 
     pub(super) fn waited(&mut self, retry_ticks: u32) {
         // Keep the current side through a recovery interval before switching.
-        if self.blocked_ticks >= 2 * retry_ticks && self.blocked_ticks % retry_ticks == 0 {
+        if self.blocked_ticks >= 2 * retry_ticks && self.blocked_ticks.is_multiple_of(retry_ticks) {
             self.preferred_side = -self.preferred_side;
         }
     }
 
     pub(super) fn needs_replan(&self, retry_ticks: u32) -> bool {
-        self.blocked_ticks >= retry_ticks && self.blocked_ticks % retry_ticks == 0
+        self.blocked_ticks >= retry_ticks && self.blocked_ticks.is_multiple_of(retry_ticks)
     }
 }

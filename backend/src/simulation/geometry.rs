@@ -9,10 +9,6 @@ pub(super) struct Geometry<'a> {
 
 // Create geometry operations for a borrowed building scenario.
 impl<'a> Geometry<'a> {
-    pub(super) fn new(scenario: &'a BuildingScenario) -> Self {
-        Self::with_emergencies(scenario, &[])
-    }
-
     pub(super) fn with_emergencies(
         scenario: &'a BuildingScenario,
         emergencies: &'a [Emergency],
