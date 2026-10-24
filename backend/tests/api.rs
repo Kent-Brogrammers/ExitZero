@@ -169,3 +169,35 @@ async fn cors_allows_both_documented_vite_origins() {
         assert_eq!(response.headers()["access-control-allow-origin"], origin);
     }
 }
+
+#[tokio::test]
+async fn names_are_transport_metadata_and_do_not_change_evacuation_output() {
+    let mut original = building();
+    original["max_steps"] = json!(10);
+    original["obstructions"] = json!([{"id":"footprint","x":20,"y":8,"width":1,"height":1}]);
+    original["blocked_exit_ids"] = json!(["west"]);
+    let mut named = original.clone();
+    for field in ["walls", "doors", "exits", "spawn_zones", "obstructions"] {
+        for (index, element) in named[field].as_array_mut().unwrap().iter_mut().enumerate() {
+            element["name"] = json!(format!("Custom {field} {index}"));
+        }
+    }
+    let (plain_status, plain_result) = request("/api/simulate", Some(original)).await;
+    let (named_status, named_result) = request("/api/simulate", Some(named)).await;
+    assert_eq!(plain_status, StatusCode::OK);
+    assert_eq!(named_status, StatusCode::OK, "{named_result}");
+    assert_eq!(
+        named_result, plain_result,
+        "display names must not affect frames, traffic, metrics, or agent statistics"
+    );
+}
+
+#[tokio::test]
+async fn api_rejects_invalid_names_instead_of_silently_losing_them() {
+    for name in [json!("   "), json!("x".repeat(81)), Value::Null] {
+        let mut named = building();
+        named["walls"][0]["name"] = name;
+        let (status, body) = request("/api/simulate", Some(named)).await;
+        assert!(status.is_client_error(), "{body}");
+    }
+}

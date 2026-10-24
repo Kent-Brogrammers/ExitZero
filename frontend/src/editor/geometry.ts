@@ -93,8 +93,15 @@ export function buildingError(
   value: unknown,
   requireReady = true,
 ): string | null {
-  if (!validateShape(value))
+  if (!validateShape(value)) {
+    if (
+      validateShape.errors?.some((error) =>
+        error.instancePath.endsWith("/name"),
+      )
+    )
+      return "Object names must be nonblank strings of at most 80 characters.";
     return "Layout JSON does not match the continuous-geometry contract. Check required fields and numeric ranges.";
+  }
   const b = value;
   if (requireReady && (!b.exits.length || !b.spawn_zones.length))
     return "Add at least one exit and one spawn zone before running a simulation.";

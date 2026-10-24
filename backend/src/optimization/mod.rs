@@ -879,6 +879,7 @@ mod real_integration {
         building.exits.remove(0); // Only the exit in the right-hand room remains.
         building.doors.push(Opening {
             id: "narrow-door".into(),
+            name: None,
             wall_id: "divider".into(),
             offset: 3.0,
             width: 0.4,

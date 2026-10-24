@@ -97,6 +97,7 @@ fn validates_openings_and_thick_angled_walls() {
     let mut building = example();
     building.walls.push(Wall {
         id: "crossing_spawn".into(),
+        name: None,
         start: Point { x: 4.0, y: 4.0 },
         end: Point { x: 11.0, y: 9.0 },
         thickness: 0.2,
@@ -120,6 +121,7 @@ fn validates_obstruction_candidates_without_modifying_the_baseline() {
             block_each_exit: false,
             obstruction_candidates: vec![Obstruction {
                 id: "block_door".into(),
+                name: None,
                 x: 14.5,
                 y: 5.0,
                 width: 1.0,
@@ -192,4 +194,62 @@ fn severity_prioritizes_occupants_and_handles_null_clearance() {
         ..complete.clone()
     };
     assert_eq!(slower.compare_severity(&complete), Ordering::Greater);
+}
+
+#[test]
+fn display_names_round_trip_without_changing_stable_references() {
+    let mut original = serde_json::to_value(example()).unwrap();
+    original["obstructions"] =
+        serde_json::json!([{"id":"footprint","x":20,"y":8,"width":1,"height":1}]);
+    original["blocked_exit_ids"] = serde_json::json!(["west"]);
+    let mut named = original.clone();
+    for field in ["walls", "doors", "exits", "spawn_zones", "obstructions"] {
+        named[field][0]["name"] = serde_json::json!(format!("Named {field}"));
+    }
+    let scenario: BuildingScenario = serde_json::from_value(named.clone()).unwrap();
+    scenario.validate().unwrap();
+    assert_equivalent_json(serde_json::to_value(&scenario).unwrap(), named);
+    let mut geometry = serde_json::to_value(&scenario).unwrap();
+    for field in ["walls", "doors", "exits", "spawn_zones", "obstructions"] {
+        for element in geometry[field].as_array_mut().unwrap() {
+            element.as_object_mut().unwrap().remove("name");
+        }
+    }
+    assert_equivalent_json(geometry, original);
+    let stress: StressTestRequest = serde_json::from_value(serde_json::json!({"building":scenario,"config":{"max_scenarios":1,"block_each_exit":true,"obstruction_candidates":[]}})).unwrap();
+    stress.validate().unwrap();
+}
+
+#[test]
+fn display_name_validation_matches_optional_string_contract() {
+    let mut original = serde_json::to_value(example()).unwrap();
+    original["obstructions"] =
+        serde_json::json!([{"id":"footprint","x":20,"y":8,"width":1,"height":1}]);
+    for field in ["walls", "doors", "exits", "spawn_zones", "obstructions"] {
+        for name in [
+            serde_json::json!(""),
+            serde_json::json!(" \t\n"),
+            serde_json::json!("\u{a0}\u{2003}"),
+            serde_json::json!("\u{85}"),
+            serde_json::json!("\u{feff}"),
+            serde_json::json!("x".repeat(81)),
+            serde_json::Value::Null,
+            serde_json::json!(42),
+        ] {
+            let mut invalid = original.clone();
+            invalid[field][0]["name"] = name;
+            if let Ok(building) = serde_json::from_value::<BuildingScenario>(invalid) {
+                assert!(
+                    building.validate().is_err(),
+                    "accepted invalid name for {field}"
+                );
+            }
+        }
+        let mut valid = original.clone();
+        valid[field][0]["name"] = serde_json::json!("🧱".repeat(80));
+        serde_json::from_value::<BuildingScenario>(valid)
+            .unwrap()
+            .validate()
+            .unwrap();
+    }
 }

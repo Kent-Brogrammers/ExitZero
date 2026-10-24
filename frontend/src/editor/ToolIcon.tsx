@@ -1,4 +1,12 @@
 const paths: Record<string, string> = {
+  undo: "M9 4L4 9l5 5 M4 9h10a6 6 0 0 1 0 12h-3",
+  redo: "M15 4l5 5-5 5 M20 9H10a6 6 0 0 0 0 12h3",
+  file: "M5 3h9l5 5v13H5z M14 3v6h5 M8 13h8 M8 17h6",
+  rectangle: "M3 6h18v12H3z",
+  square: "M4 4h16v16H4z",
+  circle: "M21 12a9 9 0 1 0-18 0 9 9 0 0 0 18 0",
+  stairs: "M3 20h6v-5h5v-5h5V4 M3 4l17 17",
+  properties: "M4 6h16 M4 12h16 M4 18h16 M8 3v6 M16 9v6 M10 15v6",
   select: "M5 3l14 9-7 1-3 7-4-17z M13 14l5 6",
   wall: "M4 18L20 6 M4 12l6 6 M14 6l6 6",
   door: "M5 20V4h14v16 M9 20V7l8-3v16 M13 13h1",

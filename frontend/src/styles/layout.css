@@ -25,7 +25,7 @@ body,
   justify-content: space-between;
   padding: 0 28px;
   gap: 28px;
-  background: #0b0b11;
+  background: var(--cad-header);
   z-index: 30;
 }
 .studio-brand {
@@ -79,7 +79,7 @@ body,
   left: 0;
   right: 0;
   height: 1px;
-  background: #c4bddb;
+  background: var(--cad-shelter);
 }
 .studio-header-actions {
   display: flex;
@@ -95,7 +95,7 @@ body,
   border: 0;
   border-radius: 5px;
   background: var(--studio-primary);
-  color: #fff;
+  color: var(--studio-primary-text);
   font-weight: 500;
   padding: 11px 17px;
   font-size: 12px;

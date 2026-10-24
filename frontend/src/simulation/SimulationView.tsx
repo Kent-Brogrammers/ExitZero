@@ -7,6 +7,7 @@ import {
 } from "react";
 import type { BuildingScenario, SimulationResult } from "../types/simulation";
 import { createPlaybackRenderer } from "./drawPlayback";
+import { useStudioTheme } from "../styles/appearance";
 import { createFrameSampler } from "./interpolation";
 import { createPlayback, PLAYBACK_SPEEDS } from "./playback";
 import { syntheticBuilding, syntheticResult } from "./playback.fixture";
@@ -35,6 +36,7 @@ function Playback({
   onCloseAnalytics,
   onOpenAnalytics,
 }: PlaybackProps) {
+  const theme = useStudioTheme();
   const mismatch =
     result !== null &&
     (result.width !== building.width || result.height !== building.height);
@@ -86,7 +88,7 @@ function Playback({
       observer.disconnect();
       window.removeEventListener("resize", redraw);
     };
-  }, [building, player, sample]);
+  }, [building, player, sample, theme]);
 
   const status = state.playing
     ? "Playing"

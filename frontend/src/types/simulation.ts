@@ -6,18 +6,24 @@ export interface Point {
 }
 export interface Wall {
   id: string;
+  /** Display metadata only; references always use id. */
+  name?: string;
   start: Point;
   end: Point;
   thickness: number;
 }
 export interface Opening {
   id: string;
+  /** Display metadata only; references always use id. */
+  name?: string;
   wall_id: string;
   offset: number;
   width: number;
 }
 export interface Obstruction {
   id: string;
+  /** Display metadata only; references always use id. */
+  name?: string;
   x: number;
   y: number;
   width: number;

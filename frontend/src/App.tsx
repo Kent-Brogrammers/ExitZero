@@ -1,8 +1,10 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import example from "../../shared/examples/building.json";
+import { withoutObjectNames } from "./editor/names";
 import { buildingError } from "./editor/geometry";
 import { BuildingWorkspace } from "./editor/BuildingWorkspace";
 import { StudioPopover } from "./ui/StudioPopover";
+import { AppearanceSelector } from "./styles/StudioAppearance";
 import { StudioWelcome } from "./studio/StudioWelcome";
 import { api } from "./services/api";
 import type {
@@ -48,7 +50,11 @@ export default function App() {
   );
   const layoutProblem = buildingError(building);
   function changeBuilding(next: BuildingScenario) {
+    const namesOnly =
+      JSON.stringify(withoutObjectNames(building)) ===
+      JSON.stringify(withoutObjectNames(next));
     setBuilding(next);
+    if (namesOnly) return;
     setResult(null);
     setStressResult(null);
     setMessage("");
@@ -203,11 +209,8 @@ export default function App() {
                       ×
                     </button>
                   </div>
+                  <AppearanceSelector />
                   <dl className="settings-values">
-                    <div>
-                      <dt>Theme</dt>
-                      <dd>Studio dark</dd>
-                    </div>
                     <div>
                       <dt>Coordinates</dt>
                       <dd>Metres</dd>
