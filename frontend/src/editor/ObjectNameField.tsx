@@ -43,7 +43,7 @@ export function ObjectNameField({ name, onCommit }: ObjectNameFieldProps) {
               event.currentTarget.blur();
             }
             if (event.key === "Escape") {
-              event.stopPropagation();
+              if (draft !== name || problem) event.stopPropagation();
               setDraft(name);
               setProblem(null);
             }

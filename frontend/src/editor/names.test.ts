@@ -146,3 +146,30 @@ describe("persistent display names", () => {
     expect(withoutObjectNames(body)).toEqual(fixture());
   });
 });
+
+it("renames approved stair areas without changing their identifiers, orientation, geometry, or occupants", () => {
+  const b = fixture();
+  b.stair_areas = [
+    {
+      id: "stair",
+      name: "Original stair",
+      x: 20,
+      y: 4,
+      width: 2,
+      height: 3,
+      orientation_degrees: 90,
+    },
+  ];
+  const named = renameObject(
+    b,
+    { kind: "stair_areas", id: "stair" },
+    "  North Stair  ",
+  );
+  expect(objectName(named, { kind: "stair_areas", id: "stair" })).toBe(
+    "North Stair",
+  );
+  expect(withoutObjectNames(named)).toEqual(withoutObjectNames(b));
+  expect(validate(JSON.parse(JSON.stringify(named)))).toBe(true);
+  expect(named.stair_areas![0]!.orientation_degrees).toBe(90);
+  expect(b.stair_areas[0]!.name).toBe("Original stair");
+});

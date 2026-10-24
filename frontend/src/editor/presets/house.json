@@ -1,0 +1,143 @@
+{
+  "width": 14,
+  "height": 12,
+  "walls": [
+    {
+      "id": "house-north",
+      "name": "North wall",
+      "start": {
+        "x": 1,
+        "y": 1
+      },
+      "end": {
+        "x": 13,
+        "y": 1
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "house-east",
+      "name": "East wall",
+      "start": {
+        "x": 13,
+        "y": 1
+      },
+      "end": {
+        "x": 13,
+        "y": 11
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "house-south",
+      "name": "South wall",
+      "start": {
+        "x": 13,
+        "y": 11
+      },
+      "end": {
+        "x": 1,
+        "y": 11
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "house-west",
+      "name": "West wall",
+      "start": {
+        "x": 1,
+        "y": 11
+      },
+      "end": {
+        "x": 1,
+        "y": 1
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "house-divider",
+      "name": "Partition",
+      "start": {
+        "x": 7,
+        "y": 1
+      },
+      "end": {
+        "x": 7,
+        "y": 11
+      },
+      "thickness": 0.15
+    }
+  ],
+  "doors": [
+    {
+      "id": "house-room-door",
+      "name": "Bedroom door",
+      "wall_id": "house-divider",
+      "offset": 5,
+      "width": 1.1
+    }
+  ],
+  "exits": [
+    {
+      "id": "house-exit",
+      "name": "Main exit",
+      "wall_id": "house-west",
+      "offset": 6,
+      "width": 1.4
+    }
+  ],
+  "spawn_zones": [
+    {
+      "id": "house-living",
+      "name": "Living room",
+      "x": 3,
+      "y": 4,
+      "width": 2,
+      "height": 2,
+      "count": 4
+    },
+    {
+      "id": "house-bedroom",
+      "name": "Bedroom",
+      "x": 9,
+      "y": 7,
+      "width": 2,
+      "height": 2,
+      "count": 2
+    }
+  ],
+  "obstructions": [
+    {
+      "id": "house-sofa",
+      "name": "Sofa",
+      "x": 2,
+      "y": 8,
+      "width": 3,
+      "height": 0.7
+    },
+    {
+      "id": "house-counter",
+      "name": "Kitchen counter",
+      "x": 9,
+      "y": 2,
+      "width": 3,
+      "height": 0.6
+    }
+  ],
+  "blocked_exit_ids": [],
+  "agent_radius": 0.25,
+  "time_step_seconds": 0.1,
+  "seed": 42,
+  "max_steps": 2000,
+  "stair_areas": [
+    {
+      "id": "house-stairs",
+      "name": "Stair area marker",
+      "x": 11.5,
+      "y": 8,
+      "width": 1,
+      "height": 2,
+      "orientation_degrees": 0
+    }
+  ]
+}

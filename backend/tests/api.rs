@@ -201,3 +201,60 @@ async fn api_rejects_invalid_names_instead_of_silently_losing_them() {
         assert!(status.is_client_error(), "{body}");
     }
 }
+
+#[tokio::test]
+async fn walkable_stair_annotations_do_not_change_simulation_output() {
+    let mut plain = building();
+    plain["max_steps"] = json!(10);
+    let mut marked = plain.clone();
+    marked["stair_areas"] = json!([{"id":"stair-area","name":"Single-floor marker","x":0,"y":0,"width":30,"height":20,"orientation_degrees":270}]);
+    let (plain_status, plain_result) = request("/api/simulate", Some(plain)).await;
+    let (marked_status, marked_result) = request("/api/simulate", Some(marked)).await;
+    assert_eq!(plain_status, StatusCode::OK);
+    assert_eq!(marked_status, StatusCode::OK, "{marked_result}");
+    assert_eq!(
+        plain_result, marked_result,
+        "walkable metadata must not become a solid obstacle or floor connection"
+    );
+}
+
+#[tokio::test]
+async fn ellipse_segment_door_rounding_does_not_create_phantom_collision_capsules() {
+    let mut payload = building();
+    let points: Vec<_> = (0..32)
+        .map(|index| {
+            let angle = index as f64 * std::f64::consts::PI / 16.0;
+            json!({"x": 15.0 + 4.0 * angle.cos(), "y": 10.0 + 3.0 * angle.sin()})
+        })
+        .collect();
+    let mut walls: Vec<_> = (0..32)
+        .map(|index| json!({"id":format!("e{index}"),"start":points[index],"end":points[(index+1)%32],"thickness":0.2}))
+        .collect();
+    walls.push(json!({"id":"out","start":{"x":27,"y":5},"end":{"x":27,"y":15},"thickness":0.2}));
+    payload["walls"] = json!(walls);
+    payload["doors"] = json!([]);
+    payload["exits"] = json!([{"id":"exit","wall_id":"out","offset":4,"width":2}]);
+    payload["spawn_zones"] = json!([{"id":"s","x":14.5,"y":9.5,"width":1,"height":1,"count":1}]);
+    payload["blocked_exit_ids"] = json!([]);
+    payload["obstructions"] = json!([]);
+    payload["agent_radius"] = json!(0.25);
+    payload["time_step_seconds"] = json!(0.1);
+    payload["seed"] = json!(42);
+    payload["max_steps"] = json!(1000);
+    let (status, closed) = request("/api/simulate", Some(payload.clone())).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+    assert_eq!(closed["evacuated"], 0);
+    let scenario: BuildingScenario = serde_json::from_value(payload.clone()).unwrap();
+    payload["doors"] = json!([0, 31].map(|index| {
+        json!({"id":format!("d{index}"),"wall_id":format!("e{index}"),"offset":1e-12,"width":scenario.walls[index].length()-2e-12})
+    }));
+    let (status, open) = request("/api/simulate", Some(payload)).await;
+    assert_eq!(status, StatusCode::OK, "{open}");
+    assert_eq!(
+        open["status"], "completed",
+        "status {}, remaining {}",
+        open["status"], open["remaining"]
+    );
+    assert_eq!(open["evacuated"], 1);
+    assert_eq!(open["analytics"]["agents"][0]["route_found"], true);
+}

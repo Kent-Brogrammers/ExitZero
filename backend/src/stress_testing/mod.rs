@@ -216,6 +216,7 @@ mod tests {
     fn request() -> StressTestRequest {
         StressTestRequest {
             building: BuildingScenario {
+                stair_areas: vec![],
                 width: 20.0,
                 height: 10.0,
                 walls: vec![Wall {
