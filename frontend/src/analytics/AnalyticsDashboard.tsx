@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Bar,
   BarChart,
@@ -11,6 +12,7 @@ import mock from "../../../shared/examples/simulation.mock.json";
 import type { SimulationResult, StressTestResult } from "../types/simulation";
 
 import ScenarioComparison from "./ScenarioComparison";
+import { syntheticStressResult } from "./stressFixture";
 
 interface AnalyticsDashboardProps {
   result: SimulationResult | null;
@@ -23,6 +25,7 @@ export default function AnalyticsDashboard({
   stressResult,
   showMock,
 }: AnalyticsDashboardProps) {
+  const [showStressPreview, setShowStressPreview] = useState(false);
   const metrics = showMock ? mock : result;
   const chart = metrics
     ? [
@@ -130,7 +133,33 @@ export default function AnalyticsDashboard({
       <div className="panel">
         <p className="eyebrow">04 / Stress testing</p>
         <h2>Vulnerability comparison</h2>
-        <ScenarioComparison result={stressResult} />
+        <div className="stress-preview">
+          <label>
+            <input
+              type="checkbox"
+              checked={showStressPreview}
+              onChange={(event) => setShowStressPreview(event.target.checked)}
+            />
+            Show synthetic stress-test preview
+          </label>
+          <span className={`badge ${showStressPreview ? "mock" : ""}`}>
+            {showStressPreview
+              ? "SYNTHETIC DATA · not computed"
+              : stressResult
+                ? "API stress-test results"
+                : "Awaiting results"}
+          </span>
+        </div>
+        {showStressPreview && (
+          <p className="note">
+            Illustrative results only. These scenarios and severity labels are
+            invented examples and do not describe the displayed building. Turn
+            off preview to view API results.
+          </p>
+        )}
+        <ScenarioComparison
+          result={showStressPreview ? syntheticStressResult : stressResult}
+        />
         <p className="note">
           Traffic samples represent accumulated visits at world positions, not
           instantaneous crowd density.
