@@ -1,0 +1,91 @@
+import { describe, expect, it, vi } from "vitest";
+import { canvasView } from "../editor/geometry";
+import { drawPlayback, worldToCanvas } from "./drawPlayback";
+import { syntheticBuilding, syntheticResult } from "./playback.fixture";
+
+function fixture(width: number, height: number) {
+  const context = {
+    setTransform: vi.fn(),
+    clearRect: vi.fn(),
+    fillRect: vi.fn(),
+    fillText: vi.fn(),
+    beginPath: vi.fn(),
+    moveTo: vi.fn(),
+    lineTo: vi.fn(),
+    stroke: vi.fn(),
+    strokeRect: vi.fn(),
+    arc: vi.fn(),
+    fill: vi.fn(),
+    setLineDash: vi.fn(),
+    save: vi.fn(),
+    restore: vi.fn(),
+    fillStyle: "",
+    strokeStyle: "",
+    lineWidth: 0,
+    lineCap: "",
+    font: "",
+  };
+  const canvas = {
+    width: 0,
+    height: 0,
+    getContext: vi.fn(() => context),
+    getBoundingClientRect: vi.fn(() => ({ width, height })),
+  };
+  return { context, canvas, element: canvas as unknown as HTMLCanvasElement };
+}
+
+describe("playback Canvas", () => {
+  it("maps fractional world coordinates with a top-left origin and letterboxing", () => {
+    const view = canvasView(600, 400, syntheticBuilding);
+    expect(worldToCanvas({ x: 1.25, y: 1.5 }, view).x).toBeCloseTo(200);
+    expect(worldToCanvas({ x: 1.25, y: 1.5 }, view).y).toBeCloseTo(200);
+    expect(worldToCanvas({ x: 0, y: 0 }, view).x).toBeCloseTo(100 / 3);
+    expect(worldToCanvas({ x: 4, y: 3 }, view).y).toBeCloseTo(400);
+  });
+
+  it("renders real-valued occupant positions and physical radii at device pixel ratio 2", () => {
+    const { context, canvas, element } = fixture(600, 400);
+    drawPlayback(element, syntheticBuilding, syntheticResult.frames[0]!, 2);
+    expect([canvas.width, canvas.height]).toEqual([1200, 800]);
+    expect(context.arc).toHaveBeenCalledWith(
+      expect.closeTo(400),
+      expect.closeTo(400),
+      expect.closeTo(32),
+      0,
+      Math.PI * 2,
+    );
+    expect(context.arc).toHaveBeenCalledTimes(2);
+    expect(context.restore).toHaveBeenCalledOnce();
+  });
+
+  it("keeps occupant and layout coordinates aligned after Canvas resizing", () => {
+    const { context, canvas, element } = fixture(600, 400);
+    drawPlayback(element, syntheticBuilding, syntheticResult.frames[0]!, 1);
+    canvas.getBoundingClientRect.mockReturnValue({ width: 300, height: 200 });
+    context.arc.mockClear();
+    drawPlayback(element, syntheticBuilding, syntheticResult.frames[0]!, 1);
+    expect([canvas.width, canvas.height]).toEqual([300, 200]);
+    expect(context.arc).toHaveBeenCalledWith(
+      expect.closeTo(100),
+      expect.closeTo(100),
+      expect.closeTo(8),
+      0,
+      Math.PI * 2,
+    );
+  });
+
+  it("renders just the layout when there are no frames and no occupants after the final frame", () => {
+    const { context, element } = fixture(600, 400);
+    drawPlayback(element, syntheticBuilding, null, 1);
+    expect(context.lineTo).toHaveBeenCalled();
+    expect(context.arc).not.toHaveBeenCalled();
+    drawPlayback(element, syntheticBuilding, syntheticResult.frames.at(-1)!, 1);
+    expect(context.arc).not.toHaveBeenCalled();
+  });
+
+  it("does not draw occupants into an unmeasured or hidden Canvas", () => {
+    const { context, element } = fixture(0, 0);
+    drawPlayback(element, syntheticBuilding, syntheticResult.frames[0]!, 2);
+    expect(context.arc).not.toHaveBeenCalled();
+  });
+});

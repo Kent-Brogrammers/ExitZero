@@ -166,7 +166,7 @@ export default function App() {
             onChange={changeBuilding}
             disabled={busy}
           />
-          <SimulationView result={result} />
+          <SimulationView building={building} result={result} />
         </div>
         <div className="preview-control">
           <label>
