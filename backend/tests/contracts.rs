@@ -418,6 +418,10 @@ fn editor_presets_validate_under_rust_geometry_rules() {
         include_str!("../../frontend/src/editor/presets/office.json"),
         include_str!("../../frontend/src/editor/presets/office-demo.json"),
         include_str!("../../frontend/src/editor/presets/school-emergency.json"),
+        include_str!("../../frontend/src/editor/presets/office-fire.json"),
+        include_str!("../../frontend/src/editor/presets/community-tornado.json"),
+        include_str!("../../frontend/src/editor/presets/laboratory-gas.json"),
+        include_str!("../../frontend/src/editor/presets/corporate-office.json"),
     ] {
         let b: BuildingScenario = serde_json::from_str(source).unwrap();
         b.validate().unwrap();
