@@ -153,10 +153,35 @@ impl<'a> Geometry<'a> {
 
     /// Observe only certified visible portions, clipped by range and occlusion.
     /// A source wall ID identifies memory; it never reveals the rest of a wall.
-    pub(super) fn visible_walls(&self, from: Point, range: f64) -> WallKnowledge {
+    pub(super) fn visible_walls(
+        &self,
+        from: Point,
+        range: f64,
+        known: &WallKnowledge,
+    ) -> WallKnowledge {
         let mut observed = WallKnowledge::new();
         for (piece, &(start, end, half_thickness, index)) in self.solid_walls.iter().enumerate() {
             if math::distance_to_segment(from, start, end) - half_thickness > range {
+                continue;
+            }
+            let wall = &self.scenario.walls[index];
+            let length = math::distance_to_point(start, end);
+            if length <= math::EPSILON {
+                continue;
+            }
+            let tangent = Point {
+                x: (end.x - start.x) / length,
+                y: (end.y - start.y) / length,
+            };
+            let parent_offset =
+                (start.x - wall.start.x) * tangent.x + (start.y - wall.start.y) * tangent.y;
+            // Wall material is static. Fully remembered pieces cannot add any
+            // new intervals; openings are observed independently every tick.
+            if known.get(&wall.id).is_some_and(|spans| {
+                spans
+                    .iter()
+                    .any(|span| span.start <= parent_offset && span.end >= parent_offset + length)
+            }) {
                 continue;
             }
             let mut occluders: Vec<_> = self
@@ -176,22 +201,11 @@ impl<'a> Geometry<'a> {
                 width: o.width,
                 height: o.height,
             }));
-            let wall = &self.scenario.walls[index];
-            let length = math::distance_to_point(start, end);
-            if length <= math::EPSILON {
-                continue;
-            }
-            let tangent = Point {
-                x: (end.x - start.x) / length,
-                y: (end.y - start.y) / length,
-            };
             let normal = Point {
                 x: -tangent.y,
                 y: tangent.x,
             };
             let side = (from.x - start.x) * normal.x + (from.y - start.y) * normal.y;
-            let parent_offset =
-                (start.x - wall.start.x) * tangent.x + (start.y - wall.start.y) * tangent.y;
             if side.abs() > 1e-9 {
                 let shift = half_thickness * side.signum();
                 let face_start = Point {
@@ -431,9 +445,45 @@ impl<'a> Geometry<'a> {
             })
     }
 
-    /// Centre-arrival evacuation requires approaching the exit without walking
-    /// through it first. Keep avoidance and joint corrections on the current
-    /// side of its wall, while allowing tangential movement to the target.
+    /// Usable centre positions on the exit plane, inset from rounded jambs.
+    /// Other obstacles are still checked by can_move/can_stand_at.
+    pub(super) fn exit_segment(&self, exit_id: &str) -> Option<(Point, Point)> {
+        if self.opening_is_blocked(exit_id) {
+            return None;
+        }
+        let exit = self.scenario.exits.iter().find(|exit| exit.id == exit_id)?;
+        let wall = self
+            .scenario
+            .walls
+            .iter()
+            .find(|wall| wall.id == exit.wall_id)?;
+        let clearance = self.scenario.agent_radius + wall.thickness / 2.0 + 1e-6;
+        if exit.width < 2.0 * clearance {
+            return None;
+        }
+        Some((
+            math::interpolate(
+                wall.start,
+                wall.end,
+                (exit.offset + clearance) / wall.length(),
+            ),
+            math::interpolate(
+                wall.start,
+                wall.end,
+                (exit.offset + exit.width - clearance) / wall.length(),
+            ),
+        ))
+    }
+
+    pub(super) fn at_exit(&self, position: Point, exit_id: &str) -> bool {
+        self.exit_segment(exit_id).is_some_and(|(start, end)| {
+            math::distance_to_segment(position, start, end) <= math::EPSILON
+                && self.can_stand_at(position)
+        })
+    }
+
+    /// Stop on the exit plane for arrival accounting. Tangential movement is
+    /// unrestricted, so all usable positions across the opening remain available.
     pub(super) fn exit_approach_limits(
         &self,
         position: Point,
@@ -464,8 +514,8 @@ impl<'a> Geometry<'a> {
             y: -normal.y,
         };
         if distance.abs() <= 1e-9 {
-            // At the plane there is no approach side. Stay on it and slide
-            // toward the centre, including when roundoff changes the sign.
+            // At the plane there is no approach side. Keep roundoff from
+            // switching it while arrival is checked.
             vec![
                 VelocityLimit {
                     normal,
@@ -479,7 +529,7 @@ impl<'a> Geometry<'a> {
         } else {
             vec![VelocityLimit {
                 normal: if distance > 0.0 { normal } else { opposite },
-                offset: -(distance.abs() - clearance.min(distance.abs())) / dt,
+                offset: (-(distance.abs() - clearance) / dt).min(super::motion::WALKING_SPEED),
             }]
         }
     }

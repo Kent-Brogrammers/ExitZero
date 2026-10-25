@@ -251,10 +251,12 @@ pub(super) fn update_knowledge(
             if evacuated[i] {
                 continue;
             }
-            informed |= perception::remember(
-                &mut agent.known_walls,
-                &geometry.visible_walls(agent.position, scenario.awareness.sight_range_metres),
+            let visible = geometry.visible_walls(
+                agent.position,
+                scenario.awareness.sight_range_metres,
+                &agent.known_walls,
             );
+            informed |= perception::remember(&mut agent.known_walls, &visible);
             for opening in scenario.doors.iter().chain(&scenario.exits) {
                 if math::distance_to_point(agent.position, center(scenario, opening))
                     <= scenario.awareness.sight_range_metres
@@ -267,6 +269,9 @@ pub(super) fn update_knowledge(
             // The actual world supplies observations; only learned IDs reach
             // this person's planning geometry.
             for (index, emergency) in geometry.emergencies().iter().enumerate() {
+                if agent.known_emergencies.contains(&index) {
+                    continue;
+                }
                 let distance = math::distance_to_point(agent.position, emergency.center);
                 let surface = math::move_toward(emergency.center, agent.position, emergency.radius);
                 if distance - emergency.radius <= scenario.awareness.sight_range_metres
@@ -276,6 +281,9 @@ pub(super) fn update_knowledge(
                 }
             }
             for obstacle in geometry.obstructions() {
+                if agent.known_obstructions.contains(&obstacle.id) {
+                    continue;
+                }
                 if math::distance_to_rectangle(
                     agent.position,
                     obstacle.x,
@@ -812,6 +820,34 @@ mod tests {
     }
 
     #[test]
+    fn skipping_remembered_wall_pieces_preserves_all_observations() {
+        let b = scenario();
+        let mut remembered = WallKnowledge::new();
+        let mut reference = WallKnowledge::new();
+        // Include an opening-state change: new solid material must be seen,
+        // while opening observations remain independent of static wall memory.
+        for blocked in [false, true, false] {
+            let geometry = Geometry::with_blocked_openings(
+                &b,
+                &[],
+                if blocked {
+                    BTreeSet::from(["left".into()])
+                } else {
+                    BTreeSet::new()
+                },
+            );
+            for (x, y) in [(1.0, 1.0), (5.0, 2.0), (10.0, 2.0), (19.0, 1.0), (1.0, 1.0)] {
+                let from = Point { x, y };
+                let full = geometry.visible_walls(from, 30.0, &WallKnowledge::new());
+                let updates = geometry.visible_walls(from, 30.0, &remembered);
+                perception::remember(&mut reference, &full);
+                perception::remember(&mut remembered, &updates);
+                assert_eq!(remembered, reference);
+            }
+        }
+    }
+
+    #[test]
     fn hazard_visibility_measures_range_to_the_near_surface() {
         let b = scenario();
         let emergencies = [Emergency {
@@ -853,13 +889,15 @@ mod tests {
         assert!(!agents[0].knowledge["left"].blocked);
         let (map, navigation) = maps.for_agent(&agents[0]);
         assert!(!map.can_stand_at(Point { x: 2.0, y: 0.0 }));
-        assert_eq!(
-            navigation
-                .find_route(agents[0].position, map)
-                .unwrap()
-                .exit_id,
-            "right"
-        );
+        let route = navigation.find_route(agents[0].position, map).unwrap();
+        // The centre is sealed, but the usable left edge remains reachable.
+        assert_eq!(route.exit_id, "left");
+        let mut from = agents[0].position;
+        for to in route.waypoints {
+            assert!(map.can_move(from, to));
+            from = to;
+        }
+        assert!(from.x < 1.9);
     }
     #[test]
     fn an_unseen_enclosure_does_not_rule_out_the_nearest_exit() {
@@ -989,7 +1027,7 @@ mod tests {
     fn looking_along_a_wall_reveals_only_the_near_end_cap() {
         let b = scenario();
         let geometry = Geometry::new(&b);
-        let seen = geometry.visible_walls(Point { x: 22.0, y: 0.0 }, 30.0);
+        let seen = geometry.visible_walls(Point { x: 22.0, y: 0.0 }, 30.0, &WallKnowledge::new());
         let spans = &seen["north"];
         assert!(
             spans

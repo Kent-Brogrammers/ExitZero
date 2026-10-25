@@ -34,8 +34,7 @@ impl Ord for SearchState {
     }
 }
 
-/// A route ends at the centre of its exit opening. Reaching this target is
-/// a navigation result; the simulation must define when to count evacuation.
+/// A route ends at a body-clear position anywhere along its exit opening.
 pub(super) struct Route {
     pub exit_id: String,
     pub waypoints: Vec<Point>,
@@ -43,7 +42,8 @@ pub(super) struct Route {
 
 struct ExitTarget {
     id: String,
-    position: Point,
+    start: Point,
+    end: Point,
 }
 
 /// A graph is shared by agents with the same discovered openings and blockers.
@@ -51,7 +51,6 @@ pub(super) struct Navigation {
     exits: Vec<ExitTarget>,
     points: Vec<Point>,
     connections: Vec<Vec<Connection>>,
-    exit_nodes: Vec<Option<usize>>,
 }
 
 impl Navigation {
@@ -62,29 +61,16 @@ impl Navigation {
             .iter()
             .filter(|exit| !geometry.opening_is_blocked(&exit.id))
             .filter_map(|exit| {
-                let wall = scenario.walls.iter().find(|wall| wall.id == exit.wall_id)?;
-                let length = wall.length();
-                if length <= 0.0 {
-                    return None;
-                }
-
-                let t = (exit.offset + exit.width / 2.0) / length;
+                let (start, end) = geometry.exit_segment(&exit.id)?;
                 Some(ExitTarget {
                     id: exit.id.clone(),
-                    position: math::interpolate(wall.start, wall.end, t),
+                    start,
+                    end,
                 })
             })
             .collect();
 
         let mut points = Vec::new();
-        let mut exit_nodes = Vec::new();
-        for (index, exit) in exits.iter().enumerate() {
-            if geometry.can_stand_at(exit.position) {
-                points.push(exit.position);
-                exit_nodes.push(Some(index));
-            }
-        }
-
         let mut add_point = |point: Point| {
             if geometry.can_stand_at(point)
                 && !points
@@ -92,9 +78,16 @@ impl Navigation {
                     .any(|&existing| math::distance_to_point(existing, point) <= math::EPSILON)
             {
                 points.push(point);
-                exit_nodes.push(None);
             }
         };
+
+        // Endpoints and centres also provide fallbacks when another obstacle
+        // hides the perpendicular approach to part of an exit.
+        for exit in &exits {
+            add_point(exit.start);
+            add_point(exit.end);
+            add_point(math::interpolate(exit.start, exit.end, 0.5));
+        }
 
         // Only remembered fragments supply endpoints. A frontier of observed
         // space is a tentative detour, not knowledge of a hidden wall's end.
@@ -195,7 +188,6 @@ impl Navigation {
             exits,
             points,
             connections,
-            exit_nodes,
         }
     }
 
@@ -233,23 +225,32 @@ impl Navigation {
             }
         }
 
+        // Each graph node can finish at its closest point on an exit segment,
+        // rather than funnelling every person through one fixed graph target.
+        let mut best: Option<(f64, usize, Point, Option<usize>)> = None;
+        let mut consider = |start: Point, distance: f64, parent: Option<usize>| {
+            for (index, exit) in self.exits.iter().enumerate() {
+                let target = math::closest_point_on_segment(start, exit.start, exit.end);
+                if geometry.can_move(start, target) {
+                    let cost = distance
+                        + math::distance_to_point(start, target)
+                        + crowd_cost(start, target, occupants, radius);
+                    if best.as_ref().is_none_or(|&(current, ..)| cost < current) {
+                        best = Some((cost, index, target, parent));
+                    }
+                }
+            }
+            best.as_ref().map_or(f64::INFINITY, |&(cost, ..)| cost)
+        };
+        let mut best_cost = consider(from, 0.0, None);
         while let Some(SearchState { node, distance }) = queue.pop() {
             if distance > distances[node] {
                 continue;
             }
-            if let Some(exit_index) = self.exit_nodes[node] {
-                let mut waypoints = vec![self.points[node]];
-                let mut cursor = node;
-                while let Some(parent) = previous[cursor] {
-                    waypoints.push(self.points[parent]);
-                    cursor = parent;
-                }
-                waypoints.reverse();
-                return Some(Route {
-                    exit_id: self.exits[exit_index].id.clone(),
-                    waypoints,
-                });
+            if distance > best_cost {
+                break;
             }
+            best_cost = consider(self.points[node], distance, Some(node));
             for edge in &self.connections[node] {
                 let candidate = distance
                     + edge.distance
@@ -264,14 +265,71 @@ impl Navigation {
                 }
             }
         }
-        None
+        let (_, index, target, mut cursor) = best?;
+        let mut waypoints = vec![target];
+        while let Some(node) = cursor {
+            if math::distance_to_point(*waypoints.last().unwrap(), self.points[node])
+                > math::EPSILON
+            {
+                waypoints.push(self.points[node]);
+            }
+            cursor = previous[node];
+        }
+        waypoints.reverse();
+        Some(Route {
+            exit_id: self.exits[index].id.clone(),
+            waypoints,
+        })
     }
 }
 
-fn crowd_cost(start: Point, end: Point, occupants: &[Point], radius: f64) -> f64 {
+/// Integrate local occupancy along a segment. Splitting an edge into waypoints
+/// must not change its penalty or create artificial shortcuts through a queue.
+pub(super) fn crowd_cost(start: Point, end: Point, occupants: &[Point], radius: f64) -> f64 {
+    let length = math::distance_to_point(start, end);
+    if length <= math::EPSILON || radius <= 0.0 {
+        return 0.0;
+    }
+    let dx = (end.x - start.x) / length;
+    let dy = (end.y - start.y) / length;
+    let influence = 4.0 * radius;
     occupants
         .iter()
-        .filter(|&&position| math::distance_to_segment(position, start, end) < 4.0 * radius)
-        .count() as f64
-        * (8.0 * radius)
+        .map(|position| {
+            let x = position.x - start.x;
+            let y = position.y - start.y;
+            let along = x * dx + y * dy;
+            let across = x * dy - y * dx;
+            let half_squared = influence * influence - across * across;
+            if half_squared <= 0.0 {
+                return 0.0;
+            }
+            let half = half_squared.sqrt();
+            ((along + half).min(length) - (along - half).max(0.0)).max(0.0) * 2.0
+        })
+        .sum()
+}
+
+pub(super) fn route_cost(
+    from: Point,
+    waypoints: &[Point],
+    occupants: &[Point],
+    radius: f64,
+) -> f64 {
+    let mut start = from;
+    waypoints
+        .iter()
+        .map(|&end| {
+            let cost =
+                math::distance_to_point(start, end) + crowd_cost(start, end, occupants, radius);
+            start = end;
+            cost
+        })
+        .sum()
+}
+
+/// Require a material saving before changing guidance, to reduce oscillation
+/// as nearby people move. An unavailable alternative leaves the route intact.
+pub(super) fn materially_better(candidate: f64, current: f64, radius: f64) -> bool {
+    candidate + (current * 0.15).max(2.0 * radius) < current
 }

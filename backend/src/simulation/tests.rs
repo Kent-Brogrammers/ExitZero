@@ -323,7 +323,6 @@ fn initial_positions(result: &SimulationResult) -> BTreeMap<u32, (f64, f64)> {
 fn assert_collision_free(scenario: &BuildingScenario, result: &SimulationResult) {
     result.validate().unwrap();
     let geometry = Geometry::new(scenario);
-    let navigation = Navigation::new(scenario, &geometry);
     for frame in &result.frames {
         for (index, agent) in frame.agents.iter().enumerate() {
             assert!(geometry.can_stand_at(Point {
@@ -340,33 +339,19 @@ fn assert_collision_free(scenario: &BuildingScenario, result: &SimulationResult)
     }
     for frames in result.frames.windows(2) {
         assert_eq!(frames[1].step, frames[0].step + 1);
+        // Actual final arrival segments are audited inside the engine.
         let paths: Vec<_> = frames[0]
             .agents
             .iter()
-            .map(|start| {
-                let from = Point {
-                    x: start.x,
-                    y: start.y,
-                };
-                let to = if let Some(end) = frames[1].agents.iter().find(|end| start.id == end.id) {
-                    Point { x: end.x, y: end.y }
-                } else {
-                    // Include the final arrival tick, even though evacuated
-                    // occupants disappear from the returned frame.
-                    let statistics = result
-                        .analytics
-                        .as_ref()
-                        .unwrap()
-                        .agents
-                        .iter()
-                        .find(|agent| agent.id == start.id)
-                        .unwrap();
-                    assert_eq!(statistics.evacuation_step, Some(frames[1].step));
-                    let route = navigation.find_route(from, &geometry).unwrap();
-                    assert_eq!(statistics.exit_id.as_deref(), Some(route.exit_id.as_str()));
-                    *route.waypoints.last().unwrap()
-                };
-                (from, to)
+            .filter_map(|start| {
+                let end = frames[1].agents.iter().find(|end| start.id == end.id)?;
+                Some((
+                    Point {
+                        x: start.x,
+                        y: start.y,
+                    },
+                    Point { x: end.x, y: end.y },
+                ))
             })
             .collect();
         for (i, (start, end)) in paths.iter().enumerate() {
@@ -392,7 +377,7 @@ fn assert_collision_free(scenario: &BuildingScenario, result: &SimulationResult)
 }
 
 #[test]
-fn wide_exit_preserves_clear_centre_arrival_for_downstream_consumers() {
+fn wide_exit_offers_distinct_body_clear_arrival_positions() {
     let scenario = room();
     let geometry = Geometry::new(&scenario);
     let navigation = Navigation::new(&scenario, &geometry);
@@ -403,9 +388,13 @@ fn wide_exit_preserves_clear_centre_arrival_for_downstream_consumers() {
     let left_target = *left.waypoints.last().unwrap();
     let right_target = *right.waypoints.last().unwrap();
     assert_eq!(left.exit_id, right.exit_id);
-    assert_eq!(math::distance_to_point(left_target, right_target), 0.0);
-    for (from, target) in [(from_left, left_target), (from_right, right_target)] {
-        assert!(geometry.can_move(from, target));
+    assert!(math::distance_to_point(left_target, right_target) > 3.0);
+    for (mut from, route) in [(from_left, left), (from_right, right)] {
+        let target = *route.waypoints.last().unwrap();
+        for to in route.waypoints {
+            assert!(geometry.can_move(from, to));
+            from = to;
+        }
         assert!(target.x >= 3.0 + scenario.agent_radius);
         assert!(target.x <= 7.0 - scenario.agent_radius);
         assert_eq!(target.y, 0.0);
@@ -1066,4 +1055,277 @@ fn agents_approach_an_unknown_walled_off_exit_before_discovering_another_route()
         Some("south_exit")
     );
     assert_collision_free(&scenario, &result);
+}
+
+fn two_exit_room() -> BuildingScenario {
+    let mut scenario = room();
+    scenario.exits.push(Opening {
+        id: "east_exit".into(),
+        name: None,
+        wall_id: "east".into(),
+        offset: 3.0,
+        width: 4.0,
+    });
+    scenario
+}
+
+#[test]
+fn crowd_search_uses_an_alternate_exit_and_recovers_when_the_queue_clears() {
+    let scenario = two_exit_room();
+    let geometry = Geometry::new(&scenario);
+    let navigation = Navigation::new(&scenario, &geometry);
+    let from = Point { x: 5.0, y: 3.0 };
+    let queue = [Point { x: 5.0, y: 1.0 }, Point { x: 5.0, y: 2.0 }];
+    assert_eq!(
+        navigation.find_route(from, &geometry).unwrap().exit_id,
+        "north_exit"
+    );
+    let detour = navigation
+        .find_route_with_crowd(from, &geometry, &queue, scenario.agent_radius)
+        .unwrap();
+    assert_eq!(detour.exit_id, "east_exit");
+    let mut start = from;
+    for end in detour.waypoints {
+        assert!(geometry.can_move(start, end));
+        start = end;
+    }
+    assert_eq!(
+        navigation
+            .find_route_with_crowd(from, &geometry, &[], scenario.agent_radius)
+            .unwrap()
+            .exit_id,
+        "north_exit"
+    );
+    // Crowds remain a soft cost when there is no alternative.
+    let mut single = scenario.clone();
+    single.blocked_exit_ids.push("east_exit".into());
+    let geometry = Geometry::new(&single);
+    assert_eq!(
+        Navigation::new(&single, &geometry)
+            .find_route_with_crowd(from, &geometry, &queue, single.agent_radius)
+            .unwrap()
+            .exit_id,
+        "north_exit"
+    );
+}
+
+#[test]
+fn moving_agents_reroute_before_stalling_using_visible_congestion() {
+    let mut scenario = two_exit_room();
+    scenario.spawn_zones = vec![
+        pinned_zone("observer", 5.0, 3.0),
+        pinned_zone("queue_a", 5.0, 1.0),
+        pinned_zone("queue_b", 5.0, 2.0),
+    ];
+    scenario.awareness.communication_range_metres = 0.0;
+    scenario.max_steps = 1;
+    let visible = simulate(&scenario).unwrap();
+    let observer = visible.frames[0].agents[0].id;
+    let visible_position = visible.frames[1]
+        .agents
+        .iter()
+        .find(|agent| agent.id == observer)
+        .unwrap();
+    assert!(
+        visible_position.x > 5.0,
+        "the moving agent should head toward the less crowded east exit"
+    );
+    scenario.awareness.sight_range_metres = 0.0;
+    let unseen = simulate(&scenario).unwrap();
+    let unseen_position = unseen.frames[1]
+        .agents
+        .iter()
+        .find(|agent| agent.id == observer)
+        .unwrap();
+    assert!(
+        visible_position.x > unseen_position.x + 1e-4,
+        "visible congestion should change guidance beyond local collision avoidance"
+    );
+}
+
+#[test]
+fn crowd_penalties_are_additive_and_small_savings_do_not_switch_routes() {
+    use super::navigation::{crowd_cost, materially_better};
+    let from = Point { x: 1.0, y: 2.0 };
+    let middle = Point { x: 5.0, y: 2.0 };
+    let to = Point { x: 9.0, y: 2.0 };
+    let occupants = [middle];
+    let full = crowd_cost(from, to, &occupants, 0.2);
+    let split = crowd_cost(from, middle, &occupants, 0.2) + crowd_cost(middle, to, &occupants, 0.2);
+    assert!((full - split).abs() < 1e-9);
+    assert!(full > 0.0);
+    assert!(!materially_better(9.0, 10.0, 0.2));
+    assert!(materially_better(7.0, 10.0, 0.2));
+}
+
+#[test]
+fn congestion_can_choose_another_door_to_the_same_exit() {
+    let mut scenario = room();
+    scenario.walls.push(Wall {
+        id: "partition".into(),
+        name: None,
+        start: Point { x: 0.0, y: 5.0 },
+        end: Point { x: 10.0, y: 5.0 },
+        thickness: 0.2,
+    });
+    for (id, offset) in [("direct", 4.0), ("detour", 7.5)] {
+        scenario.doors.push(Opening {
+            id: id.into(),
+            name: None,
+            wall_id: "partition".into(),
+            offset,
+            width: 2.0,
+        });
+    }
+    let geometry = Geometry::new(&scenario);
+    let navigation = Navigation::new(&scenario, &geometry);
+    let from = Point { x: 5.0, y: 8.0 };
+    let queue = [
+        Point { x: 5.0, y: 5.0 },
+        Point { x: 5.0, y: 6.0 },
+        Point { x: 5.0, y: 4.0 },
+    ];
+    let route = navigation
+        .find_route_with_crowd(from, &geometry, &queue, scenario.agent_radius)
+        .unwrap();
+    assert_eq!(route.exit_id, "north_exit");
+    assert!(
+        route.waypoints.iter().any(|point| point.x > 7.5),
+        "use the alternate door around the queue"
+    );
+    let mut start = from;
+    for end in route.waypoints {
+        assert!(geometry.can_move(start, end));
+        start = end;
+    }
+}
+
+// Audit real accepted endpoints, including the last tick before agents vanish
+// from animation frames. Exit centres cannot reconstruct those final moves.
+pub(super) fn assert_accepted_moves(
+    scenario: &BuildingScenario,
+    geometry: &Geometry<'_>,
+    before: &[Point],
+    after: &[Point],
+    active: &[bool],
+) {
+    for i in 0..before.len() {
+        if !active[i] {
+            continue;
+        }
+        assert!(geometry.can_move(before[i], after[i]));
+        assert!(
+            math::distance_to_point(before[i], after[i]) <= 1.3 * scenario.time_step_seconds + 1e-7
+        );
+        for j in i + 1..before.len() {
+            if !active[j] {
+                continue;
+            }
+            let start = Point {
+                x: before[i].x - before[j].x,
+                y: before[i].y - before[j].y,
+            };
+            let end = Point {
+                x: after[i].x - after[j].x,
+                y: after[i].y - after[j].y,
+            };
+            assert!(
+                math::distance_to_segment(Point { x: 0.0, y: 0.0 }, start, end) + 1e-9
+                    >= 2.0 * scenario.agent_radius,
+                "accepted moves overlap for agents {i} and {j}"
+            );
+        }
+    }
+}
+
+#[test]
+fn wide_exit_evacuates_people_side_by_side_at_the_same_tick() {
+    let mut scenario = room();
+    scenario.spawn_zones = vec![
+        pinned_zone("left", 4.123, 1.0),
+        pinned_zone("right", 6.271, 1.0),
+    ];
+    let result = simulate(&scenario).unwrap();
+    assert_eq!(result.metrics.status, SimulationStatus::Completed);
+    let stats = &result.analytics.as_ref().unwrap().agents;
+    assert_eq!(stats[0].evacuation_step, stats[1].evacuation_step);
+    assert!(stats.iter().all(|agent| agent.distance_metres < 1.01));
+    for frame in &result.frames {
+        for agent in &frame.agents {
+            let original_x = if agent.id == stats[0].id {
+                4.123
+            } else {
+                6.271
+            };
+            assert!(
+                (agent.x - original_x).abs() < 1e-8,
+                "an uncongested approach should not converge to the centre"
+            );
+        }
+    }
+}
+
+#[test]
+fn diagonal_exit_uses_its_width_from_either_side() {
+    for side in [-1.0, 1.0] {
+        let mut scenario = room();
+        scenario.width = 14.0;
+        scenario.height = 14.0;
+        scenario.walls = vec![Wall {
+            id: "diagonal".into(),
+            name: None,
+            start: Point { x: 2.0, y: 2.0 },
+            end: Point { x: 12.0, y: 12.0 },
+            thickness: 0.2,
+        }];
+        scenario.exits = vec![Opening {
+            id: "wide".into(),
+            name: None,
+            wall_id: "diagonal".into(),
+            offset: 2.0,
+            width: 8.0,
+        }];
+        let normal = Point {
+            x: -side / 2.0_f64.sqrt(),
+            y: side / 2.0_f64.sqrt(),
+        };
+        scenario.spawn_zones = [4.123, 7.271]
+            .into_iter()
+            .enumerate()
+            .map(|(id, along)| {
+                let c = 2.0 + along / 2.0_f64.sqrt();
+                pinned_zone(&format!("person_{id}"), c + normal.x, c + normal.y)
+            })
+            .collect();
+        let result = simulate(&scenario).unwrap();
+        assert_eq!(result.metrics.status, SimulationStatus::Completed);
+        let stats = &result.analytics.as_ref().unwrap().agents;
+        assert_eq!(stats[0].evacuation_step, stats[1].evacuation_step);
+        assert!(
+            stats
+                .iter()
+                .all(|agent| (agent.distance_metres - 1.0).abs() < 1e-6)
+        );
+    }
+}
+
+#[test]
+fn a_wider_exit_increases_parallel_flow() {
+    let mut wide = room();
+    wide.spawn_zones = vec![
+        pinned_zone("a", 4.0, 2.0),
+        pinned_zone("b", 5.0, 2.0),
+        pinned_zone("c", 6.0, 2.0),
+    ];
+    let mut narrow = wide.clone();
+    narrow.exits[0].offset = 4.6;
+    narrow.exits[0].width = 0.8;
+    let wide_result = simulate(&wide).unwrap();
+    let narrow_result = simulate(&narrow).unwrap();
+    assert_eq!(wide_result.metrics.status, SimulationStatus::Completed);
+    assert_eq!(narrow_result.metrics.status, SimulationStatus::Completed);
+    assert!(
+        wide_result.metrics.clearance_steps.unwrap()
+            < narrow_result.metrics.clearance_steps.unwrap()
+    );
 }

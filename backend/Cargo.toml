@@ -14,3 +14,8 @@ tower-http = { version = "0.7", features = ["cors"] }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
+
+# Keep fast incremental builds and debug symbols, but optimize the simulation
+# used by ./dev.sh. Dependencies retain the normal development profile.
+[profile.dev.package.exitzero]
+opt-level = 2
