@@ -1,3 +1,4 @@
+import { createAgentEffects } from "./agentEffects";
 import { formatDimensions } from "../utils/units";
 import { snapshotFrameIndex, type ReplayTarget } from "./replayTarget";
 import {
@@ -138,6 +139,10 @@ function Playback({
       displayOptions,
     );
     const palette = canvasPalette(element);
+    const effects = createAgentEffects([
+      ...(recording?.communication_events ?? []),
+      ...(recording?.agent_events ?? []),
+    ]);
     const trailSampler =
       recording && displayOptions.showTraffic
         ? createRecordedTrails(recording)
@@ -159,6 +164,7 @@ function Playback({
       const ratio = window.devicePixelRatio || 1;
       if (!recording || !trailSampler) {
         render(agents, ratio, showAgentNumbers);
+        effects(element, building, agents, time, ratio);
         return;
       }
       const index = frameIndexAtTime(
@@ -207,6 +213,7 @@ function Playback({
         },
       );
       drawAgents(element, building, agents, ratio, palette, showAgentNumbers);
+      effects(element, building, agents, time, ratio);
     };
     const unsubscribe = player.subscribeRender(redraw);
     redraw();

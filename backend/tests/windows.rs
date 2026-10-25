@@ -255,7 +255,7 @@ fn saved_layout_exterior_directions_control_window_reachability() {
 }
 
 #[test]
-fn corrected_saved_layout_uses_windows_when_gas_closes_its_exit() {
+fn corrected_saved_layout_uses_windows_when_gas_covers_its_exit() {
     let mut b: BuildingScenario =
         serde_json::from_str(include_str!("../../shared/examples/window-escape.json")).unwrap();
     let exit = &b.exits[0];

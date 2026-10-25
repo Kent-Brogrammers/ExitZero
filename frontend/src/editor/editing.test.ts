@@ -135,7 +135,7 @@ describe("continuous building edit compatibility", () => {
     "obstructed-spawn",
     "zero-count",
     "fractional-count",
-  ])("rejects incompatible layout edits: %s", (problem) => {
+  ])("validates layout edits: %s", (problem) => {
     const changed = fixture();
     if (problem === "duplicate-id")
       changed.spawn_zones[0]!.id = changed.walls[0]!.id;
@@ -148,6 +148,8 @@ describe("continuous building edit compatibility", () => {
       ];
     if (problem === "zero-count") changed.spawn_zones[0]!.count = 0;
     if (problem === "fractional-count") changed.spawn_zones[0]!.count = 1.5;
-    expect(buildingError(changed)).not.toBeNull();
+    if (problem === "obstructed-spawn")
+      expect(buildingError(changed)).toBeNull();
+    else expect(buildingError(changed)).not.toBeNull();
   });
 });

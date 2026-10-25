@@ -36,6 +36,8 @@ impl Ord for SearchState {
 
 /// A route ends at a body-clear position anywhere along its exit opening.
 pub(super) struct Route {
+    /// A gas crossing accepted only after a search for a clear route failed.
+    pub risk_allowed: bool,
     pub exit_id: String,
     pub waypoints: Vec<Point>,
 }
@@ -61,7 +63,6 @@ impl Navigation {
         let mut exits: Vec<ExitTarget> = scenario
             .exits
             .iter()
-            .filter(|exit| !geometry.opening_is_unsafe(&exit.id))
             .flat_map(|exit| {
                 geometry
                     .exit_segments(&exit.id)
@@ -326,6 +327,15 @@ impl Navigation {
         occupants: &CrowdForecast,
         radius: f64,
     ) -> Option<Route> {
+        // Prefer a danger-free gas route before accepting exposure as a last
+        // resort. Physically blocked exits remain absent from the graph.
+        if geometry
+            .disaster
+            .is_some_and(|d| d.kind == crate::models::DisasterKind::GasLeak)
+            && let Some(route) = self.search(from, geometry, occupants, radius, true)
+        {
+            return Some(route);
+        }
         self.search(from, geometry, occupants, radius, false)
     }
 
@@ -387,6 +397,9 @@ impl Navigation {
         let mut best: Option<(f64, usize, Point, Option<usize>)> = None;
         let mut consider = |start: Point, distance: f64, parent: Option<usize>| {
             for (index, exit) in self.exits.iter().enumerate() {
+                if avoid_danger && geometry.opening_is_unsafe(&exit.id) {
+                    continue;
+                }
                 let target = if exit.shelter {
                     Point {
                         x: start.x.clamp(exit.start.x, exit.end.x),
@@ -451,6 +464,10 @@ impl Navigation {
         }
         waypoints.reverse();
         Some(Route {
+            risk_allowed: !avoid_danger
+                && geometry
+                    .disaster
+                    .is_some_and(|d| d.kind == crate::models::DisasterKind::GasLeak),
             exit_id: self.exits[index].id.clone(),
             waypoints,
         })

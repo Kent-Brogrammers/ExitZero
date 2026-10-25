@@ -1,5 +1,6 @@
 import type { AnimationFrame } from "../types/simulation";
 export const CROWD_ZONE = 2;
+export const CROWDING_WARMUP_SECONDS = 3;
 export interface CrowdingSpot {
   x: number;
   y: number;
@@ -38,7 +39,11 @@ export function frameCrowding(
   }
   return [...zones.values()];
 }
-export function createCrowdingTracker(width: number, height: number) {
+export function createCrowdingTracker(
+  width: number,
+  height: number,
+  timeStepSeconds = 1,
+) {
   const peaks = new Map<string, CrowdingSpot>();
   const listeners = new Set<() => void>();
   let snapshot: CrowdingSpot[] = [];
@@ -73,7 +78,13 @@ export function createCrowdingTracker(width: number, height: number) {
           return moved.has(agent.id);
         });
         // Use the same eligible occupants for both ranks and snapshot heatmaps.
-        const rankedFrame = { ...frame, agents };
+        const rankedFrame = {
+          ...frame,
+          agents:
+            frame.step * timeStepSeconds >= CROWDING_WARMUP_SECONDS
+              ? agents
+              : [],
+        };
         for (const spot of frameCrowding(rankedFrame, width, height)) {
           const key = `${spot.x},${spot.y}`;
           if (spot.count > (peaks.get(key)?.count ?? 0)) peaks.set(key, spot);

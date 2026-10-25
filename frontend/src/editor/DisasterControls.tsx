@@ -508,7 +508,9 @@ export function ScenarioFields({
           <p className="note">
             {disaster.kind === "tornado"
               ? "After Apply, draw Tornado zones on the plan to mark indoor shelters."
-              : "Affected openings close automatically. Agents discover the location by sight, contact or nearby reports."}
+              : disaster.kind === "gas_leak"
+                ? "Gas leaves passages open. Agents prefer clear routes or usable escape windows, then risk exposure if no safer route remains. Exposure injures and slows them."
+                : "Affected openings close automatically. Agents discover the location by sight, contact or nearby reports."}
           </p>
         </>
       )}

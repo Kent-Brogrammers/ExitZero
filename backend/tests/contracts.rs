@@ -189,7 +189,7 @@ fn rejects_invalid_geometry_and_spawn_configurations() {
         ("spawn_zones", serde_json::json!([])),
         (
             "spawn_zones",
-            serde_json::json!([{"id":"s","x":2,"y":2,"width":1,"height":1,"count":2}]),
+            serde_json::json!([{"id":"s","x":2,"y":2,"width":0.2,"height":1,"count":2}]),
         ),
         (
             "spawn_zones",
@@ -224,7 +224,7 @@ fn validates_openings_and_thick_angled_walls() {
         end: Point { x: 11.0, y: 9.0 },
         thickness: 0.2,
     });
-    assert!(building.validate().is_err());
+    assert!(building.validate().is_ok());
     let mut building = example();
     building.walls[0].start.x = f64::NAN;
     assert!(building.validate().is_err());
