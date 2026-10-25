@@ -1,4 +1,4 @@
-import type { Ref } from "react";
+import type { ReactNode, Ref } from "react";
 import { buildingPresets, type BuildingPreset } from "./presets";
 import { StudioPopover } from "../ui/StudioPopover";
 import { DraftingControls } from "./DraftingControls";
@@ -20,6 +20,7 @@ interface EditorUtilityRailProps {
   onImportDxf: () => void;
   onExport: () => void;
   onProperties: () => void;
+  canvasControls: ReactNode;
   drafting: DraftingPreferences;
   onDrafting: (p: DraftingPreferences) => void;
 }
@@ -124,6 +125,17 @@ export function EditorUtilityRail(props: EditorUtilityRailProps) {
             onChange={props.onDrafting}
           />
         )}
+      </StudioPopover>
+      <StudioPopover
+        label="Canvas"
+        side="left"
+        className="editor-canvas-settings"
+        disabled={props.disabled}
+        triggerClassName="rail-button"
+        triggerContent={content("expand", "Canvas")}
+        indicator={false}
+      >
+        {() => props.canvasControls}
       </StudioPopover>
       <button
         ref={props.propertiesButton}

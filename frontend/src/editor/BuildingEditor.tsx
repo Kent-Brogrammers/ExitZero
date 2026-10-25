@@ -115,6 +115,8 @@ export function BuildingEditor({
 }: BuildingEditorProps) {
   const theme = useStudioTheme();
   const [drafting, setDrafting] = useDraftingPreferences();
+  const editor = useRef<HTMLElement>(null);
+  const [expandedView, setExpandedView] = useState(false);
   const canvas = useRef<HTMLCanvasElement>(null);
   const importInput = useRef<HTMLInputElement>(null);
   const dxfDialog = useRef<HTMLDialogElement>(null);
@@ -138,6 +140,27 @@ export function BuildingEditor({
   const selectedElement = selected
     ? (building[selected.kind] ?? []).find((v) => v.id === selected.id)
     : null;
+
+  useEffect(() => {
+    const update = () =>
+      setExpandedView(document.fullscreenElement === editor.current);
+    document.addEventListener("fullscreenchange", update);
+    return () => document.removeEventListener("fullscreenchange", update);
+  }, []);
+
+  async function toggleExpandedView() {
+    if (!editor.current) return;
+    setGesture(null);
+    try {
+      if (document.fullscreenElement === editor.current)
+        await document.exitFullscreen();
+      else await editor.current.requestFullscreen();
+    } catch {
+      setError(
+        "Fullscreen is unavailable in this browser. Canvas size controls still work.",
+      );
+    }
+  }
 
   function snapshot(): EditorSnapshot {
     return { building, furniture: new Map(furnitureSymbols) };
@@ -858,9 +881,17 @@ export function BuildingEditor({
 
   return (
     <section
+      ref={editor}
       className="panel editor-panel"
       id="building"
       aria-labelledby="building-title"
+      onKeyDownCapture={(event) => {
+        if (event.key === "Escape" && expandedView) {
+          event.preventDefault();
+          event.stopPropagation();
+          void toggleExpandedView();
+        }
+      }}
     >
       <div className="panel-heading">
         <div>
@@ -919,6 +950,57 @@ export function BuildingEditor({
               onImportDxf={() => dxfDialog.current?.showModal()}
               onExport={exportLayout}
               onProperties={() => setPropertiesOpen(!propertiesOpen)}
+              canvasControls={
+                <div className="canvas-size-controls">
+                  <h3>Drawing area</h3>
+                  <NumberField
+                    label="Width (m)"
+                    value={building.width}
+                    onCommit={(width) => commit({ ...building, width })}
+                  />
+                  <NumberField
+                    label="Height (m)"
+                    value={building.height}
+                    onCommit={(height) => commit({ ...building, height })}
+                  />
+                  <button
+                    type="button"
+                    className="studio-control"
+                    disabled={building.width >= 1000 && building.height >= 1000}
+                    onClick={() =>
+                      commit({
+                        ...building,
+                        width: Math.min(
+                          1000,
+                          Math.ceil(building.width * 125) / 100,
+                        ),
+                        height: Math.min(
+                          1000,
+                          Math.ceil(building.height * 125) / 100,
+                        ),
+                      })
+                    }
+                  >
+                    Expand drawing area +25%
+                  </button>
+                  <p className="note">
+                    Up to 1,000 m per side. Existing objects keep their size and
+                    position. Undo restores the previous area.
+                  </p>
+                  <hr />
+                  <button
+                    type="button"
+                    className="studio-control"
+                    aria-pressed={expandedView}
+                    onClick={() => void toggleExpandedView()}
+                  >
+                    {expandedView ? "Restore view" : "Expand view"}
+                  </button>
+                  <p className="note">
+                    Fullscreen drawing. Press Esc to return.
+                  </p>
+                </div>
+              }
               drafting={drafting}
               onDrafting={setDrafting}
             />
@@ -1322,19 +1404,6 @@ export function BuildingEditor({
                 Select an object. Export JSON to save your layout.
               </p>
             )}
-            <details className="workspace-settings">
-              <summary>Canvas size</summary>
-              <NumberField
-                label="Width (m)"
-                value={building.width}
-                onCommit={(width) => commit({ ...building, width })}
-              />
-              <NumberField
-                label="Height (m)"
-                value={building.height}
-                onCommit={(height) => commit({ ...building, height })}
-              />
-            </details>
           </aside>
         </div>
       </fieldset>
