@@ -5,6 +5,7 @@ import type {
   OptimizationCandidate,
   OptimizationResult,
   SimulationMetrics,
+  Opening,
 } from "../types/simulation";
 
 export interface OptimizationEvaluation {
@@ -31,19 +32,49 @@ export function compareMetrics(
 export const clearanceLabel = (steps: number | null) =>
   steps === null ? "No measured clearance" : `${steps} steps`;
 
+export function openingWidthChanges(
+  source: BuildingScenario,
+  candidate: BuildingScenario,
+) {
+  return (["doors", "exits"] as const).flatMap((kind) =>
+    candidate[kind].flatMap(
+      (
+        proposed,
+      ): { kind: typeof kind; original: Opening; proposed: Opening }[] => {
+        const original = source[kind].find(
+          (opening) => opening.id === proposed.id,
+        );
+        return original && original.width !== proposed.width
+          ? [{ kind, original, proposed }]
+          : [];
+      },
+    ),
+  );
+}
+
+export function improvementLabel(
+  before: SimulationMetrics,
+  after: SimulationMetrics,
+  timeStep: number,
+): string {
+  if (before.clearance_steps === null || after.clearance_steps === null)
+    return "Full clearance comparison unavailable";
+  const steps = before.clearance_steps - after.clearance_steps;
+  const amount = Math.abs(steps);
+  const percent =
+    before.clearance_steps > 0
+      ? ` · ${((amount / before.clearance_steps) * 100).toFixed(1)}%`
+      : "";
+  return `${amount} steps · ${(amount * timeStep).toFixed(2)} s${percent} ${steps > 0 ? "faster" : steps < 0 ? "slower" : "change"}`;
+}
+
 export function openingChanges(
   source: BuildingScenario,
   candidate: BuildingScenario,
 ): string[] {
-  return (["doors", "exits"] as const).flatMap((kind) =>
-    candidate[kind].flatMap((opening) => {
-      const old = source[kind].find((item) => item.id === opening.id);
-      return old && old.width !== opening.width
-        ? [
-            `${kind === "doors" ? "Door" : "Exit"} ${old.name ?? old.id}: ${formatLength(old.width)} → ${formatLength(opening.width)}`,
-          ]
-        : [];
-    }),
+  return openingWidthChanges(source, candidate).map(
+    ({ kind, original, proposed }) =>
+      `${kind === "doors" ? "Door" : "Exit"} ${original.name ?? original.id}: ${formatLength(original.width)} → ${formatLength(proposed.width)}`,
   );
 }
 

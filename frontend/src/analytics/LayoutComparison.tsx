@@ -8,11 +8,13 @@ export function LayoutComparison({
   building,
   result,
   onWatchOriginal,
+  showLayouts = false,
 }: {
   before: BaselineRecording;
   building: BuildingScenario;
   result: SimulationResult | null;
   onWatchOriginal?: () => void;
+  showLayouts?: boolean;
 }) {
   const context = result ? comparisonContext(before, building, result) : null;
   const clearance = (run: SimulationResult) =>
@@ -99,19 +101,35 @@ export function LayoutComparison({
               )}
             </p>
           )}
-          <details>
-            <summary>Compare layout geometry</summary>
-            <div className="analytics-grid">
-              <LayoutCanvas
-                building={before.building}
-                label="Original layout geometry"
-              />
-              <LayoutCanvas
-                building={building}
-                label="Modified layout geometry"
-              />
-            </div>
-          </details>
+          {showLayouts ? (
+            <section aria-label="Compare layout geometry">
+              <h3>Compare layout geometry</h3>
+              <div className="analytics-grid">
+                <LayoutCanvas
+                  building={before.building}
+                  label="Original layout geometry"
+                />
+                <LayoutCanvas
+                  building={building}
+                  label="Modified layout geometry"
+                />
+              </div>
+            </section>
+          ) : (
+            <details>
+              <summary>Compare layout geometry</summary>
+              <div className="analytics-grid">
+                <LayoutCanvas
+                  building={before.building}
+                  label="Original layout geometry"
+                />
+                <LayoutCanvas
+                  building={building}
+                  label="Modified layout geometry"
+                />
+              </div>
+            </details>
+          )}
         </>
       )}
     </section>

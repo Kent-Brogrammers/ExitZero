@@ -140,8 +140,7 @@ export default function TrafficHeatmap({
           ) : (
             <p className="note">No positive traffic samples were returned.</p>
           )}
-          <details className="note">
-            <summary>About recorded traffic</summary>
+          <div className="note traffic-explanation">
             <p>
               Computed visits, smoothed for display. Color may extend beyond
               recorded paths; it does not predict movement through walls. Source
@@ -150,7 +149,7 @@ export default function TrafficHeatmap({
               relative to this run, not density or measured congestion. Scenario
               selection does not change this map.
             </p>
-          </details>
+          </div>
         </>
       )}
     </section>

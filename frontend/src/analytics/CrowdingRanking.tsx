@@ -171,14 +171,13 @@ function Cards({
         <span>More occupants</span>
         <span>Outlined zone = ranked spot</span>
       </div>
-      <details className="note">
-        <summary>How to read these snapshots</summary>
+      <div className="note crowding-explanation">
         <p>
           Each snapshot shows its zone's peak timestamp on a shared color scale.
           Smoothed colors may spread beyond zone edges. Occupant count
           determines rank.
         </p>
-      </details>
+      </div>
       {spots.length ? (
         <div className="crowding-cards">
           {spots.map((spot, i) => (
