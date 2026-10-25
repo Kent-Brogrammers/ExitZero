@@ -46,7 +46,12 @@ export function drawLayout(
   ctx.setTransform(scale, 0, 0, scale, x, y);
   ctx.fillStyle = palette.surface;
   ctx.fillRect(0, 0, building.width, building.height);
-  // World-space overlays sit above the background and below drafting/geometry.
+  // Traffic overlays cover spawn fills; their outlines and labels stay legible.
+  if (options?.underlay) {
+    ctx.fillStyle = palette.spawn;
+    for (const zone of building.spawn_zones)
+      ctx.fillRect(zone.x, zone.y, zone.width, zone.height);
+  }
   options?.underlay?.(ctx);
   if (options?.grid)
     drawGrid(ctx, building, { scale, x, y }, ratio, options.grid, palette);
@@ -74,7 +79,8 @@ export function drawLayout(
           ? palette.spawnBorder
           : palette.obstacleBorder;
     ctx.lineWidth = (selectedIds.has(rectangle.id) ? 2 : 1) * px;
-    ctx.fillRect(rectangle.x, rectangle.y, rectangle.width, rectangle.height);
+    if (!spawn || !options?.underlay)
+      ctx.fillRect(rectangle.x, rectangle.y, rectangle.width, rectangle.height);
     ctx.strokeRect(rectangle.x, rectangle.y, rectangle.width, rectangle.height);
     const furniture = options?.furniture?.get(rectangle.id);
     if (furniture) {

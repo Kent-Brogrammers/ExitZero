@@ -44,6 +44,51 @@ function canvasFixture(width: number, height = (width * 2) / 3) {
 }
 
 describe("freeform Canvas drawing", () => {
+  it("layers traffic above spawn fills but below labels, outlines and obstacles", () => {
+    const { context, element } = canvasFixture(600);
+    const underlay = vi.fn();
+    const building = {
+      ...example,
+      obstructions: [{ id: "blocker", x: 10, y: 10, width: 1, height: 1 }],
+    };
+    drawLayout(element, building, null, undefined, 1, undefined, { underlay });
+    const overlayOrder = underlay.mock.invocationCallOrder[0]!;
+    for (const zone of building.spawn_zones) {
+      const fills = context.fillRect.mock.calls.flatMap((args, index) =>
+        JSON.stringify(args) ===
+        JSON.stringify([zone.x, zone.y, zone.width, zone.height])
+          ? [index]
+          : [],
+      );
+      expect(fills).toHaveLength(1);
+      expect(
+        context.fillRect.mock.invocationCallOrder[fills[0]!]!,
+      ).toBeLessThan(overlayOrder);
+    }
+    expect(context.strokeRect.mock.invocationCallOrder[0]!).toBeGreaterThan(
+      overlayOrder,
+    );
+    expect(context.fillText.mock.invocationCallOrder[0]!).toBeGreaterThan(
+      overlayOrder,
+    );
+    for (const obstacle of building.obstructions) {
+      const index = context.fillRect.mock.calls.findIndex(
+        (args) =>
+          JSON.stringify(args) ===
+          JSON.stringify([
+            obstacle.x,
+            obstacle.y,
+            obstacle.width,
+            obstacle.height,
+          ]),
+      );
+      expect(index).toBeGreaterThanOrEqual(0);
+      expect(context.fillRect.mock.invocationCallOrder[index]!).toBeGreaterThan(
+        overlayOrder,
+      );
+    }
+  });
+
   it("scales the backing buffer for high-DPI displays while drawing metre coordinates", () => {
     const { canvas, context, element } = canvasFixture(360);
     drawLayout(element, example, { kind: "walls", id: "angled" }, undefined, 2);
