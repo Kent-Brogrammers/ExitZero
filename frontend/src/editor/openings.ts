@@ -117,6 +117,30 @@ export function configureWindowEscape(
   };
 }
 
+/** Apply editor defaults to older imports and templates as well as new windows. */
+export function withWindowEscapeDefaults(
+  building: BuildingScenario,
+): BuildingScenario {
+  let ready = building;
+  for (const pane of building.windows ?? []) {
+    if (!pane.emergency_escape) ready = configureWindowEscape(ready, pane);
+  }
+  if (
+    !ready.window_escape_context &&
+    ready.windows?.some((pane) => pane.emergency_escape?.enabled)
+  ) {
+    ready = {
+      ...ready,
+      window_escape_context: {
+        floor_elevation_metres: 0,
+        all_agents_can_traverse: true,
+        required_clear_height_metres: 1,
+      },
+    };
+  }
+  return ready;
+}
+
 /** Same interval sweep as Rust: touching gaps are continuous; blocked exits stay solid. */
 export function solidWallSegments(
   building: OpeningLayout,

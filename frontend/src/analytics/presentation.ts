@@ -27,7 +27,7 @@ export function outcomeExplanation(
   if (reason === "no_active_routes")
     return "The engine ended because no remaining occupant had an active route and no pending change could restart routing. This does not prove that every remaining occupant is physically trapped. No complete clearance was measured.";
   if (reason === "movement_stagnation")
-    return "The engine ended after its measured interval without movement or new information. This does not establish the cause for each remaining occupant. No complete clearance was measured.";
+    return "The run stopped after an interval without meaningful movement. Occupants still inside did not evacuate during this run. No complete clearance was measured.";
   return "The run ended before everyone evacuated. The engine stops when routes are unavailable or movement stalls. The API does not report which stopping condition occurred. Zero trapped does not mean all remaining occupants can evacuate.";
 }
 

@@ -259,6 +259,25 @@ impl<'a> Windows<'a> {
     pub(super) fn has_eligible(&self) -> bool {
         self.stations.iter().any(|s| s.eligible)
     }
+    pub(super) fn has_timed_service(&self, step: u32) -> bool {
+        self.stations.iter().any(|station| {
+            (station.eligible
+                && !station.queue.is_empty()
+                && matches!(
+                    station.snapshot.state,
+                    WindowState::Opening | WindowState::Breaking
+                )
+                && station
+                    .snapshot
+                    .preparation_ready_step
+                    .is_some_and(|ready| ready > step))
+                || (station.traverser.is_some()
+                    && station
+                        .snapshot
+                        .traversal_earliest_finish_step
+                        .is_some_and(|ready| ready > step))
+        })
+    }
     pub(super) fn refresh(
         &mut self,
         emergencies: &'a [Emergency],

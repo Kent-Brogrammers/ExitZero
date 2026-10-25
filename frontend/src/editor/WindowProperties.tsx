@@ -1,6 +1,10 @@
 import { lengthInputValue, lengthFromInput } from "../utils/units";
 import type { BuildingScenario, WindowOpening } from "../types/simulation";
-import { configureWindowEscape, suggestedWindowExterior } from "./openings";
+import {
+  configureWindowEscape,
+  suggestedWindowExterior,
+  withWindowEscapeDefaults,
+} from "./openings";
 
 /** Explicit scenario assumptions; changing these never renames or replaces an opening. */
 export function WindowProperties({
@@ -12,7 +16,10 @@ export function WindowProperties({
   window: WindowOpening;
   onChange: (next: BuildingScenario) => unknown;
 }) {
-  const escape = pane.emergency_escape;
+  const ready = withWindowEscapeDefaults(building);
+  const escape = ready.windows?.find(
+    (window) => window.id === pane.id,
+  )?.emergency_escape;
   const suggestedSide = suggestedWindowExterior(building, pane);
   const wall = building.walls.find((w) => w.id === pane.wall_id);
   const direction = (side: -1 | 1) => {
@@ -30,14 +37,14 @@ export function WindowProperties({
   ) => {
     onChange(configureWindowEscape(building, pane, patch));
   };
-  const context = building.window_escape_context;
+  const context = ready.window_escape_context;
   return (
     <fieldset className="window-properties">
       <legend>Emergency window assumptions</legend>
       <label className="block-toggle">
         <input
           type="checkbox"
-          checked={escape?.enabled ?? false}
+          checked={escape?.enabled ?? true}
           onChange={(e) => update({ enabled: e.target.checked })}
         />
         Enable last-resort escape
