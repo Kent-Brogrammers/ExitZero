@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { canvasView } from "../editor/geometry";
+import { drawLayout } from "../editor/draw";
 import {
   createPlaybackRenderer,
   drawPlayback,
@@ -40,6 +41,29 @@ function fixture(width: number, height: number) {
 }
 
 describe("playback Canvas", () => {
+  it("allows the welcome preview to omit dimensions while editor/playback keep the default caption", () => {
+    const normal = fixture(600, 400),
+      welcome = fixture(600, 400);
+    drawLayout(normal.element, syntheticBuilding, null);
+    drawLayout(
+      welcome.element,
+      syntheticBuilding,
+      null,
+      undefined,
+      2,
+      undefined,
+      { showDimensions: false },
+    );
+    const dimensions = `${syntheticBuilding.width} × ${syntheticBuilding.height} m`;
+    expect(
+      normal.context.fillText.mock.calls.some(([text]) => text === dimensions),
+    ).toBe(true);
+    expect(
+      welcome.context.fillText.mock.calls.some(([text]) => text === dimensions),
+    ).toBe(false);
+    expect(welcome.canvas.width).toBe(1200);
+    expect(welcome.context.lineTo).toHaveBeenCalled();
+  });
   it("refreshes the cached floor plan when a passage closes or reopens", () => {
     const main = fixture(600, 400),
       cache = fixture(600, 400);

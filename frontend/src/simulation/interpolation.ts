@@ -5,6 +5,7 @@ import type {
   Point,
 } from "../types/simulation";
 import { frameIndexAtTime } from "./playback";
+import { solidWallSegments } from "../editor/openings";
 import { frameLayout } from "./frameLayout";
 
 interface Segment {
@@ -49,43 +50,13 @@ function segmentDistance(a: Point, b: Point, c: Point, d: Point) {
 }
 
 function solidWalls(building: BuildingScenario): Segment[] {
-  const segments: Segment[] = [];
-  const openings = [
-    ...building.doors,
-    ...building.exits.filter(
-      (exit) => !building.blocked_exit_ids.includes(exit.id),
-    ),
-  ];
-  for (const wall of building.walls) {
-    const length = Math.hypot(
-      wall.end.x - wall.start.x,
-      wall.end.y - wall.start.y,
-    );
-    if (!length) continue;
-    const point = (offset: number) => ({
-      x: wall.start.x + ((wall.end.x - wall.start.x) * offset) / length,
-      y: wall.start.y + ((wall.end.y - wall.start.y) * offset) / length,
-    });
-    let offset = 0;
-    for (const opening of openings
-      .filter((o) => o.wall_id === wall.id)
-      .sort((a, b) => a.offset - b.offset)) {
-      if (opening.offset > offset)
-        segments.push({
-          start: point(offset),
-          end: point(opening.offset),
-          padding: wall.thickness / 2 + building.agent_radius,
-        });
-      offset = Math.max(offset, opening.offset + opening.width);
-    }
-    if (offset < length)
-      segments.push({
-        start: point(offset),
-        end: point(length),
-        padding: wall.thickness / 2 + building.agent_radius,
-      });
-  }
-  return segments;
+  return building.walls.flatMap((wall) =>
+    solidWallSegments(building, wall).map(([start, end]) => ({
+      start,
+      end,
+      padding: building.agent_radius + wall.thickness / 2,
+    })),
+  );
 }
 
 /** Conservative display guard only. It never finds routes or changes physics. */

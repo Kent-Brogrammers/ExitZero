@@ -6,17 +6,23 @@ import { BuildingWorkspace } from "./editor/BuildingWorkspace";
 import { StudioPopover } from "./ui/StudioPopover";
 import { AppearanceSelector } from "./styles/StudioAppearance";
 import { StudioWelcome } from "./studio/StudioWelcome";
+import { StudioAbout } from "./studio/StudioAbout";
 import { loadOfficeDemo, officeDemoBuilding } from "./studio/officeDemo";
 import {
   OfficeDemoNotice,
   type OfficeDemoSource,
 } from "./studio/OfficeDemoNotice";
 import { api } from "./services/api";
+import {
+  applyOptimizationCandidate,
+  type OptimizationEvaluation,
+} from "./analytics/optimization";
 import type {
   BuildingScenario,
   LiveSimulation,
   SimulationResult,
   StressTestResult,
+  OptimizationCandidate,
 } from "./types/simulation";
 
 const AnalyticsDashboard = lazy(() => import("./analytics/AnalyticsDashboard"));
@@ -63,6 +69,7 @@ export default function App() {
     if (namesOnly) return;
     setResult(null);
     setStressResult(null);
+    setOptimization(null);
     if (officeDemo) setOfficeDemo("edited");
     setMessage("");
   }
@@ -80,12 +87,39 @@ export default function App() {
   const [stressResult, setStressResult] = useState<StressTestResult | null>(
     null,
   );
+  const [optimization, setOptimization] =
+    useState<OptimizationEvaluation | null>(null);
+
+  function applyCandidate(candidate: OptimizationCandidate) {
+    if (!optimization || busy) return;
+    try {
+      const next = applyOptimizationCandidate(
+        building,
+        optimization.result.baseline,
+        candidate,
+      );
+      setBuilding(next);
+      setResult(null);
+      setStressResult(null);
+      setOptimization({ ...optimization, applied: candidate });
+      if (officeDemo) setOfficeDemo("edited");
+      setMessage(
+        "Candidate applied. Run simulation to measure the new layout.",
+      );
+      navigate("edit");
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Could not apply candidate.",
+      );
+    }
+  }
 
   const [officeDemo, setOfficeDemo] = useState<OfficeDemoSource | null>(null);
   const previousWorkspace = useRef<{
     building: BuildingScenario;
     result: SimulationResult | null;
     stressResult: StressTestResult | null;
+    optimization: OptimizationEvaluation | null;
   } | null>(null);
 
   async function openOfficeDemo() {
@@ -101,10 +135,16 @@ export default function App() {
     setBusy(true);
     try {
       const recording = await loadOfficeDemo();
-      previousWorkspace.current ??= { building, result, stressResult };
+      previousWorkspace.current ??= {
+        building,
+        result,
+        stressResult,
+        optimization,
+      };
       setBuilding(structuredClone(officeDemoBuilding));
       setResult(recording);
       setStressResult(null);
+      setOptimization(null);
       setOfficeDemo("recorded");
       setMessage("");
       navigate("simulation");
@@ -130,6 +170,7 @@ export default function App() {
     setBuilding(previous.building);
     setResult(previous.result);
     setStressResult(previous.stressResult);
+    setOptimization(previous.optimization);
     previousWorkspace.current = null;
     setOfficeDemo(null);
     setMessage("");
@@ -150,7 +191,7 @@ export default function App() {
   async function run(action: "simulate" | "stress" | "optimize") {
     if (busy) return;
     setBusy(true);
-    setMessage("Sending request to the backend…");
+    setMessage("Sending request…");
     try {
       if (action === "simulate") {
         if (officeDemo) setOfficeDemo("live");
@@ -173,9 +214,7 @@ export default function App() {
         );
         if (!controller.signal.aborted) {
           setResult(recording);
-          setMessage(
-            "Run finished. Rewind the timeline or replay to review it.",
-          );
+          setMessage("Recording ready.");
         }
       } else if (action === "stress") {
         setStressResult(
@@ -188,12 +227,15 @@ export default function App() {
             },
           }),
         );
-        setMessage("Stress-test result received.");
+        setMessage("Stress test ready.");
       } else {
-        await api.optimize({ building, max_candidates: 10 });
-        setMessage(
-          "Optimization result received. Candidate visualization is pending.",
-        );
+        const optimized = await api.optimize({ building, max_candidates: 10 });
+        setOptimization({
+          source: structuredClone(building),
+          result: optimized,
+          applied: null,
+        });
+        setMessage(`${optimized.candidates.length} layout improvements found.`);
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Request failed.");
@@ -385,6 +427,7 @@ export default function App() {
                   {layoutProblem && (
                     <p className="settings-warning">{layoutProblem}</p>
                   )}
+                  <StudioAbout />
                 </div>
               )}
             </StudioPopover>
@@ -399,7 +442,7 @@ export default function App() {
               }
               onClick={() => void run("simulate")}
             >
-              {busy ? "Working…" : "Run simulation"}
+              {busy ? "Working…" : "Run Simulation"}
               <span aria-hidden="true">↗</span>
             </button>
           </div>
@@ -439,12 +482,8 @@ export default function App() {
           >
             <div className="analysis-heading">
               <div>
-                <p className="eyebrow">THE RECORD / ANALYTICS</p>
-                <h2>
-                  Every outcome.
-                  <br />
-                  <span>A clearer picture.</span>
-                </h2>
+                <p className="eyebrow">ANALYTICS</p>
+                <h2>Simulation results.</h2>
               </div>
               <div
                 className="control-buttons"
@@ -455,7 +494,7 @@ export default function App() {
                   disabled={busy || connection !== "online" || !!layoutProblem}
                   onClick={() => void run("stress")}
                 >
-                  Stress test
+                  Stress Test
                 </button>
                 <button
                   disabled={busy || connection !== "online" || !!layoutProblem}
@@ -467,9 +506,12 @@ export default function App() {
             </div>
             <Suspense fallback={<p role="status">Loading analytics…</p>}>
               <AnalyticsDashboard
-                building={building}
                 result={result}
                 stressResult={stressResult}
+                building={building}
+                optimization={optimization}
+                onApply={applyCandidate}
+                disabled={busy}
               />
             </Suspense>
           </section>

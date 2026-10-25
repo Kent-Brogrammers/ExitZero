@@ -67,9 +67,9 @@ export function OfficeDemoNotice({
         )}
         <span>
           {result
-            ? "Recorded traffic, relative to this run. Show Analytics for the outcome; full Analytics includes actual accumulated visits."
+            ? "Relative recorded traffic. Full Analytics shows accumulated visits."
             : source === "live" && busy
-              ? "Current crowding is based on positions received from Rust. Playback and final analytics follow when the run finishes."
+              ? "Live positions from Rust. Playback and final analytics follow after the run."
               : "Run Simulation to compute traffic for this layout. The saved office recording does not describe these edits."}
         </span>
       </div>

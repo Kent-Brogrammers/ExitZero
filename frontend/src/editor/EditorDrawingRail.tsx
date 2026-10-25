@@ -113,17 +113,20 @@ export function EditorDrawingRail({
             )}
             {choice(
               "wall-freehand",
-              "Freehand Curve",
+              "Freehand curve",
               "Drag or click–trace–click · saved as segments",
               "curve",
               close,
             )}
-            <p className="shape-note">
-              Perimeters save as individual straight walls. Select a segment to
-              edit, name, or delete it; undo restores the entire drawing action.
-              Ellipses use 32 segments. Freehand curves use up to 96. Freehand
-              groups last only in this session; Alt-click edits one segment.
-            </p>
+            <details className="shape-note">
+              <summary>Geometry details</summary>
+              <p>
+                Perimeters save as individual straight walls. Ellipses use 32
+                segments; freehand curves use up to 96. Undo restores the whole
+                drawing action. Freehand groups last this session; Alt-click
+                selects one segment.
+              </p>
+            </details>
           </>
         )}
       </StudioPopover>
@@ -200,9 +203,8 @@ export function EditorDrawingRail({
               )}
             </div>
             <p className="shape-note">
-              All furniture, including chairs, blocks its full rectangle.
-              Drawing styles last this editor session; JSON and playback
-              preserve named blockers. Change styles in Properties.
+              All furniture, including chairs, blocks its full rectangle. Styles
+              last this session. JSON and playback retain names and geometry.
             </p>
           </>
         )}

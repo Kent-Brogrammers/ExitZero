@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { BuildingScenario, SimulationResult } from "../types/simulation";
 import { drawLayout } from "../editor/draw";
 import { canvasPalette } from "../styles/canvasPalette";
+import { useStudioTheme } from "../styles/appearance";
 import { trafficBins } from "./traffic";
 import { trafficField, fieldPixels } from "./trafficField";
 
@@ -13,6 +14,7 @@ export default function TrafficHeatmap({
   result: SimulationResult | null;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
+  const theme = useStudioTheme();
   const [visible, setVisible] = useState(true);
   const [smoothing, setSmoothing] = useState(0.6);
   const traffic = result
@@ -71,7 +73,7 @@ export default function TrafficHeatmap({
       observer.disconnect();
       window.removeEventListener("resize", redraw);
     };
-  }, [building, result, visible, matches, smoothing]);
+  }, [building, result, visible, matches, smoothing, theme]);
   return (
     <section
       className="panel traffic-panel"
@@ -133,14 +135,16 @@ export default function TrafficHeatmap({
           ) : (
             <p className="note">No positive traffic samples were returned.</p>
           )}
-          <p className="note">
-            Actual accumulated visits, displayed as a smoothed intensity field.
-            The smoothing radius is visual and may extend color beyond recorded
-            paths; it does not predict movement through walls. Source counts are
-            unchanged (source bins: {traffic?.size.toFixed(2)} m). Colors are
-            relative to this run, not density or measured congestion. Scenario
-            selection does not change this map.{" "}
-          </p>
+          <details className="note">
+            <summary>About recorded traffic</summary>
+            <p>
+              Computed visits, smoothed for display. Color may extend beyond
+              recorded paths; it does not predict movement through walls. Source
+              counts are unchanged ({traffic?.size.toFixed(2)} m bins). Colors
+              are relative to this run, not density or measured congestion.
+              Scenario selection does not change this map.
+            </p>
+          </details>
         </>
       )}
     </section>

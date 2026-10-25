@@ -5,6 +5,7 @@ import { canvasPalette } from "../styles/canvasPalette";
 import { mergeEditedDoors } from "./doorEditing";
 
 function canvasFixture(width: number, height = (width * 2) / 3) {
+  const strokes: { cap: string; width: number }[] = [];
   const context = {
     setTransform: vi.fn(),
     save: vi.fn(),
@@ -15,7 +16,9 @@ function canvasFixture(width: number, height = (width * 2) / 3) {
     beginPath: vi.fn(),
     moveTo: vi.fn(),
     lineTo: vi.fn(),
-    stroke: vi.fn(),
+    stroke: vi.fn(function (this: { lineCap: string; lineWidth: number }) {
+      strokes.push({ cap: this.lineCap, width: this.lineWidth });
+    }),
     strokeRect: vi.fn(),
     arc: vi.fn(),
     fill: vi.fn(),
@@ -32,7 +35,12 @@ function canvasFixture(width: number, height = (width * 2) / 3) {
     getContext: vi.fn(() => context),
     getBoundingClientRect: vi.fn(() => ({ width, height })),
   };
-  return { canvas, context, element: canvas as unknown as HTMLCanvasElement };
+  return {
+    canvas,
+    context,
+    strokes,
+    element: canvas as unknown as HTMLCanvasElement,
+  };
 }
 
 describe("freeform Canvas drawing", () => {
@@ -106,12 +114,17 @@ describe("freeform Canvas drawing", () => {
   });
 
   it("draws openings at their declared positions along the wall", () => {
-    const { context, element } = canvasFixture(600);
+    const { context, strokes, element } = canvasFixture(600);
     drawLayout(element, example, null);
     expect(context.moveTo).toHaveBeenCalledWith(15, 5);
     expect(context.lineTo).toHaveBeenCalledWith(15, 6.4);
     expect(context.moveTo).toHaveBeenCalledWith(28, 9);
     expect(context.lineTo).toHaveBeenCalledWith(28, 10.6);
+    const wallStrokes = strokes.filter(
+      (stroke) => stroke.width === example.walls[0]!.thickness,
+    );
+    expect(wallStrokes.length).toBeGreaterThan(0);
+    expect(wallStrokes.every((stroke) => stroke.cap === "round")).toBe(true);
   });
 });
 

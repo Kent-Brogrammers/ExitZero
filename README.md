@@ -1,6 +1,6 @@
 # ExitZero
 
-A local freeform building evacuation simulator workspace for a four-person hackathon team. The foundation includes an interactive Canvas floor-plan editor, a React dashboard, a Rust API, shared contracts, and runnable tests. **Simulation, stress testing, and optimization are not implemented.** Their endpoints validate requests and return structured HTTP `501` errors.
+A local freeform building evacuation simulator for a four-person hackathon team. The Canvas editor, playback, analytics, and Rust API run real evacuation simulations, blocked-exit stress tests, and bounded opening-widening optimization. Results are exploratory, not certified building-safety predictions.
 
 ## Run locally
 
@@ -99,14 +99,14 @@ The dependency direction is `api → feature modules → models`. Stress testing
 
 All bodies and property names use JSON and snake_case. Computation requests require `Content-Type: application/json`.
 
-| Method | Endpoint           | Request                                                                        | Current response                                   |
-| ------ | ------------------ | ------------------------------------------------------------------------------ | -------------------------------------------------- |
-| GET    | `/api/health`      | None                                                                           | `200 {"status":"ok","service":"exitzero"}`         |
-| POST   | `/api/simulate`    | `BuildingScenario`                                                             | Validated, then `501`; future `SimulationResult`   |
-| POST   | `/api/stress-test` | `{building, config: {max_scenarios, block_each_exit, obstruction_candidates}}` | Validated, then `501`; future `StressTestResult`   |
-| POST   | `/api/optimize`    | `{building, max_candidates}`                                                   | Validated, then `501`; future `OptimizationResult` |
+| Method | Endpoint           | Request                                                                        | Current response                                               |
+| ------ | ------------------ | ------------------------------------------------------------------------------ | -------------------------------------------------------------- |
+| GET    | `/api/health`      | None                                                                           | `200 {"status":"ok","service":"exitzero"}`                     |
+| POST   | `/api/simulate`    | `BuildingScenario`                                                             | `200 SimulationResult` with actual frames and traffic          |
+| POST   | `/api/stress-test` | `{building, config: {max_scenarios, block_each_exit, obstruction_candidates}}` | `200 StressTestResult` with baseline and ranked scenarios      |
+| POST   | `/api/optimize`    | `{building, max_candidates}`                                                   | `200 OptimizationResult` with baseline and strict improvements |
 
-Errors have the shape `{"error":{"code":"validation_error","message":"..."}}`. Invalid scenario semantics return `422`; JSON syntax, shape, and content-type errors preserve Axum's relevant `4xx` status with code `invalid_json`. Unimplemented computation returns `501` with code `not_implemented`. No fake results are returned. The frontend validates successful response shapes against the shared schemas and exposes `ApiError` with `status`, `code`, and `message`; network errors use status `0`.
+Errors have the shape `{"error":{"code":"validation_error","message":"..."}}`. Invalid scenario semantics and failed occupant placement return `422`; JSON syntax, shape, and content-type errors preserve Axum's relevant `4xx` status with code `invalid_json`. The frontend validates successful response shapes against the shared schemas and exposes `ApiError` with `status`, `code`, and `message`; network errors use status `0`.
 
 The studio uses `POST /api/simulate/live` with a `BuildingScenario` body. Its `application/x-ndjson` response emits `SimulationStreamEvent` objects, one per line: `{type: "frame", frame}` during computation, followed by `{type: "complete", result}` containing the ordinary `SimulationResult` and recording. Errors after streaming starts use `{type: "error", error: {code, message}}`. Frames are paced by their simulated timestamps; disconnecting cancels the worker. The batch `/api/simulate` endpoint remains available to integrations.
 
@@ -120,7 +120,7 @@ curl -i http://127.0.0.1:3001/api/simulate \
   --data-binary @shared/examples/building.json
 ```
 
-The first two return the same health JSON; the last returns `501`.
+The first two return the same health JSON; the last returns `200` with computed metrics, animation frames, weighted traffic samples, and per-agent analytics.
 
 ## Contracts
 
@@ -128,7 +128,7 @@ The first two return the same health JSON; the last returns `501`.
 
 - Geometry uses finite, continuous metre coordinates: origin at the top left, x right, y down. Workspace extents are in `(0, 1000]` metres. There is no navigation grid or cell snapping. Element IDs are globally unique, nonblank strings of at most 64 characters.
 - Walls have `id`, `start: {x, y}`, `end: {x, y}`, and `thickness`. They can run at any angle, must be at least 0.1 m long, and have thickness in `(0, 2]` m. Endpoints lie within the workspace; the visible wall stroke extends half its thickness on each side of the centreline.
-- Doors and exits are openings `{id, wall_id, offset, width}`. Offset is the distance in metres from the wall's start to the beginning of the opening. The opening must fit along its wall; openings on the same wall cannot overlap. The editor cuts openings visually through walls. The engine must apply the same opening geometry for collisions and routing.
+- Doors and exits are openings `{id, wall_id, offset, width}`. Offset is the distance in metres from the wall's start to the beginning of the opening. The opening must fit along its wall; openings on the same wall cannot overlap. Solid wall sections include their physical half-thickness and rounded end caps; discs must clear the full wall and jamb shapes. The editor renders the same solid sections, including disabled exits.
 - Exits are attached to walls, including walls drawn inside the workspace extent. The workspace rectangle is a drawing extent, not the building boundary. Validation does not yet infer enclosed rooms or prove that an exit connects to outdoors; those topology checks belong to the simulation workstream.
 - Spawn zones are axis-aligned rectangles `{id, x, y, width, height, count}` with positive dimensions/count and no overlap with walls, other spawn zones, or obstructions. `agent_radius` is in `(0, 2]` metres. Zones must fit the occupant diameter and have at least the summed area of occupant discs. This is a preliminary capacity check, not a packing guarantee: Connor's initialization must place occupants without collisions or return a meaningful placement error. Total population is at most 10,000.
 - `obstructions` contains physical rectangles `{id, x, y, width, height}`. `blocked_exit_ids` references existing exits without duplicates. Stress configuration uses `obstruction_candidates`; each candidate is an additional rectangle evaluated against an unchanged baseline. Candidates must have unique IDs and individually pass building validation. Stress-result modifications use `added_obstructions` and additional `blocked_exit_ids`.
@@ -136,7 +136,7 @@ The first two return the same health JSON; the last returns `501`.
 - JSON Schema validates shapes and numeric ranges, including draft layouts with no exits or occupants. The editor also checks geometric relationships. Rust computation validation requires at least one exit and one spawn zone and checks bounds, references, opening overlap, spawn areas, and obstruction geometry. The schema alone is insufficient for running a layout.
 - `evacuated + remaining = total_population`; `trapped` is a subset of `remaining`. `completed` requires zero remaining and non-null `clearance_steps`. `incomplete` and `timeout` require positive remaining and null clearance. Never interpret missing clearance as zero.
 - Frames contain `step` and `agents: [{id, x, y}]`, with continuous agent positions. Steps strictly increase and agent IDs are unique per frame. Playback can interpolate positions between frames using `time_step_seconds`. `traffic_samples: [{x, y, visits}]` is a sparse collection of weighted world positions representing accumulated traffic, not instantaneous density; analytics can render these as a smooth heatmap. Result dimensions are metre extents.
-- Stress results contain baseline metrics and scenario IDs, descriptions, additional blocker modifications, metrics, rank, and severity. Rank 1 is worst; ties may share a rank. Compare remaining occupants first, trapped occupants second, then clearance steps (null sorts worse than measured clearance). The shared `compare_severity` helper encodes that order. Nick will define severity thresholds during implementation.
+- Stress results contain baseline metrics and scenario IDs, descriptions, additional blocker modifications, metrics, rank, and severity. Rank 1 is worst; ties may share a rank. Compare remaining occupants first, trapped occupants second, then clearance steps (null sorts worse than measured clearance). The shared `compare_severity` helper encodes that order. Severity labels are exploratory heuristics; incomplete runs remain distinct from measured full clearances.
 
 ## Edit a layout
 
@@ -150,9 +150,11 @@ The example is a 30×20 m workspace with angled and straight walls, two exits, t
 - **Undo/Redo** restores up to 50 edits. Canvas keyboard shortcuts: Delete/Backspace removes the selection, Escape cancels a gesture/selection, and Ctrl/Cmd+Z undoes (Shift redoes).
 - **New layout** creates an empty draft; **Load example** restores the sample. **Export JSON** saves the current layout locally; **Import JSON** loads a continuous-geometry layout under 2 MB. Draft layouts can be saved before exits and occupants are added. Layouts live in memory until exported.
 
-API requests use the current edited layout. Computation buttons remain disabled until it has exits, occupants, and valid geometry. The three endpoints still return `501`; no movement, pathfinding, stress testing, or optimization algorithm has been implemented.
+API requests use the current edited layout. Computation buttons remain disabled until it has exits, occupants, and valid geometry. Run Simulation records actual movement; Analytics shows its metrics and a world-coordinate heatmap weighted by accumulated visits. Stress Test compares independently modified layouts against its own baseline.
 
-The optional **mock analytics preview** uses `simulation.mock.json`, a separate synthetic 4×3 m fixture with two occupants. Those numbers do not describe the edited building and never come from a computation endpoint.
+Optimize evaluates a bounded set of valid door/exit widenings. Compare the ranked metrics and preview candidate geometry before applying a layout. Applying clears previous simulation/stress results; Run Simulation then measures the applied layout. The comparison retains the original optimization baseline. An empty candidate list means no strict improvement was found within the budget.
+
+`simulation.mock.json` is a synthetic contract-test fixture. The optional synthetic playback preview is explicitly labeled and is separate from API computations.
 
 ## Verify
 
@@ -183,15 +185,15 @@ Real simulation responses include optional `analytics` (older saved results and 
 
 The analytics team can use these fields for distance/wait distributions and evacuation-time charts without changing simulation logic. Stress-test responses currently retain their existing aggregate metric contract; adding per-scenario analytics requires coordination with that workstream.
 
-## Next work
+## Ongoing ownership
 
-| Developer   | First feature                                                         | Following feature                                               |
-| ----------- | --------------------------------------------------------------------- | --------------------------------------------------------------- |
-| Developer 1 | Extend and harden freeform layout editing                             | Render engine frames with playback controls                     |
-| Connor      | Add deterministic spawning and continuous-space navigation            | Implement evacuation ticks, stopping rules, frames, and metrics |
-| Nick        | Generate blocked-exit/obstruction scenarios and rank real simulations | Evaluate bounded layout improvement candidates                  |
-| Developer 4 | Build result metrics and world-space traffic heatmaps                 | Add scenario comparison and end-to-end demo tests               |
+| Developer   | First feature                                                   | Following feature                                     |
+| ----------- | --------------------------------------------------------------- | ----------------------------------------------------- |
+| Developer 1 | Freeform layout editing                                         | Real-frame playback controls                          |
+| Connor      | Deterministic spawning, continuous navigation, and collisions   | Evacuation ticks, stopping rules, frames, and metrics |
+| Nick        | Blocked-exit/obstruction scenarios and real simulation rankings | Bounded layout improvement candidates                 |
+| Developer 4 | Result metrics and world-space traffic heatmaps                 | Scenario/optimization comparison and API integration  |
 
-Use the checked-in example and mock fixture while features are developed independently. Replace only your module's explicit stub when ready, and test integration against the shared contracts before merging.
+Use the checked-in example for real end-to-end verification and the labeled synthetic fixtures for focused contract/UI tests. Keep changes within the assigned workstream and test shared-contract integration before merging.
 
 Library references: [Axum](https://docs.rs/axum/latest/axum/), [Vite](https://vite.dev/guide/), [Vitest](https://vitest.dev/guide/), and [Recharts](https://recharts.github.io/en-US/api/).
