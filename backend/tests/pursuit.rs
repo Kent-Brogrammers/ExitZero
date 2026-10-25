@@ -120,3 +120,24 @@ fn pursuit_live_frames_match_recording_and_cancel_releases_engine() {
         "stalker cannot start inside a wall"
     );
 }
+
+#[test]
+fn pursuit_honors_job_cancellation_during_physics_without_finishing_the_run() {
+    use exitzero::simulation::{ComputationControl, SimulationError};
+    use std::sync::Arc;
+    let building = house();
+    let control = Arc::new(ComputationControl::default());
+    let mut steps = Vec::new();
+    let result = control.run(|| {
+        simulate_live(&building, &mut |frame| {
+            steps.push(frame.step);
+            if frame.step == 1 {
+                control.cancel();
+            }
+            true // Only the computation control stops this run, not the stream callback.
+        })
+    });
+    assert!(matches!(result, Err(SimulationError::Cancelled)));
+    assert_eq!(steps, vec![0, 1]);
+    assert_eq!(control.progress().step, 1);
+}

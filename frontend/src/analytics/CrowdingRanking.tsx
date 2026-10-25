@@ -4,6 +4,7 @@ import type { BuildingScenario, SimulationResult } from "../types/simulation";
 import { drawLayout } from "../editor/draw";
 import { canvasPalette } from "../styles/canvasPalette";
 import { drawAgents } from "../simulation/drawPlayback";
+import { frameLayout } from "../simulation/frameLayout";
 import {
   CROWD_ZONE,
   createCrowdingTracker,
@@ -60,12 +61,16 @@ function Snapshot({
       const palette = canvasPalette(target);
       drawLayout(
         target,
-        building,
+        frameLayout(building, spot.frame),
         null,
         undefined,
         window.devicePixelRatio || 1,
         palette,
         {
+          hazardMode: "filled",
+          showBlockedLabels: false,
+          disasterState: spot.frame.disaster_state,
+          windowStates: spot.frame.window_states,
           underlay: (ctx) => {
             ctx.save();
             ctx.beginPath();

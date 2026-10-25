@@ -1,6 +1,10 @@
 import { drawLayout } from "../editor/draw";
 import { drawStalker } from "../editor/drawPursuit";
 import { frameLayout } from "./frameLayout";
+import {
+  defaultDisplayOptions,
+  type SimulationDisplayOptions,
+} from "./displayOptions";
 import { canvasPalette, type CanvasPalette } from "../styles/canvasPalette";
 import { canvasView } from "../editor/geometry";
 import type {
@@ -23,6 +27,7 @@ export function drawPlayback(
   pixelRatio: number,
   palette: CanvasPalette = canvasPalette(canvas),
   showAgentNumbers = false,
+  displayOptions: SimulationDisplayOptions = defaultDisplayOptions,
 ) {
   drawLayout(
     canvas,
@@ -34,6 +39,7 @@ export function drawPlayback(
     {
       windowStates: frame?.window_states,
       disasterState: frame?.disaster_state,
+      ...displayOptions,
       showPursuitStart: false,
     },
   );
@@ -142,6 +148,7 @@ export function createPlaybackRenderer(
   canvas: HTMLCanvasElement,
   building: BuildingScenario,
   layout = canvas.ownerDocument.createElement("canvas"),
+  displayOptions: SimulationDisplayOptions = defaultDisplayOptions,
 ) {
   const palette = canvasPalette(canvas);
   let openingState: string | undefined;
@@ -168,6 +175,7 @@ export function createPlaybackRenderer(
         nextRatio,
         palette,
         showAgentNumbers,
+        displayOptions,
       );
       return;
     }
@@ -193,6 +201,7 @@ export function createPlaybackRenderer(
         {
           windowStates: frame?.window_states,
           disasterState: frame?.disaster_state,
+          ...displayOptions,
           showPursuitStart: false,
         },
       );

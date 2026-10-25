@@ -5,6 +5,7 @@ use super::{
     agent::{self, Agent},
     awareness::OpeningStates,
     congestion::CrowdForecast,
+    control,
     geometry::Geometry,
     math, motion,
     navigation::{Navigation, Route},
@@ -108,6 +109,7 @@ pub(super) fn run(
     scenario: &BuildingScenario,
     mut emit: Option<&mut dyn FnMut(&AnimationFrame) -> bool>,
 ) -> Result<SimulationResult, SimulationError> {
+    control::checkpoint()?;
     let config = scenario.pursuit.as_ref().unwrap();
     let mut world = OpeningStates::new(scenario);
     world.apply(0, &[], &[]);
@@ -139,6 +141,8 @@ pub(super) fn run(
         .max(1) as u32;
     let mut step = 0;
     loop {
+        control::checkpoint()?;
+        control::step(step, scenario.max_steps);
         let changed = if scenario.opening_events.is_empty() {
             false
         } else {
@@ -173,6 +177,7 @@ pub(super) fn run(
         }
         if changed || step % replan_stride == 0 {
             for (i, person) in people.iter().enumerate().filter(|(i, _)| !gone[*i]) {
+                control::checkpoint()?;
                 let forecast = if math::distance_to_point(person.position, stalker)
                     <= scenario.awareness.sight_range_metres
                     && geometry.has_line_of_sight(person.position, stalker)
@@ -210,6 +215,7 @@ pub(super) fn run(
                 .find_route(stalker, &geometry)
             });
         }
+        control::checkpoint()?;
         let before: Vec<_> = people.iter().map(|a| a.position).collect();
         let mut proposed: Vec<_> = before
             .iter()
@@ -237,6 +243,7 @@ pub(super) fn run(
             &geometry,
         );
         for i in 0..people.len() {
+            control::checkpoint()?;
             if gone[i] {
                 continue;
             }
@@ -293,10 +300,12 @@ pub(super) fn run(
         time_step_seconds: scenario.time_step_seconds,
         analytics: None,
         communication_events: None,
+        termination_reason: None,
     };
     result
         .validate()
         .map_err(SimulationError::InvalidScenario)?;
+    control::checkpoint()?;
     Ok(result)
 }
 

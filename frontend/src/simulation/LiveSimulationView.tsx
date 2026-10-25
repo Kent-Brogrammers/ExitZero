@@ -17,17 +17,23 @@ import { frameCrowding } from "../analytics/crowding";
 
 import { createFrameSampler } from "./interpolation";
 import { frameLayout } from "./frameLayout";
+import {
+  defaultDisplayOptions,
+  type SimulationDisplayOptions,
+} from "./displayOptions";
 
 export function LiveSimulationView({
   building,
   live,
   active,
   showAgentNumbers = false,
+  displayOptions = defaultDisplayOptions,
 }: {
   building: BuildingScenario;
   live: LiveSimulation;
   active: boolean;
   showAgentNumbers?: boolean;
+  displayOptions?: SimulationDisplayOptions;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const theme = useStudioTheme();
@@ -41,26 +47,30 @@ export function LiveSimulationView({
   }>({ frame: null, sample: null, fromTime: 0, receivedAt: 0 });
 
   useEffect(() => {
-    const data = trafficBins(
-      (live.frame?.agents ?? []).map((agent) => ({
-        x: agent.x,
-        y: agent.y,
-        visits: 1,
-      })),
-      building.width,
-      building.height,
-    );
-    const field = trafficField(data, building.width, building.height, 0.6);
-    const layer = heatLayer.current ?? document.createElement("canvas");
-    layer.width = field.columns;
-    layer.height = field.rows;
-    const ctx = layer.getContext("2d");
-    if (ctx) {
-      const pixels = ctx.createImageData(field.columns, field.rows);
-      pixels.data.set(fieldPixels({ ...field, peak: Math.max(4, field.peak) }));
-      ctx.putImageData(pixels, 0, 0);
-    }
-    heatLayer.current = layer;
+    if (displayOptions.showTraffic) {
+      const data = trafficBins(
+        (live.frame?.agents ?? []).map((agent) => ({
+          x: agent.x,
+          y: agent.y,
+          visits: 1,
+        })),
+        building.width,
+        building.height,
+      );
+      const field = trafficField(data, building.width, building.height, 0.6);
+      const layer = heatLayer.current ?? document.createElement("canvas");
+      layer.width = field.columns;
+      layer.height = field.rows;
+      const ctx = layer.getContext("2d");
+      if (ctx) {
+        const pixels = ctx.createImageData(field.columns, field.rows);
+        pixels.data.set(
+          fieldPixels({ ...field, peak: Math.max(4, field.peak) }),
+        );
+        ctx.putImageData(pixels, 0, 0);
+      }
+      heatLayer.current = layer;
+    } else heatLayer.current = null;
     const previous = latest.current.frame;
     const frame = live.frame;
     latest.current = {
@@ -76,7 +86,7 @@ export function LiveSimulationView({
         (previous?.step ?? frame?.step ?? 0) * building.time_step_seconds,
       receivedAt: performance.now(),
     };
-  }, [building, live.frame]);
+  }, [building, live.frame, displayOptions.showTraffic]);
 
   useEffect(() => {
     if (!active || !canvas.current) return;
@@ -102,17 +112,20 @@ export function LiveSimulationView({
           windowStates: frame?.window_states,
           disasterState: frame?.disaster_state,
           showPursuitStart: false,
-          underlay: (ctx) => {
-            const layer = heatLayer.current;
-            if (!layer) return;
-            ctx.save();
-            ctx.beginPath();
-            ctx.rect(0, 0, building.width, building.height);
-            ctx.clip();
-            ctx.imageSmoothingEnabled = true;
-            ctx.drawImage(layer, 0, 0, building.width, building.height);
-            ctx.restore();
-          },
+          ...displayOptions,
+          underlay: displayOptions.showTraffic
+            ? (ctx) => {
+                const layer = heatLayer.current;
+                if (!layer) return;
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(0, 0, building.width, building.height);
+                ctx.clip();
+                ctx.imageSmoothingEnabled = true;
+                ctx.drawImage(layer, 0, 0, building.width, building.height);
+                ctx.restore();
+              }
+            : undefined,
         },
       );
       drawAgents(
@@ -127,7 +140,7 @@ export function LiveSimulationView({
     }
     animation = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(animation);
-  }, [active, building, theme, showAgentNumbers]);
+  }, [active, building, theme, showAgentNumbers, displayOptions]);
 
   const population = building.spawn_zones.reduce(
     (sum, zone) => sum + zone.count,
@@ -215,6 +228,11 @@ export function LiveSimulationView({
                   aria-label="Live crowding"
                 >
                   <h4>Live crowding</h4>
+                  <p>
+                    Blocked openings:{" "}
+                    {frame.blocked_opening_ids?.join(", ") || "None recorded"}.
+                    Closure marks stay visible when labels are hidden.
+                  </p>
                   <p className="note">
                     Current busiest zone:{" "}
                     {Math.max(

@@ -301,6 +301,9 @@ pub(super) fn update_knowledge(
     let mut informed = false;
     if scenario.awareness.sight_range_metres > 0.0 {
         for (i, agent) in agents.iter_mut().enumerate() {
+            if super::control::cancelled() {
+                return (vec![false; before.len()], false);
+            }
             if evacuated[i] {
                 continue;
             }
@@ -395,6 +398,9 @@ pub(super) fn update_knowledge(
         let snapshot: Vec<_> = agents.iter().map(Report::from_agent).collect();
         let mut shared: BTreeMap<(u32, String, bool), BTreeSet<u32>> = BTreeMap::new();
         for i in 0..agents.len() {
+            if super::control::cancelled() {
+                return (vec![false; before.len()], false);
+            }
             if evacuated[i] {
                 continue;
             }

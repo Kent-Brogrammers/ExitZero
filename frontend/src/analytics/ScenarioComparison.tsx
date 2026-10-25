@@ -2,10 +2,17 @@ import { formatDimensions, lengthInputValue } from "../utils/units";
 import { useState } from "react";
 import type { SimulationMetrics, StressTestResult } from "../types/simulation";
 import "./scenarioComparison.css";
-import { scenarioTitle, outcomeExplanation } from "./presentation";
+import {
+  scenarioTitle,
+  outcomeExplanation,
+  clearanceChange,
+} from "./presentation";
 
 interface ScenarioComparisonProps {
   result: StressTestResult | null;
+  onWatch?: (id: string) => void;
+  disabled?: boolean;
+  timeStep?: number;
 }
 function statusLabel(status: SimulationMetrics["status"]) {
   if (status === "completed") return "Completed";
@@ -23,6 +30,9 @@ function difference(value: number, baseline: number) {
 }
 export default function ScenarioComparison({
   result,
+  onWatch,
+  disabled,
+  timeStep,
 }: ScenarioComparisonProps) {
   const [selection, setSelection] = useState<{
     source: StressTestResult;
@@ -132,6 +142,20 @@ export default function ScenarioComparison({
         >
           <h3>{scenarioTitle(selected)}</h3>
           <p>{selected.description}</p>
+          {onWatch && (
+            <>
+              <button
+                disabled={disabled}
+                onClick={() => onWatch(selected.scenario_id)}
+              >
+                Watch Scenario
+              </button>
+              <p className="note">
+                Records this exact tested scenario on demand, preserving its
+                seed and forced closures. The editable layout stays unchanged.
+              </p>
+            </>
+          )}
           <p>{outcomeExplanation(selected.metrics)}</p>
           <p>
             Rank {selected.rank} · {statusLabel(selected.metrics.status)}
@@ -172,10 +196,11 @@ export default function ScenarioComparison({
             <div>
               <dt>Clearance vs. baseline</dt>
               <dd>
-                {selected.metrics.clearance_steps === null ||
-                result.baseline.clearance_steps === null
-                  ? "Unavailable: both runs need measured clearance"
-                  : `${selected.metrics.clearance_steps - result.baseline.clearance_steps > 0 ? "+" : ""}${selected.metrics.clearance_steps - result.baseline.clearance_steps} steps`}
+                {clearanceChange(
+                  result.baseline.clearance_steps,
+                  selected.metrics.clearance_steps,
+                  timeStep,
+                )}
               </dd>
             </div>
           </dl>
@@ -198,8 +223,8 @@ export default function ScenarioComparison({
       )}
       <p className="note">
         Trapped occupants are included in remaining occupants. Rankings and
-        severity are supplied with the results. Scenario selection updates
-        analytics only.
+        severity are supplied with the results. Select a scenario to inspect its
+        metrics; Watch Scenario computes its real recording.
       </p>
     </>
   );

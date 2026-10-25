@@ -39,6 +39,8 @@ export function drawLayout(
     showPursuitStart?: boolean;
     windowStates?: readonly WindowFrameState[];
     disasterState?: import("../types/simulation").DisasterState;
+    hazardMode?: "filled" | "outline" | "both";
+    showBlockedLabels?: boolean;
   },
 ) {
   const ctx = canvas.getContext("2d");
@@ -103,12 +105,13 @@ export function drawLayout(
       ctx.lineWidth = 2 * px;
       ctx.beginPath();
       ctx.arc(area.center.x, area.center.y, exposure, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
+      if (options?.hazardMode !== "outline") ctx.fill();
+      if (options?.hazardMode !== "filled") ctx.stroke();
       ctx.fillStyle = color + "60";
       ctx.beginPath();
       ctx.arc(area.center.x, area.center.y, area.radius, 0, Math.PI * 2);
-      ctx.fill();
+      if (options?.hazardMode !== "outline") ctx.fill();
+      else ctx.stroke();
       if (index === 0) {
         ctx.fillStyle = palette.wall;
         ctx.font = `${12 * px}px system-ui`;
@@ -419,6 +422,12 @@ export function drawLayout(
         (text) => ctx.measureText?.(text).width ?? text.length * 6 * px,
         options?.windowStates,
       )) {
+    if (
+      options?.showBlockedLabels === false &&
+      openingStartsBlocked(building, label.id) &&
+      !selectedIds.has(label.id)
+    )
+      continue;
     ctx.fillStyle = building.windows?.some((w) => w.id === label.id)
       ? palette.muted
       : openingStartsBlocked(building, label.id)

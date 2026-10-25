@@ -47,12 +47,15 @@ export default function TrafficHeatmap({
     const redraw = () =>
       drawLayout(
         target,
-        building,
+        frameLayout(building, result.frames.at(-1) ?? null),
         null,
         undefined,
         window.devicePixelRatio || 1,
         canvasPalette(target),
         {
+          hazardMode: "filled",
+          showBlockedLabels: false,
+          disasterState: result.frames.at(-1)?.disaster_state,
           underlay: (ctx) => {
             if (!visible || data.max === 0) return;
             ctx.save();
@@ -153,3 +156,4 @@ export default function TrafficHeatmap({
     </section>
   );
 }
+import { frameLayout } from "../simulation/frameLayout";

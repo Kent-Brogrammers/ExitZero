@@ -173,6 +173,19 @@ pub struct SimulationResult {
     /// None for legacy recordings; Some([]) means no new opening information.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub communication_events: Option<Vec<super::CommunicationEvent>>,
+    /// Absent in legacy recordings. This records the actual stopping branch,
+    /// not an inferred cause of individual occupant outcomes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub termination_reason: Option<TerminationReason>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TerminationReason {
+    Completed,
+    StepLimit,
+    NoActiveRoutes,
+    MovementStagnation,
 }
 
 impl SimulationResult {

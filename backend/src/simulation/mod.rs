@@ -9,6 +9,8 @@ mod analytics;
 mod awareness;
 mod catastrophe;
 mod congestion;
+pub(crate) mod control;
+pub use control::{ComputationControl, ComputationProgress};
 mod emergency;
 mod evolution;
 mod geometry;
@@ -72,6 +74,8 @@ fn run(
     emergencies: &[Emergency],
     mut on_frame: Option<&mut dyn FnMut(&AnimationFrame) -> bool>,
 ) -> Result<SimulationResult, SimulationError> {
+    control::checkpoint()?;
+    control::step(0, scenario.max_steps);
     scenario
         .validate()
         .map_err(SimulationError::InvalidScenario)?;
@@ -113,10 +117,11 @@ fn run(
     let mut routes: Vec<_> = agents
         .iter()
         .map(|agent| {
+            control::checkpoint()?;
             let (map, navigation) = beliefs.for_agent(agent);
-            navigation.find_route(agent.position, map)
+            Ok(navigation.find_route(agent.position, map))
         })
-        .collect();
+        .collect::<Result<Vec<_>, SimulationError>>()?;
     let mut next_waypoint = vec![0; agents.len()];
     let mut motion: Vec<_> = agents.iter().map(|_| motion::Motion::new()).collect();
     let retry_ticks = (2.0 / scenario.time_step_seconds).ceil() as u32;
@@ -189,9 +194,12 @@ fn run(
     let mut traffic = BTreeMap::new();
     record_traffic(scenario, &agents, &evacuated, &mut traffic);
 
-    let status = loop {
+    use crate::models::TerminationReason;
+    let (status, termination_reason) = loop {
+        control::checkpoint()?;
+        control::step(step, scenario.max_steps);
         if evacuated_count + sheltered_count == total_population {
-            break SimulationStatus::Completed;
+            break (SimulationStatus::Completed, TerminationReason::Completed);
         }
         let now = f64::from(step) * scenario.time_step_seconds;
         let (changed_beliefs, information_changed) = awareness::update_knowledge(
@@ -211,6 +219,7 @@ fn run(
             },
         );
         for i in 0..agents.len() {
+            control::checkpoint()?;
             let versions: Vec<_> = agents[i]
                 .known_hazards
                 .values()
@@ -301,6 +310,7 @@ fn run(
         // approach. Decide locally whether to try a window, searching for a
         // danger-free normal detour first. This is not proof of entrapment.
         for i in 0..agents.len() {
+            control::checkpoint()?;
             if evacuated[i] || tornado || !windows.has_eligible() {
                 window_fallback[i] = false;
                 continue;
@@ -343,6 +353,7 @@ fn run(
         let controlled: Vec<_> = (0..agents.len()).map(|i| windows.controls(i)).collect();
         windows.update(step, &agents, &evacuated, &window_fallback, &geometry);
         for i in 0..agents.len() {
+            control::checkpoint()?;
             if windows.controls(i) {
                 statistics[i].route_found = true;
             } else if controlled[i] && !evacuated[i] {
@@ -367,10 +378,13 @@ fn run(
             && !information_changed
             && scenario.disaster.is_none()
         {
-            break SimulationStatus::Incomplete;
+            break (
+                SimulationStatus::Incomplete,
+                TerminationReason::NoActiveRoutes,
+            );
         }
         if step == scenario.max_steps {
-            break SimulationStatus::Timeout;
+            break (SimulationStatus::Timeout, TerminationReason::StepLimit);
         }
 
         let before: Vec<Point> = agents.iter().map(|agent| agent.position).collect();
@@ -382,6 +396,7 @@ fn run(
         // Visibility is symmetric. Check each pair once, retaining agent order
         // in each list so congestion sums remain deterministic.
         for i in 0..agents.len() {
+            control::checkpoint()?;
             if evacuated[i] {
                 continue;
             }
@@ -406,6 +421,7 @@ fn run(
             })
             .collect();
         for i in 0..agents.len() {
+            control::checkpoint()?;
             if evacuated[i] || windows.controls(i) {
                 continue;
             }
@@ -536,6 +552,7 @@ fn run(
         // Guidance can change with congestion, but avoidance is active on every
         // tick, including the very first one. All people see the same snapshot.
         for i in 0..agents.len() {
+            control::checkpoint()?;
             if evacuated[i] {
                 continue;
             }
@@ -650,6 +667,7 @@ fn run(
             })
             .collect();
         for i in 0..agents.len() {
+            control::checkpoint()?;
             let Some(waypoint) = targets[i] else {
                 continue;
             };
@@ -791,6 +809,7 @@ fn run(
             &velocity_limits,
         );
         for i in 0..agents.len() {
+            control::checkpoint()?;
             proposed[i].x = proposed[i].x.clamp(0.0, scenario.width);
             proposed[i].y = proposed[i].y.clamp(0.0, scenario.height);
             if !windows
@@ -820,6 +839,7 @@ fn run(
         let mut leaving = Vec::new();
         let mut progress = false;
         for i in 0..agents.len() {
+            control::checkpoint()?;
             if evacuated[i] {
                 continue;
             }
@@ -870,6 +890,7 @@ fn run(
         }
 
         step += 1;
+        control::step(step, scenario.max_steps);
         // Include exit arrivals in traffic before removing evacuated agents.
         record_traffic(scenario, &agents, &evacuated, &mut traffic);
         for i in leaving {
@@ -957,7 +978,10 @@ fn run(
         // Allow rerouting before reporting a stalled run. Local avoidance has
         // already run on every tick; a stall still does not prove entrapment.
         if idle_steps >= agents.len().max(2 * retry_ticks as usize + 1) {
-            break SimulationStatus::Incomplete;
+            break (
+                SimulationStatus::Incomplete,
+                TerminationReason::MovementStagnation,
+            );
         }
     };
 
@@ -987,6 +1011,7 @@ fn run(
         agent.waiting_seconds = f64::from(agent.waiting_steps) * scenario.time_step_seconds;
     }
     let analytics = analytics::summarize(statistics, f64::from(step) * scenario.time_step_seconds);
+    control::checkpoint()?;
     Ok(SimulationResult {
         metrics: SimulationMetrics {
             sheltered: sheltered_count,
@@ -1014,6 +1039,7 @@ fn run(
         time_step_seconds: scenario.time_step_seconds,
         analytics: Some(analytics),
         communication_events: Some(communication_events),
+        termination_reason: Some(termination_reason),
     })
 }
 
