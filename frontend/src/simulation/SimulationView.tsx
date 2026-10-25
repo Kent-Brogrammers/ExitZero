@@ -24,7 +24,7 @@ import { createPlayback, PLAYBACK_SPEEDS } from "./playback";
 import { syntheticBuilding, syntheticResult } from "./playback.fixture";
 import { SimulationSummary } from "./SimulationSummary";
 import { frameLayout } from "./frameLayout";
-import { WindowReadout } from "./WindowReadout";
+import { SimulationDetails } from "./SimulationDetails";
 import { AgentChat } from "./AgentChat";
 import "./SimulationView.css";
 
@@ -254,17 +254,6 @@ function Playback({
             <span>{frames.length} recorded frames</span>
           </div>
         </div>
-        {recording && (
-          <details className="live-trails-note">
-            <summary>Recorded traffic trails</summary>
-            <p>
-              Accumulates sampled positions as playback advances. Pause freezes
-              trails; reset clears them; seeking rebuilds them. Colors use a
-              fixed scale for this recording. These observations are not the
-              backend's full accumulated traffic totals.
-            </p>
-          </details>
-        )}
         <div className="playback-dock">
           <div className="playback-transport">
             <div
@@ -334,9 +323,6 @@ function Playback({
                   ))}
                 </select>
               </label>
-              <span className="playback-status" role="status">
-                {frame ? status : "No frames"}
-              </span>
             </div>
             <div className="playback-timeline">
               <label htmlFor="playback-seek">Recording timeline</label>
@@ -367,15 +353,7 @@ function Playback({
           <div className="playback-bottomline">
             <dl className="playback-readout">
               <div>
-                <dt>Simulation step</dt>
-                <dd>
-                  <output aria-label="Current simulation step" aria-live="off">
-                    {frame?.step ?? "—"}
-                  </output>
-                </dd>
-              </div>
-              <div>
-                <dt>Simulation time</dt>
+                <dt>Elapsed time</dt>
                 <dd>
                   <output aria-label="Elapsed simulation time" aria-live="off">
                     {frame ? `${time.toFixed(2)} s` : "—"}
@@ -383,71 +361,147 @@ function Playback({
                   {frame && (
                     <span className="playback-duration">
                       {" "}
-                      / {finalTime.toFixed(2)} s (end)
+                      / {finalTime.toFixed(2)} s
                     </span>
                   )}
                 </dd>
               </div>
               <div>
-                <dt>Occupants (frame)</dt>
-                <dd>{frame?.agents.length ?? "—"}</dd>
+                <dt>
+                  {building.disaster?.kind === "tornado"
+                    ? "Sheltered (final)"
+                    : "Evacuated (final)"}
+                </dt>
+                <dd>
+                  {building.disaster?.kind === "tornado"
+                    ? (recording?.sheltered ?? "—")
+                    : (recording?.evacuated ?? "—")}
+                  {building.disaster?.kind !== "tornado" &&
+                    (recording?.sheltered ?? 0) > 0 && (
+                      <> · {recording!.sheltered} sheltered</>
+                    )}
+                </dd>
               </div>
               <div>
-                <dt>Duration</dt>
-                <dd>
-                  <output aria-label="Recorded duration">
-                    {frame ? `${(finalTime - firstTime).toFixed(2)} s` : "—"}
-                  </output>
+                <dt>Remaining (final)</dt>
+                <dd>{recording?.remaining ?? "—"}</dd>
+              </div>
+              <div>
+                <dt>Status (final)</dt>
+                <dd role="status">
+                  {recording
+                    ? recording.status === "completed"
+                      ? "Completed"
+                      : recording.status === "timeout"
+                        ? "Step limit reached"
+                        : "Incomplete"
+                    : "Awaiting simulation"}
                 </dd>
               </div>
             </dl>
-            <details className="recording-details">
-              <summary className="studio-control">Recording details</summary>
-              <div className="recording-popover">
-                {frame && (
-                  <p className="note">
-                    Recording starts at {firstTime.toFixed(2)} s.
-                  </p>
-                )}
-                {recording && (
-                  <p className="note">
-                    Per-frame remaining and evacuated totals are not recorded.
-                    Agent disappearance alone does not establish evacuation.
-                  </p>
-                )}
-                {recording && (
-                  <p className="playback-outcome">
-                    Recorded outcome: <strong>{recording.status}</strong> ·{" "}
-                    {recording.evacuated} / {recording.total_population}{" "}
-                    evacuated · {recording.sheltered ?? 0} sheltered ·{" "}
-                    {recording.remaining} remaining ({recording.trapped}{" "}
-                    trapped).{" "}
-                    {recording.status !== "completed" &&
-                      "Recording ended before full evacuation."}
-                  </p>
-                )}
-                <a
-                  className="studio-control playback-analytics-link"
-                  href="#analytics"
-                  onClick={(event) => {
-                    if (onOpenAnalytics) {
-                      event.preventDefault();
-                      onOpenAnalytics();
-                    }
-                  }}
+            {recording && (
+              <SimulationDetails
+                building={building}
+                states={frame?.window_states}
+              >
+                <section
+                  className="simulation-detail-section"
+                  aria-label="Recording information"
                 >
-                  Open Analytics ↗
-                </a>
+                  <h4>Recording</h4>
+                  <dl className="playback-readout">
+                    <div>
+                      <dt>Simulation step</dt>
+                      <dd>
+                        <output
+                          aria-label="Current simulation step"
+                          aria-live="off"
+                        >
+                          {frame?.step ?? "—"}
+                        </output>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Recorded occupants</dt>
+                      <dd>{frame?.agents.length ?? "—"}</dd>
+                    </div>
+                    <div>
+                      <dt>Duration</dt>
+                      <dd>
+                        <output aria-label="Recorded duration">
+                          {frame
+                            ? `${(finalTime - firstTime).toFixed(2)} s`
+                            : "—"}
+                        </output>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Playback</dt>
+                      <dd>{frame ? status : "No frames"}</dd>
+                    </div>
+                  </dl>
+                  {frame && (
+                    <p className="note">
+                      Recording starts at {firstTime.toFixed(2)} s.
+                    </p>
+                  )}
+                  {recording && (
+                    <p className="note">
+                      Outcome counts and status describe the final result, not
+                      the playhead. Agent disappearance alone does not establish
+                      evacuation.
+                    </p>
+                  )}
+                  {recording && (
+                    <p className="playback-outcome">
+                      Recorded outcome: <strong>{recording.status}</strong> ·{" "}
+                      {recording.evacuated} / {recording.total_population}{" "}
+                      evacuated · {recording.sheltered ?? 0} sheltered ·{" "}
+                      {recording.remaining} remaining ({recording.trapped}{" "}
+                      trapped).{" "}
+                      {recording.status !== "completed" &&
+                        "Recording ended before full evacuation."}
+                    </p>
+                  )}
+                  <a
+                    className="studio-control playback-analytics-link"
+                    href="#analytics"
+                    onClick={(event) => {
+                      if (onOpenAnalytics) {
+                        event.preventDefault();
+                        onOpenAnalytics();
+                      }
+                    }}
+                  >
+                    Open Analytics ↗
+                  </a>
 
-                <p className="note">
-                  Motion between recorded samples is visual only. Segments
-                  crossing barriers hold until the next sample; sparse
-                  recordings may jump.
-                </p>
-              </div>
-            </details>
+                  <p className="note">
+                    Motion between recorded samples is visual only. Segments
+                    crossing barriers hold until the next sample; sparse
+                    recordings may jump.
+                  </p>
+                  <p className="note">
+                    Seek or step to pause · Space to play/pause · ←/→ to step
+                    with the Canvas focused
+                  </p>
+                </section>
+                <section
+                  className="simulation-detail-section"
+                  aria-label="Recorded traffic trails"
+                >
+                  <h4>Recorded traffic trails</h4>
+                  <p className="note">
+                    Accumulates sampled positions as playback advances. Pause
+                    freezes trails; reset clears them; seeking rebuilds them.
+                    Colors use a fixed scale for this recording. These
+                    observations are not the backend's full accumulated traffic
+                    totals.
+                  </p>
+                </section>
+              </SimulationDetails>
+            )}
           </div>
-          <WindowReadout building={building} states={frame?.window_states} />
           <div className="playback-help">
             {mismatch ? (
               <p className="playback-error" role="alert">
@@ -463,12 +517,7 @@ function Playback({
               <p className="note">
                 No recorded frames. Playback is unavailable.
               </p>
-            ) : (
-              <p className="note">
-                Seek or step to pause · Space to play/pause · ←/→ to step with
-                the Canvas focused
-              </p>
-            )}
+            ) : null}
           </div>
         </div>
       </div>
