@@ -1,3 +1,5 @@
+import { blankManualLayout } from "./dxf/classify";
+import DxfImport from "./dxf/DxfImport";
 import { hitOpening } from "./openings";
 import { mergeEditedDoors, snapDoorToNeighbor } from "./doorEditing";
 import {
@@ -721,13 +723,16 @@ export function BuildingEditor({
         `Replace your edited building with ${label}? Export JSON first to keep a file. Undo can restore the previous layout.`,
       )
     )
-      return;
+      return false;
     if (commit(next)) {
       curveGroups.current.clear();
       savedLayout.current = JSON.stringify(next);
       selectElement(null);
       setGesture(null);
+
+      return true;
     }
+    return false;
   }
   function exportLayout() {
     savedLayout.current = JSON.stringify(building);
@@ -776,6 +781,14 @@ export function BuildingEditor({
         </div>
         <span className="badge">Freeform · metres</span>
       </div>
+      <DxfImport
+        base={building}
+        disabled={disabled}
+        onApply={(next) => replaceLayout(next, "the reviewed DXF layout")}
+        onDrawOwn={() =>
+          replaceLayout(blankManualLayout(building), "a blank manual layout")
+        }
+      />
       <fieldset className="editor-controls" disabled={disabled}>
         <div className="editor-workspace">
           <div className="editor-commandbar">

@@ -1,0 +1,119 @@
+.dxf-launch {
+  position: absolute;
+  z-index: 15;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+  padding: 6px;
+  background: var(--cad-panel);
+  border: 1px solid var(--cad-border);
+  border-radius: 6px;
+}
+.dxf-launch button {
+  white-space: nowrap;
+  font-size: 12px;
+}
+.dxf-dialog {
+  width: min(1060px, 94vw);
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 24px;
+  background: var(--cad-panel);
+  color: var(--cad-text);
+  border: 1px solid var(--cad-border-strong);
+  border-radius: 12px;
+}
+.dxf-dialog::backdrop {
+  background: rgb(0 0 0 / 70%);
+}
+.dxf-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.dxf-dialog p,
+.dxf-dialog li {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--cad-muted);
+}
+.dxf-filename {
+  margin-left: 12px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.dxf-settings {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin: 20px 0;
+}
+.dxf-dialog fieldset {
+  min-width: 0;
+  border: 1px solid var(--cad-border);
+  border-radius: 6px;
+  padding: 14px;
+}
+.dxf-dialog label {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 10px 0;
+  font-size: 13px;
+}
+.dxf-dialog input[type="number"],
+.dxf-dialog select {
+  color: var(--cad-text);
+  background: var(--cad-control);
+  border: 1px solid var(--cad-border-strong);
+  padding: 7px;
+  border-radius: 4px;
+  max-width: 180px;
+}
+.dxf-preview {
+  display: block;
+  width: 100%;
+  height: 380px;
+  background: var(--cad-bg);
+  border: 1px solid var(--cad-border);
+}
+.dxf-wall-list,
+.dxf-opening-list {
+  max-height: 250px;
+  overflow: auto;
+}
+.dxf-dialog details {
+  margin: 16px 0;
+  padding: 12px;
+  border: 1px solid var(--cad-border);
+}
+.dxf-dialog .dxf-error {
+  color: var(--cad-danger);
+}
+@media (max-width: 650px) {
+  .dxf-settings {
+    grid-template-columns: 1fr;
+  }
+  .dxf-launch {
+    top: 76px;
+  }
+  .dxf-launch button {
+    font-size: 10px;
+    padding: 6px;
+  }
+  .dxf-dialog {
+    padding: 16px;
+  }
+}
+.dxf-guess {
+  display: block;
+  flex-basis: 100%;
+  color: var(--cad-muted);
+  font-size: 12px;
+  line-height: 1.6;
+  padding-left: 4px;
+}

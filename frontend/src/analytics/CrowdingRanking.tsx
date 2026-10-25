@@ -33,12 +33,14 @@ function Snapshot({
   rank,
   field,
   peak,
+  onViewInSimulation,
 }: {
   building: BuildingScenario;
   spot: CrowdingSpot;
   rank: number;
   field: ReturnType<typeof trafficField>;
   peak: number;
+  onViewInSimulation?: (step: number) => void;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
@@ -117,15 +119,26 @@ function Snapshot({
         {Math.min(CROWD_ZONE, building.height - spot.y).toFixed(1)} m
         {spot.frame.step === 0 ? " · Initial occupancy" : ""}
       </p>
+      {onViewInSimulation && (
+        <button
+          type="button"
+          onClick={() => onViewInSimulation(spot.frame.step)}
+          aria-label={`View crowded spot ${rank} in simulation at ${(spot.frame.step * building.time_step_seconds).toFixed(2)} seconds`}
+        >
+          View in simulation ↗
+        </button>
+      )}
     </article>
   );
 }
 function Cards({
   building,
   spots,
+  onViewInSimulation,
 }: {
   building: BuildingScenario;
   spots: CrowdingSpot[];
+  onViewInSimulation?: (step: number) => void;
 }) {
   const fields = useMemo(
     () => spots.map((spot) => snapshotField(building, spot)),
@@ -166,6 +179,7 @@ function Cards({
               rank={i + 1}
               field={fields[i]!}
               peak={peak}
+              onViewInSimulation={onViewInSimulation}
             />
           ))}
         </div>
@@ -180,9 +194,11 @@ function Cards({
 export default function CrowdingRanking({
   building,
   result,
+  onViewInSimulation,
 }: {
   building?: BuildingScenario;
   result: SimulationResult | null;
+  onViewInSimulation?: (step: number) => void;
 }) {
   const spots = useMemo(() => {
     if (!result) return [];
@@ -197,5 +213,11 @@ export default function CrowdingRanking({
     result.height !== building.height
   )
     return null;
-  return <Cards building={building} spots={spots} />;
+  return (
+    <Cards
+      building={building}
+      spots={spots}
+      onViewInSimulation={onViewInSimulation}
+    />
+  );
 }

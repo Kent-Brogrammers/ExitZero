@@ -21,12 +21,14 @@ import { outcomeExplanation } from "./presentation";
 
 interface AnalyticsDashboardProps {
   building?: BuildingScenario;
+  onViewInSimulation?: (step: number) => void;
   result: SimulationResult | null;
   stressResult: StressTestResult | null;
 }
 
 export default function AnalyticsDashboard({
   building,
+  onViewInSimulation,
   result,
   stressResult,
 }: AnalyticsDashboardProps) {
@@ -140,7 +142,11 @@ export default function AnalyticsDashboard({
         )}
       </div>
       <TrafficHeatmap building={building} result={result} />
-      <CrowdingRanking building={building} result={result} />
+      <CrowdingRanking
+        building={building}
+        result={result}
+        onViewInSimulation={onViewInSimulation}
+      />
       <div className="panel comparison-panel">
         <p className="eyebrow">04 / Stress testing</p>
         <h2>Vulnerability comparison</h2>
