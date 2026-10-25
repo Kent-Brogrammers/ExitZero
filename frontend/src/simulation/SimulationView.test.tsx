@@ -7,6 +7,26 @@ import {
 } from "./playback.fixture";
 
 describe("live first run and recorded review", () => {
+  it("defaults both agent features off and keeps chat unavailable during a live run", () => {
+    const html = renderToStaticMarkup(
+      <SimulationView building={building} result={result} />,
+    );
+    expect(html).toContain("Show Agent Numbers");
+    expect(html).toContain("Show Agent Chat");
+    expect(html).not.toContain("checked=");
+    expect(html).not.toContain('class="agent-chat"');
+    const live = renderToStaticMarkup(
+      <SimulationView
+        building={building}
+        result={null}
+        live={{ frame: result.frames[0]! }}
+      />,
+    );
+    expect(live).toMatch(
+      /<input[^>]*disabled=""[^>]*aria-controls="agent-chat"/,
+    );
+    expect(live).not.toContain('class="agent-chat"');
+  });
   it("shows a live run without a future duration or rewind controls", () => {
     const html = renderToStaticMarkup(
       <SimulationView

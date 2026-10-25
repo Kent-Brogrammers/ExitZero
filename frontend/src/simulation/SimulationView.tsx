@@ -25,6 +25,7 @@ import { syntheticBuilding, syntheticResult } from "./playback.fixture";
 import { SimulationSummary } from "./SimulationSummary";
 import { frameLayout } from "./frameLayout";
 import { WindowReadout } from "./WindowReadout";
+import { AgentChat } from "./AgentChat";
 import "./SimulationView.css";
 
 interface SimulationViewProps {
@@ -41,6 +42,9 @@ interface PlaybackProps extends SimulationViewProps {
   synthetic: boolean;
   analyticsOpen: boolean;
   onCloseAnalytics: () => void;
+  showAgentNumbers: boolean;
+  showAgentChat: boolean;
+  onCloseChat: () => void;
 }
 
 function Playback({
@@ -53,6 +57,9 @@ function Playback({
   analyticsOpen,
   onCloseAnalytics,
   onOpenAnalytics,
+  showAgentNumbers,
+  showAgentChat,
+  onCloseChat,
 }: PlaybackProps) {
   const theme = useStudioTheme();
 
@@ -127,7 +134,7 @@ function Playback({
       const agents = sample(time);
       const ratio = window.devicePixelRatio || 1;
       if (!recording || !trailSampler) {
-        render(agents, ratio);
+        render(agents, ratio, showAgentNumbers);
         return;
       }
       const index = frameIndexAtTime(
@@ -172,7 +179,7 @@ function Playback({
           },
         },
       );
-      drawAgents(element, building, agents, ratio, palette);
+      drawAgents(element, building, agents, ratio, palette, showAgentNumbers);
     };
     const unsubscribe = player.subscribeRender(redraw);
     redraw();
@@ -184,7 +191,7 @@ function Playback({
       observer.disconnect();
       window.removeEventListener("resize", redraw);
     };
-  }, [building, player, sample, theme, recording]);
+  }, [building, player, sample, theme, recording, showAgentNumbers]);
 
   const status = state.playing
     ? "Playing"
@@ -201,6 +208,14 @@ function Playback({
     >
       <div className="playback-stage">
         <div className="canvas-wrap playback-canvas-wrap">
+          {showAgentChat && (
+            <AgentChat
+              building={building}
+              result={recording}
+              time={time}
+              onClose={onCloseChat}
+            />
+          )}
           <canvas
             data-world-canvas
             ref={canvas}
@@ -479,10 +494,17 @@ export function SimulationView({
   onOpenAnalytics,
 }: SimulationViewProps) {
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
+  const [showAgentNumbers, setShowAgentNumbers] = useState(false);
+  const [showAgentChat, setShowAgentChat] = useState(false);
+  const chatToggle = useRef<HTMLInputElement>(null);
   const analyticsButton = useRef<HTMLButtonElement>(null);
   function closeAnalytics() {
     setAnalyticsOpen(false);
     analyticsButton.current?.focus();
+  }
+  function closeChat() {
+    setShowAgentChat(false);
+    chatToggle.current?.focus();
   }
   const [previewRequested, setPreview] = useState(false);
   const preview = previewRequested && allowSyntheticPreview;
@@ -526,6 +548,30 @@ export function SimulationView({
                   ? "API recording"
                   : "Awaiting simulation"}
           </span>
+          <label className="playback-preview-toggle">
+            <input
+              type="checkbox"
+              checked={showAgentNumbers}
+              onChange={(event) => setShowAgentNumbers(event.target.checked)}
+            />
+            Show Agent Numbers
+          </label>
+          <label
+            className="playback-preview-toggle"
+            title={
+              running ? "Available after the recording finishes" : undefined
+            }
+          >
+            <input
+              ref={chatToggle}
+              type="checkbox"
+              checked={showAgentChat}
+              disabled={running}
+              aria-controls="agent-chat"
+              onChange={(event) => setShowAgentChat(event.target.checked)}
+            />
+            Show Agent Chat
+          </label>
         </div>
         <button
           ref={analyticsButton}
@@ -546,7 +592,12 @@ export function SimulationView({
         </p>
       )}
       {live ? (
-        <LiveSimulationView building={building} live={live} active={active} />
+        <LiveSimulationView
+          building={building}
+          live={live}
+          active={active}
+          showAgentNumbers={showAgentNumbers}
+        />
       ) : (
         <Playback
           synthetic={preview}
@@ -555,6 +606,9 @@ export function SimulationView({
           analyticsOpen={analyticsOpen}
           onCloseAnalytics={closeAnalytics}
           onOpenAnalytics={onOpenAnalytics}
+          showAgentNumbers={showAgentNumbers}
+          showAgentChat={showAgentChat}
+          onCloseChat={closeChat}
           active={active}
           building={preview ? syntheticBuilding : building}
           result={preview ? syntheticResult : result}

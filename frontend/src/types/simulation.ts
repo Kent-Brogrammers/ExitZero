@@ -154,12 +154,25 @@ export interface SimulationAnalytics {
 export interface SimulationResult extends SimulationMetrics {
   /** Absent in older saved results and synthetic fixtures. */
   analytics?: SimulationAnalytics;
+  /** Actual opening discoveries and accepted shares; absent in older recordings. */
+  communication_events?: CommunicationEvent[];
   frames: AnimationFrame[];
   /** Weighted world positions representing accumulated traffic, not density. */
   traffic_samples: TrafficSample[];
   time_step_seconds: number;
   width: number;
   height: number;
+}
+
+export interface CommunicationEvent {
+  step: number;
+  /** Earlier share-only recordings omitted this; treat those as shared. */
+  event_type?: "discovery" | "shared";
+  /** Observer for discoveries, sender for shares. IDs remain zero-based. */
+  sender_id: number;
+  recipient_ids: number[];
+  opening_id: string;
+  blocked: boolean;
 }
 
 /** Newline-delimited events from POST /api/simulate/live. */
