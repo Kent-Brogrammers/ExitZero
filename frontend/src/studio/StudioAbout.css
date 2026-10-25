@@ -1,0 +1,87 @@
+.studio-about {
+  margin-top: var(--space-3);
+  border-top: 1px solid var(--cad-border);
+  font-size: var(--text-control);
+  line-height: 1.5;
+}
+.studio-about summary {
+  position: sticky;
+  top: calc(-1 * var(--popover-padding));
+  z-index: 1;
+  background: var(--cad-panel);
+  padding: var(--space-3) 2px;
+  color: var(--cad-muted);
+  cursor: pointer;
+}
+.studio-about summary:hover,
+.studio-about[open] summary {
+  color: var(--cad-text);
+}
+.studio-about summary:focus-visible,
+.studio-about a:focus-visible {
+  outline: 2px solid var(--cad-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-control);
+}
+.studio-about-content {
+  display: grid;
+  gap: var(--space-3);
+  overflow-wrap: anywhere;
+}
+.studio-about-facts {
+  margin: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+.studio-about-facts > div {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: var(--space-2);
+}
+.studio-about dt,
+.studio-about-team span {
+  color: var(--cad-muted);
+}
+.studio-about dd {
+  margin: 0;
+  color: var(--cad-text);
+}
+.studio-about a {
+  width: fit-content;
+  color: var(--cad-muted);
+  text-underline-offset: 3px;
+}
+.studio-about a:hover {
+  color: var(--cad-text);
+}
+.studio-about h4 {
+  margin: var(--space-1) 0 0;
+  color: var(--cad-text);
+  font-size: inherit;
+  font-weight: 500;
+}
+.studio-about-team {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.studio-about-team li {
+  display: grid;
+  gap: 2px;
+}
+.studio-about-team strong {
+  color: var(--cad-text);
+  font-weight: 500;
+}
+.studio-about-team p,
+.studio-about-limitation {
+  margin: 0;
+  color: var(--cad-muted);
+  font-size: var(--text-small);
+}
+.studio-about-limitation {
+  padding: var(--space-2) 0 var(--space-1);
+  border-top: 1px solid var(--cad-border);
+}

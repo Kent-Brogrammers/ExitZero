@@ -150,6 +150,19 @@ export function buildingError(
   }
   if (b.blocked_exit_ids.some((id) => !b.exits.some((exit) => exit.id === id)))
     return "Blocked exit IDs must reference existing exits.";
+  const events = b.opening_events ?? [];
+  const seenEvents = new Set<string>();
+  for (const [index, event] of events.entries()) {
+    const key = JSON.stringify([event.step, event.opening_id]);
+    if (
+      event.step >= b.max_steps ||
+      !openings.some((o) => o.id === event.opening_id) ||
+      (index > 0 && events[index - 1]!.step > event.step) ||
+      seenEvents.has(key)
+    )
+      return "Opening events must reference existing doors or exits, in step order before the run limit, once per opening per step.";
+    seenEvents.add(key);
+  }
   for (const rectangle of [
     ...b.obstructions,
     ...b.spawn_zones,
@@ -221,6 +234,10 @@ export function removeElement(
   next.blocked_exit_ids = next.blocked_exit_ids.filter((id) =>
     next.exits.some((o) => o.id === id),
   );
+  if (next.opening_events)
+    next.opening_events = next.opening_events.filter((event) =>
+      [...next.doors, ...next.exits].some((o) => o.id === event.opening_id),
+    );
   return next;
 }
 

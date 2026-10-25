@@ -1,4 +1,6 @@
+import type { FurnitureTool } from "./furniture";
 export type EditorTool =
+  | FurnitureTool
   | "select"
   | "wall-freehand"
   | "wall"

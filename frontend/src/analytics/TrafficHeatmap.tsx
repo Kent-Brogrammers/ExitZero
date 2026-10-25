@@ -133,14 +133,16 @@ export default function TrafficHeatmap({
           ) : (
             <p className="note">No positive traffic samples were returned.</p>
           )}
-          <p className="note">
-            Actual accumulated visits, displayed as a smoothed intensity field.
-            The smoothing radius is visual and may extend color beyond recorded
-            paths; it does not predict movement through walls. Source counts are
-            unchanged (source bins: {traffic?.size.toFixed(2)} m). Colors are
-            relative to this run, not density or measured congestion. Scenario
-            selection does not change this map.{" "}
-          </p>
+          <details className="note">
+            <summary>About recorded traffic</summary>
+            <p>
+              Computed visits, smoothed for display. Color may extend beyond
+              recorded paths; it does not predict movement through walls. Source
+              counts are unchanged ({traffic?.size.toFixed(2)} m bins). Colors
+              are relative to this run, not density or measured congestion.
+              Scenario selection does not change this map.
+            </p>
+          </details>
         </>
       )}
     </section>

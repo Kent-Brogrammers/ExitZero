@@ -47,9 +47,9 @@ export function DraftingControls({
         Snap to Grid
       </label>
       <label>
-        Door merge snap
+        Door / exit merge snap
         <select
-          aria-label="Door merge snap distance"
+          aria-label="Opening merge snap distance"
           value={preferences.doorMergeTolerance}
           onChange={(e) =>
             onChange({
@@ -66,11 +66,9 @@ export function DraftingControls({
         </select>
       </label>
       <p className="note">
-        1 foot = 0.3048 metres. Grid visibility and snapping are independent.
-        Stored geometry stays in metres. Fine lines thin at small display
-        scales. Door-edge snapping uses the selected tolerance when Snap to Grid
-        is on. Confirm the preview to merge; real gaps remain when snapping is
-        off.
+        1 ft = 0.3048 m. Geometry stays in metres. Snapping works with the grid
+        hidden. With Snap to Grid on, door/exit edges use this merge tolerance.
+        Confirm the preview to merge; gaps remain when snapping is off.
       </p>
     </div>
   );

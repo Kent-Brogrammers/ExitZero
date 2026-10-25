@@ -1,4 +1,5 @@
 import { drawLayout } from "../editor/draw";
+import { frameLayout } from "./frameLayout";
 import { canvasPalette, type CanvasPalette } from "../styles/canvasPalette";
 import { canvasView } from "../editor/geometry";
 import type {
@@ -21,7 +22,14 @@ export function drawPlayback(
   pixelRatio: number,
   palette: CanvasPalette = canvasPalette(canvas),
 ) {
-  drawLayout(canvas, building, null, undefined, pixelRatio, palette);
+  drawLayout(
+    canvas,
+    frameLayout(building, frame),
+    null,
+    undefined,
+    pixelRatio,
+    palette,
+  );
   drawAgents(canvas, building, frame, pixelRatio, palette);
 }
 
@@ -66,6 +74,7 @@ export function createPlaybackRenderer(
   layout = canvas.ownerDocument.createElement("canvas"),
 ) {
   const palette = canvasPalette(canvas);
+  let openingState: string | undefined;
   let width = 0,
     height = 0,
     ratio = 0;
@@ -81,8 +90,22 @@ export function createPlaybackRenderer(
       drawPlayback(canvas, building, frame, nextRatio, palette);
       return;
     }
-    if (width !== nextWidth || height !== nextHeight || ratio !== nextRatio) {
-      drawLayout(canvas, building, null, undefined, nextRatio, palette);
+    const nextOpeningState = JSON.stringify(frame?.blocked_opening_ids);
+    if (
+      width !== nextWidth ||
+      height !== nextHeight ||
+      ratio !== nextRatio ||
+      openingState !== nextOpeningState
+    ) {
+      openingState = nextOpeningState;
+      drawLayout(
+        canvas,
+        frameLayout(building, frame),
+        null,
+        undefined,
+        nextRatio,
+        palette,
+      );
       width = canvas.width;
       height = canvas.height;
       ratio = nextRatio;

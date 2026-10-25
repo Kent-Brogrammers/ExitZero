@@ -1,14 +1,20 @@
+use super::perception::{self, Occluder, WallKnowledge, WallSpan};
 use super::{Emergency, math};
-use crate::models::{BuildingScenario, Point, Wall};
+use crate::models::{BuildingScenario, Obstruction, Opening, Point, Wall};
+use std::collections::BTreeSet;
 
 // Match the opening bounds/overlap tolerance in BuildingScenario validation.
 const OPENING_EPSILON: f64 = 1e-8;
 
 pub(super) struct Geometry<'a> {
     scenario: &'a BuildingScenario,
-    emergencies: &'a [Emergency],
-    // Centreline pieces with rounded caps, plus their physical half-thickness.
-    solid_walls: Vec<(Point, Point, f64)>,
+    emergencies: Vec<Emergency>,
+    obstructions: Vec<&'a Obstruction>,
+    // Centreline pieces, physical half-thickness and supporting wall index.
+    solid_walls: Vec<(Point, Point, f64, usize)>,
+    blocked_openings: BTreeSet<String>,
+    partial_knowledge: bool,
+    observed_openings: BTreeSet<String>,
 }
 
 // Create geometry operations for a borrowed building scenario.
@@ -21,29 +27,408 @@ impl<'a> Geometry<'a> {
         scenario: &'a BuildingScenario,
         emergencies: &'a [Emergency],
     ) -> Self {
-        let mut geometry = Self {
+        let mut blocked: BTreeSet<_> = scenario.blocked_exit_ids.iter().cloned().collect();
+        blocked.extend(
+            scenario
+                .doors
+                .iter()
+                .chain(&scenario.exits)
+                .filter(|o| Self::layout_blocks_opening(scenario, o))
+                .map(|o| o.id.clone()),
+        );
+        Self::with_blocked_openings(scenario, emergencies, blocked)
+    }
+
+    pub(super) fn with_blocked_openings(
+        scenario: &'a BuildingScenario,
+        emergencies: &'a [Emergency],
+        blocked_openings: BTreeSet<String>,
+    ) -> Self {
+        Self::build(
             scenario,
             emergencies,
+            blocked_openings,
+            false,
+            BTreeSet::new(),
+        )
+    }
+
+    pub(super) fn for_beliefs(
+        scenario: &'a BuildingScenario,
+        emergencies: &'a [Emergency],
+        blocked_openings: BTreeSet<String>,
+        observed_openings: &BTreeSet<String>,
+        known_emergencies: &BTreeSet<usize>,
+        known_obstructions: &BTreeSet<String>,
+        known_walls: &WallKnowledge,
+    ) -> Self {
+        let mut geometry = Self::build(
+            scenario,
+            emergencies,
+            blocked_openings,
+            true,
+            observed_openings.clone(),
+        );
+        geometry.emergencies = emergencies
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| known_emergencies.contains(index))
+            .map(|(_, &emergency)| emergency)
+            .collect();
+        geometry
+            .obstructions
+            .retain(|obstacle| known_obstructions.contains(&obstacle.id));
+        let complete = std::mem::take(&mut geometry.solid_walls);
+        for (start, end, half_thickness, index) in complete {
+            let wall = &scenario.walls[index];
+            let Some(spans) = known_walls.get(&wall.id) else {
+                continue;
+            };
+            let length = wall.length();
+            let offset = |point: Point| {
+                ((point.x - wall.start.x) * (wall.end.x - wall.start.x)
+                    + (point.y - wall.start.y) * (wall.end.y - wall.start.y))
+                    / length
+            };
+            let source_start = offset(start);
+            let source_end = offset(end);
+            for span in spans {
+                let left = source_start.max(span.start);
+                let right = source_end.min(span.end);
+                if left <= right {
+                    geometry.solid_walls.push((
+                        math::interpolate(wall.start, wall.end, left / length),
+                        math::interpolate(wall.start, wall.end, right / length),
+                        half_thickness,
+                        index,
+                    ));
+                }
+            }
+        }
+        geometry
+    }
+
+    fn build(
+        scenario: &'a BuildingScenario,
+        emergencies: &'a [Emergency],
+        blocked_openings: BTreeSet<String>,
+        partial_knowledge: bool,
+        observed_openings: BTreeSet<String>,
+    ) -> Self {
+        let mut geometry = Self {
+            scenario,
+            emergencies: emergencies.to_vec(),
+            obstructions: scenario.obstructions.iter().collect(),
             solid_walls: Vec::new(),
+            blocked_openings,
+            partial_knowledge,
+            observed_openings,
         };
         // Match the rounded-wall clearance used by playback and integration
         // checks. Cache the pieces rather than rebuilding them for every move.
         geometry.solid_walls = scenario
             .walls
             .iter()
-            .flat_map(|wall| {
+            .enumerate()
+            .flat_map(|(index, wall)| {
                 geometry
                     .solid_wall_segments(wall)
                     .into_iter()
-                    .map(|(start, end)| (start, end, wall.thickness / 2.0))
+                    .map(|(start, end)| (start, end, wall.thickness / 2.0, index))
                     .collect::<Vec<_>>()
             })
             .collect();
         geometry
     }
 
+    pub(super) fn wall_fragments(&self) -> impl Iterator<Item = (Point, Point, f64)> + '_ {
+        self.solid_walls
+            .iter()
+            .map(|&(start, end, half_thickness, _)| (start, end, half_thickness))
+    }
+
+    pub(super) fn opening_was_observed(&self, id: &str) -> bool {
+        !self.partial_knowledge || self.observed_openings.contains(id)
+    }
+
+    /// Observe only certified visible portions, clipped by range and occlusion.
+    /// A source wall ID identifies memory; it never reveals the rest of a wall.
+    pub(super) fn visible_walls(&self, from: Point, range: f64) -> WallKnowledge {
+        let mut observed = WallKnowledge::new();
+        for (piece, &(start, end, half_thickness, index)) in self.solid_walls.iter().enumerate() {
+            if math::distance_to_segment(from, start, end) - half_thickness > range {
+                continue;
+            }
+            let mut occluders: Vec<_> = self
+                .solid_walls
+                .iter()
+                .enumerate()
+                .filter(|(other, _)| *other != piece)
+                .map(|(_, &(a, b, radius, _))| Occluder::Capsule {
+                    start: a,
+                    end: b,
+                    radius,
+                })
+                .collect();
+            occluders.extend(self.obstructions.iter().map(|o| Occluder::Rectangle {
+                x: o.x,
+                y: o.y,
+                width: o.width,
+                height: o.height,
+            }));
+            let wall = &self.scenario.walls[index];
+            let length = math::distance_to_point(start, end);
+            if length <= math::EPSILON {
+                continue;
+            }
+            let tangent = Point {
+                x: (end.x - start.x) / length,
+                y: (end.y - start.y) / length,
+            };
+            let normal = Point {
+                x: -tangent.y,
+                y: tangent.x,
+            };
+            let side = (from.x - start.x) * normal.x + (from.y - start.y) * normal.y;
+            let parent_offset =
+                (start.x - wall.start.x) * tangent.x + (start.y - wall.start.y) * tangent.y;
+            if side.abs() > 1e-9 {
+                let shift = half_thickness * side.signum();
+                let face_start = Point {
+                    x: start.x + normal.x * shift,
+                    y: start.y + normal.y * shift,
+                };
+                let face_end = Point {
+                    x: end.x + normal.x * shift,
+                    y: end.y + normal.y * shift,
+                };
+                for span in
+                    perception::visible_intervals(from, face_start, face_end, range, &occluders)
+                {
+                    observed.entry(wall.id.clone()).or_default().push(WallSpan {
+                        start: parent_offset + span.start * length,
+                        end: parent_offset + span.end * length,
+                    });
+                }
+            }
+            // A visible end cap reveals its endpoint, not the wall extending
+            // behind it. This also handles looking exactly along a wall.
+            for (endpoint, direction, offset) in [
+                (start, -1.0, parent_offset),
+                (end, 1.0, parent_offset + length),
+            ] {
+                let outward = ((from.x - endpoint.x) * tangent.x
+                    + (from.y - endpoint.y) * tangent.y)
+                    * direction;
+                if outward < -math::EPSILON {
+                    continue;
+                }
+                let distance = math::distance_to_point(from, endpoint);
+                if distance - half_thickness > range {
+                    continue;
+                }
+                let surface =
+                    math::move_toward(from, endpoint, (distance - half_thickness).max(0.0));
+                if !occluders
+                    .iter()
+                    .any(|&occluder| occluder.blocks_ray(from, surface))
+                {
+                    observed.entry(wall.id.clone()).or_default().push(WallSpan {
+                        start: offset,
+                        end: offset,
+                    });
+                }
+            }
+        }
+        observed
+    }
+
     pub(super) fn emergencies(&self) -> &[Emergency] {
-        self.emergencies
+        &self.emergencies
+    }
+
+    pub(super) fn obstructions(&self) -> impl Iterator<Item = &Obstruction> {
+        self.obstructions.iter().copied()
+    }
+
+    pub(super) fn opening_is_blocked(&self, id: &str) -> bool {
+        self.blocked_openings.contains(id)
+    }
+
+    fn opening_center(scenario: &BuildingScenario, opening: &Opening) -> Point {
+        let wall = scenario
+            .walls
+            .iter()
+            .find(|w| w.id == opening.wall_id)
+            .unwrap();
+        math::interpolate(
+            wall.start,
+            wall.end,
+            (opening.offset + opening.width / 2.0) / wall.length(),
+        )
+    }
+
+    pub(super) fn layout_blocks_opening(scenario: &BuildingScenario, opening: &Opening) -> bool {
+        let center = Self::opening_center(scenario, opening);
+        // Test the other walls' actual solid portions. Their own open doors
+        // must not become phantom closures, especially on short curve segments.
+        let layout = Geometry {
+            scenario,
+            emergencies: Vec::new(),
+            obstructions: Vec::new(),
+            solid_walls: Vec::new(),
+            blocked_openings: scenario.blocked_exit_ids.iter().cloned().collect(),
+            partial_knowledge: false,
+            observed_openings: BTreeSet::new(),
+        };
+        scenario.walls.iter().any(|wall| {
+            wall.id != opening.wall_id
+                && math::distance_to_segment(center, wall.start, wall.end)
+                    < scenario.agent_radius + wall.thickness / 2.0
+                && layout
+                    .solid_wall_segments(wall)
+                    .iter()
+                    .any(|&(start, end)| {
+                        let dx = end.x - start.x;
+                        let dy = end.y - start.y;
+                        let projection = ((center.x - start.x) * dx + (center.y - start.y) * dy)
+                            / (dx * dx + dy * dy);
+                        // Nearby jamb caps constrain body clearance, but do not
+                        // mean a neighboring opening has physically closed.
+                        (0.0..=1.0).contains(&projection)
+                            && math::distance_to_segment(center, start, end)
+                                < scenario.agent_radius + wall.thickness / 2.0
+                    })
+        })
+    }
+
+    /// Local cut used only to see a closure without that closure occluding
+    /// itself. Planning geometry never cuts holes through observed material.
+    fn covering_wall_gap(&self, wall: &Wall, opening: &Opening) -> Option<(f64, f64)> {
+        let center = Self::opening_center(self.scenario, opening);
+        if wall.id == opening.wall_id
+            || math::distance_to_segment(center, wall.start, wall.end)
+                >= self.scenario.agent_radius + wall.thickness / 2.0
+        {
+            return None;
+        }
+        let support = self
+            .scenario
+            .walls
+            .iter()
+            .find(|w| w.id == opening.wall_id)
+            .unwrap();
+        let tangent = Point {
+            x: (support.end.x - support.start.x) / support.length(),
+            y: (support.end.y - support.start.y) / support.length(),
+        };
+        let normal = Point {
+            x: -tangent.y,
+            y: tangent.x,
+        };
+        let mut enter = 0.0_f64;
+        let mut leave = 1.0_f64;
+        // Expand for the covering segment's rounded caps. The supporting wall
+        // still enforces the original door/exit width outside this local cut.
+        for (axis, extent) in [
+            (tangent, opening.width / 2.0 + wall.thickness / 2.0 + 1e-6),
+            (
+                normal,
+                support.thickness / 2.0 + wall.thickness / 2.0 + self.scenario.agent_radius + 1e-6,
+            ),
+        ] {
+            let origin = (wall.start.x - center.x) * axis.x + (wall.start.y - center.y) * axis.y;
+            let delta = (wall.end.x - wall.start.x) * axis.x + (wall.end.y - wall.start.y) * axis.y;
+            if delta.abs() < 1e-12 {
+                if origin.abs() > extent {
+                    return None;
+                }
+            } else {
+                let a = (-extent - origin) / delta;
+                let b = (extent - origin) / delta;
+                enter = enter.max(a.min(b));
+                leave = leave.min(a.max(b));
+                if enter >= leave {
+                    return None;
+                }
+            }
+        }
+        Some((enter * wall.length(), leave * wall.length()))
+    }
+
+    /// Vision is a ray, not an agent-sized movement segment. Solid walls and
+    /// obstructions occlude it, including closed doors between two agents.
+    pub(super) fn has_line_of_sight(&self, from: Point, to: Point) -> bool {
+        self.ray_is_clear(from, to, &[], None)
+    }
+
+    fn ray_is_clear(
+        &self,
+        from: Point,
+        to: Point,
+        replaced_walls: &[usize],
+        visible_obstruction: Option<&str>,
+    ) -> bool {
+        !self.solid_walls.iter().any(|&(a, b, thickness, index)| {
+            !replaced_walls.contains(&index)
+                && math::distance_between_segments(from, to, a, b) <= thickness
+        }) && !self.obstructions.iter().any(|o| {
+            visible_obstruction != Some(o.id.as_str())
+                && math::distance_segment_to_rectangle(from, to, o.x, o.y, o.width, o.height)
+                    <= 1e-9
+        })
+    }
+
+    /// Observe the nearest surface of this obstruction without treating that
+    /// surface as its own occluder. Other walls and obstructions still hide it.
+    pub(super) fn can_see_obstruction(&self, from: Point, obstacle: &Obstruction) -> bool {
+        let surface = Point {
+            x: from.x.clamp(obstacle.x, obstacle.x + obstacle.width),
+            y: from.y.clamp(obstacle.y, obstacle.y + obstacle.height),
+        };
+        self.ray_is_clear(from, surface, &[], Some(&obstacle.id))
+    }
+
+    pub(super) fn can_see_opening(&self, from: Point, opening: &crate::models::Opening) -> bool {
+        let (wall_index, wall) = self
+            .scenario
+            .walls
+            .iter()
+            .enumerate()
+            .find(|(_, wall)| wall.id == opening.wall_id)
+            .unwrap();
+        let target = math::interpolate(
+            wall.start,
+            wall.end,
+            (opening.offset + opening.width / 2.0) / wall.length(),
+        );
+        if !self.opening_is_blocked(&opening.id) {
+            return self.has_line_of_sight(from, target);
+        }
+        // A closed opening must be observable without occluding itself. Test
+        // the full ray against every other barrier, then the supporting wall
+        // with only this opening revealed. Never trim away part of the ray or
+        // ignore adjacent solid portions of the supporting wall.
+        let revealed: Vec<_> = self
+            .scenario
+            .walls
+            .iter()
+            .enumerate()
+            .filter(|(index, candidate)| {
+                *index == wall_index || self.covering_wall_gap(candidate, opening).is_some()
+            })
+            .map(|(index, _)| index)
+            .collect();
+        self.ray_is_clear(from, target, &revealed, None)
+            && revealed.iter().all(|&index| {
+                let wall = &self.scenario.walls[index];
+                !self
+                    .wall_segments_with_visible_opening(wall, Some(&opening.id))
+                    .iter()
+                    .any(|&(a, b)| {
+                        math::distance_between_segments(from, target, a, b) <= wall.thickness / 2.0
+                    })
+            })
     }
 
     /// Centre-arrival evacuation requires approaching the exit without walking
@@ -141,13 +526,13 @@ impl<'a> Geometry<'a> {
                 });
             }
         };
-        for &(start, end, half_thickness) in &self.solid_walls {
+        for &(start, end, half_thickness, _) in &self.solid_walls {
             add(
                 math::closest_point_on_segment(position, start, end),
                 self.scenario.agent_radius + half_thickness,
             );
         }
-        for obstacle in &self.scenario.obstructions {
+        for obstacle in &self.obstructions {
             add(
                 Point {
                     x: position.x.clamp(obstacle.x, obstacle.x + obstacle.width),
@@ -156,7 +541,7 @@ impl<'a> Geometry<'a> {
                 self.scenario.agent_radius,
             );
         }
-        for emergency in self.emergencies {
+        for emergency in &self.emergencies {
             add(
                 emergency.center,
                 self.scenario.agent_radius + emergency.radius + 1e-7,
@@ -186,7 +571,7 @@ impl<'a> Geometry<'a> {
         }
 
         // Check only solid wall portions; doors and available exits are gaps.
-        for &(start, end, half_thickness) in &self.solid_walls {
+        for &(start, end, half_thickness, _) in &self.solid_walls {
             if math::distance_to_segment(pos, start, end)
                 < self.scenario.agent_radius + half_thickness
             {
@@ -195,7 +580,7 @@ impl<'a> Geometry<'a> {
         }
 
         // Current rectangular obstacles are converted to polygons by the helper.
-        for obstruction in &self.scenario.obstructions {
+        for obstruction in &self.obstructions {
             let distance = math::distance_to_rectangle(
                 pos,
                 obstruction.x,
@@ -212,28 +597,41 @@ impl<'a> Geometry<'a> {
     }
 
     fn solid_wall_segments(&self, wall: &Wall) -> Vec<(Point, Point)> {
-        let mut openings: Vec<_> = self
+        self.wall_segments_with_visible_opening(wall, None)
+    }
+
+    fn wall_segments_with_visible_opening(
+        &self,
+        wall: &Wall,
+        visible: Option<&str>,
+    ) -> Vec<(Point, Point)> {
+        let mut intervals: Vec<_> = self
             .scenario
             .doors
             .iter()
-            .chain(
-                self.scenario
-                    .exits
-                    .iter()
-                    .filter(|exit| !self.scenario.blocked_exit_ids.contains(&exit.id)),
-            )
+            .filter(|door| !self.opening_is_blocked(&door.id) || visible == Some(door.id.as_str()))
+            .chain(self.scenario.exits.iter().filter(|exit| {
+                !self.opening_is_blocked(&exit.id) || visible == Some(exit.id.as_str())
+            }))
             .filter(|opening| opening.wall_id == wall.id)
+            .map(|opening| (opening.offset, opening.offset + opening.width))
             .collect();
-
-        openings.sort_by(|a, b| a.offset.total_cmp(&b.offset));
+        for opening in self.scenario.doors.iter().chain(&self.scenario.exits) {
+            if visible == Some(opening.id.as_str())
+                && let Some(gap) = self.covering_wall_gap(wall, opening)
+            {
+                intervals.push(gap);
+            }
+        }
+        intervals.sort_by(|a, b| a.0.total_cmp(&b.0));
 
         let length = wall.length();
         let mut cursor = 0.0_f64;
         let mut segments = Vec::new();
 
-        for opening in openings {
-            let start = opening.offset.clamp(0.0, length);
-            let end = (opening.offset + opening.width).clamp(0.0, length);
+        for (start, end) in intervals {
+            let start = start.clamp(0.0, length);
+            let end = end.clamp(0.0, length);
 
             if start - cursor > OPENING_EPSILON {
                 segments.push((
@@ -263,7 +661,7 @@ impl<'a> Geometry<'a> {
             return false;
         }
         //Checking path against all walls
-        for &(start, end, half_thickness) in &self.solid_walls {
+        for &(start, end, half_thickness, _) in &self.solid_walls {
             if math::distance_between_segments(from, to, start, end)
                 < self.scenario.agent_radius + half_thickness
             {
@@ -271,7 +669,7 @@ impl<'a> Geometry<'a> {
             }
         }
         //Checking path against all obstracles
-        for obstruction in &self.scenario.obstructions {
+        for obstruction in &self.obstructions {
             let distance = math::distance_segment_to_rectangle(
                 from,
                 to,

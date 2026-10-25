@@ -86,7 +86,7 @@ export function SimulationSummary({
               <dd>{result.remaining}</dd>
             </div>
             <div>
-              <dt>Trapped / unreachable</dt>
+              <dt>Trapped</dt>
               <dd>{result.trapped}</dd>
             </div>
             <div>
@@ -118,10 +118,7 @@ export function SimulationSummary({
       ) : (
         <div className="summary-empty">
           <p>No matching simulation result is available.</p>
-          <p>
-            Run a simulation or enable the clearly labeled synthetic playback
-            preview.
-          </p>
+          <p>Run Simulation to see final metrics.</p>
         </div>
       )}
       <a
@@ -134,7 +131,7 @@ export function SimulationSummary({
           }
         }}
       >
-        Open full Analytics view <span aria-hidden="true">↗</span>
+        Open Analytics <span aria-hidden="true">↗</span>
       </a>
       {synthetic && (
         <p className="summary-note">

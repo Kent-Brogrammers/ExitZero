@@ -3,6 +3,7 @@ import { canvasView, openingSegment, type Selection } from "./geometry";
 import { drawGrid } from "./drawGrid";
 import type { DraftingPreferences } from "./drafting";
 import { solidWallSegments, openingLabels } from "./openings";
+import { drawFurniture, type FurnitureKind } from "./furniture";
 import { dragRectangle, wallShapePoints } from "./shapes";
 import { isWallTool, type EditorTool } from "./tools";
 import { canvasPalette, type CanvasPalette } from "../styles/canvasPalette";
@@ -22,7 +23,9 @@ export function drawLayout(
   palette: CanvasPalette = canvasPalette(canvas),
   options?: {
     grid?: DraftingPreferences;
+    furniture?: ReadonlyMap<string, FurnitureKind>;
     underlay?: (ctx: CanvasRenderingContext2D) => void;
+    showDimensions?: boolean;
   },
 ) {
   const ctx = canvas.getContext("2d");
@@ -43,6 +46,7 @@ export function drawLayout(
   ctx.setTransform(scale, 0, 0, scale, x, y);
   ctx.fillStyle = palette.surface;
   ctx.fillRect(0, 0, building.width, building.height);
+  // World-space overlays sit above the background and below drafting/geometry.
   options?.underlay?.(ctx);
   if (options?.grid)
     drawGrid(ctx, building, { scale, x, y }, ratio, options.grid, palette);
@@ -72,6 +76,23 @@ export function drawLayout(
     ctx.lineWidth = (selectedIds.has(rectangle.id) ? 2 : 1) * px;
     ctx.fillRect(rectangle.x, rectangle.y, rectangle.width, rectangle.height);
     ctx.strokeRect(rectangle.x, rectangle.y, rectangle.width, rectangle.height);
+    const furniture = options?.furniture?.get(rectangle.id);
+    if (furniture) {
+      drawFurniture(ctx, furniture, rectangle, px);
+      continue;
+    }
+    if (!spawn && !stair && palette.blueprint === "1") {
+      // Unclassified imported blockers retain an honest technical footprint.
+      const inset = Math.min(0.08, rectangle.width / 5, rectangle.height / 5);
+      ctx.lineWidth = px;
+      ctx.strokeRect(
+        rectangle.x + inset,
+        rectangle.y + inset,
+        rectangle.width - 2 * inset,
+        rectangle.height - 2 * inset,
+      );
+      continue;
+    }
     if (stair) {
       const angle =
         "orientation_degrees" in rectangle
@@ -254,7 +275,9 @@ export function drawLayout(
     }
     ctx.setLineDash([]);
   }
-  ctx.fillStyle = palette.muted;
-  ctx.font = `${12 * px}px system-ui`;
-  ctx.fillText(`${building.width} × ${building.height} m`, 12 * px, 20 * px);
+  if (options?.showDimensions !== false) {
+    ctx.fillStyle = palette.muted;
+    ctx.font = `${12 * px}px system-ui`;
+    ctx.fillText(`${building.width} × ${building.height} m`, 12 * px, 20 * px);
+  }
 }

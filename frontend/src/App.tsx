@@ -7,6 +7,12 @@ import { BuildingWorkspace } from "./editor/BuildingWorkspace";
 import { StudioPopover } from "./ui/StudioPopover";
 import { AppearanceSelector } from "./styles/StudioAppearance";
 import { StudioWelcome } from "./studio/StudioWelcome";
+import { StudioAbout } from "./studio/StudioAbout";
+import { loadOfficeDemo, officeDemoBuilding } from "./studio/officeDemo";
+import {
+  OfficeDemoNotice,
+  type OfficeDemoSource,
+} from "./studio/OfficeDemoNotice";
 import { api } from "./services/api";
 import type {
   BuildingScenario,
@@ -59,6 +65,7 @@ export default function App() {
     if (namesOnly) return;
     setResult(null);
     setStressResult(null);
+    if (officeDemo) setOfficeDemo("edited");
     setMessage("");
   }
   const [connection, setConnection] = useState<
@@ -77,6 +84,61 @@ export default function App() {
     null,
   );
 
+  const [officeDemo, setOfficeDemo] = useState<OfficeDemoSource | null>(null);
+  const previousWorkspace = useRef<{
+    building: BuildingScenario;
+    result: SimulationResult | null;
+    stressResult: StressTestResult | null;
+  } | null>(null);
+
+  async function openOfficeDemo() {
+    if (busy) return;
+    if (
+      officeDemo &&
+      JSON.stringify(building) !== JSON.stringify(officeDemoBuilding) &&
+      !window.confirm(
+        "Reload the office demo? Export any demo edits first to keep them.",
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      const recording = await loadOfficeDemo();
+      previousWorkspace.current ??= { building, result, stressResult };
+      setBuilding(structuredClone(officeDemoBuilding));
+      setResult(recording);
+      setStressResult(null);
+      setOfficeDemo("recorded");
+      setMessage("");
+      navigate("simulation");
+    } catch {
+      setMessage(
+        "The office demo could not be loaded. Your layout is unchanged; try opening it again.",
+      );
+      navigate("edit");
+    } finally {
+      setBusy(false);
+    }
+  }
+  function returnFromOfficeDemo() {
+    const previous = previousWorkspace.current;
+    if (busy || !previous) return;
+    if (
+      JSON.stringify(building) !== JSON.stringify(officeDemoBuilding) &&
+      !window.confirm(
+        "Return to your previous layout? Export any demo edits first to keep them.",
+      )
+    )
+      return;
+    setBuilding(previous.building);
+    setResult(previous.result);
+    setStressResult(previous.stressResult);
+    previousWorkspace.current = null;
+    setOfficeDemo(null);
+    setMessage("");
+    navigate("edit");
+  }
+
   useEffect(() => {
     const controller = new AbortController();
     api
@@ -91,9 +153,10 @@ export default function App() {
   async function run(action: "simulate" | "stress" | "optimize") {
     if (busy) return;
     setBusy(true);
-    setMessage("Sending request to the backend…");
+    setMessage("Sending request…");
     try {
       if (action === "simulate") {
+        if (officeDemo) setOfficeDemo("live");
         const controller = new AbortController();
         liveRequest.current = controller;
         setResult(null);
@@ -113,9 +176,7 @@ export default function App() {
         );
         if (!controller.signal.aborted) {
           setResult(recording);
-          setMessage(
-            "Run finished. Rewind the timeline or replay to review it.",
-          );
+          setMessage("Recording ready.");
         }
       } else if (action === "stress") {
         setStressResult(
@@ -128,11 +189,11 @@ export default function App() {
             },
           }),
         );
-        setMessage("Stress-test result received.");
+        setMessage("Stress test ready.");
       } else {
         await api.optimize({ building, max_candidates: 10 });
         setMessage(
-          "Optimization result received. Candidate visualization is pending.",
+          "Optimization finished. Candidate visualization is not available yet.",
         );
       }
     } catch (error) {
@@ -148,7 +209,8 @@ export default function App() {
     <div className={`workspace-app${view === "welcome" ? " is-welcome" : ""}`}>
       <div className="welcome-view" hidden={view !== "welcome"}>
         <StudioWelcome
-          building={example}
+          building={officeDemoBuilding}
+          onOpenDemo={() => void openOfficeDemo()}
           disabled={busy}
           onOpen={() => navigate("edit")}
           onLoadExample={() => {
@@ -238,6 +300,53 @@ export default function App() {
                     </button>
                   </div>
                   <AppearanceSelector />
+                  <fieldset disabled={busy}>
+                    <legend>Agent awareness</legend>
+                    {(
+                      [
+                        ["sight_range_metres", "Sight range (m)", 8],
+                        [
+                          "communication_range_metres",
+                          "Communication range (m)",
+                          3,
+                        ],
+                      ] as const
+                    ).map(([key, label, fallback]) => (
+                      <label key={key}>
+                        {label}
+                        <input
+                          type="number"
+                          min={0}
+                          max={1000}
+                          step={0.5}
+                          value={building.awareness?.[key] ?? fallback}
+                          onChange={(event) => {
+                            const value = event.currentTarget.valueAsNumber;
+                            if (
+                              !Number.isFinite(value) ||
+                              value < 0 ||
+                              value > 1000
+                            )
+                              return;
+                            changeBuilding({
+                              ...building,
+                              awareness: {
+                                sight_range_metres: 8,
+                                communication_range_metres: 3,
+                                ...building.awareness,
+                                [key]: value,
+                              },
+                            });
+                          }}
+                        />
+                      </label>
+                    ))}
+                    <p className="note">
+                      Agents assume exits are open until they see or hear
+                      otherwise. Walls block sight and communication. Set
+                      communication to 0 to disable sharing.
+                    </p>
+                  </fieldset>
                   <dl className="settings-values">
                     <div>
                       <dt>Coordinates</dt>
@@ -277,6 +386,7 @@ export default function App() {
                   {layoutProblem && (
                     <p className="settings-warning">{layoutProblem}</p>
                   )}
+                  <StudioAbout />
                 </div>
               )}
             </StudioPopover>
@@ -291,13 +401,22 @@ export default function App() {
               }
               onClick={() => void run("simulate")}
             >
-              {busy ? "Working…" : "Run simulation"}
+              {busy ? "Working…" : "Run Simulation"}
               <span aria-hidden="true">↗</span>
             </button>
           </div>
         </header>
-        <main className="studio-main">
+        <main className={`studio-main${officeDemo ? " has-office-demo" : ""}`}>
           <h1 className="sr-only">ExitZero Studio</h1>
+          {officeDemo && (
+            <OfficeDemoNotice
+              source={officeDemo}
+              result={result}
+              busy={busy}
+              onEdit={() => navigate("edit")}
+              onReturn={returnFromOfficeDemo}
+            />
+          )}
           <div className="studio-viewport" hidden={view === "analytics"}>
             <BuildingWorkspace
               building={building}
@@ -305,6 +424,7 @@ export default function App() {
               result={result}
               live={live}
               replayTarget={replayTarget}
+              allowSyntheticPreview={!officeDemo}
               disabled={busy}
               mode={view === "simulation" ? "simulation" : "edit"}
               active={view === "edit" || view === "simulation"}
@@ -322,12 +442,8 @@ export default function App() {
           >
             <div className="analysis-heading">
               <div>
-                <p className="eyebrow">THE RECORD / ANALYTICS</p>
-                <h2>
-                  Every outcome.
-                  <br />
-                  <span>A clearer picture.</span>
-                </h2>
+                <p className="eyebrow">ANALYTICS</p>
+                <h2>Simulation results.</h2>
               </div>
               <div
                 className="control-buttons"
@@ -338,7 +454,7 @@ export default function App() {
                   disabled={busy || connection !== "online" || !!layoutProblem}
                   onClick={() => void run("stress")}
                 >
-                  Stress test
+                  Stress Test
                 </button>
                 <button
                   disabled={busy || connection !== "online" || !!layoutProblem}

@@ -20,6 +20,7 @@ interface BuildingWorkspaceProps {
   disabled?: boolean;
   mode?: Mode;
   active?: boolean;
+  allowSyntheticPreview?: boolean;
   onOpenAnalytics?: () => void;
 }
 
@@ -31,6 +32,7 @@ export function BuildingWorkspace({
   disabled,
   mode: controlledMode,
   active = true,
+  allowSyntheticPreview = true,
   onOpenAnalytics,
   replayTarget,
 }: BuildingWorkspaceProps) {
@@ -84,6 +86,7 @@ export function BuildingWorkspace({
           result={result}
           live={live}
           replayTarget={replayTarget}
+          allowSyntheticPreview={allowSyntheticPreview}
           active={active && mode === "simulation"}
           onOpenAnalytics={onOpenAnalytics}
         />

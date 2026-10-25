@@ -23,6 +23,7 @@ import { createFrameSampler } from "./interpolation";
 import { createPlayback, PLAYBACK_SPEEDS } from "./playback";
 import { syntheticBuilding, syntheticResult } from "./playback.fixture";
 import { SimulationSummary } from "./SimulationSummary";
+import { frameLayout } from "./frameLayout";
 import "./SimulationView.css";
 
 interface SimulationViewProps {
@@ -31,6 +32,7 @@ interface SimulationViewProps {
   live?: LiveSimulation | null;
   replayTarget?: ReplayTarget | null;
   active?: boolean;
+  allowSyntheticPreview?: boolean;
   onOpenAnalytics?: () => void;
 }
 
@@ -45,6 +47,7 @@ function Playback({
   replayTarget,
   result,
   active = true,
+  allowSyntheticPreview = true,
   synthetic,
   analyticsOpen,
   onCloseAnalytics,
@@ -148,17 +151,25 @@ function Playback({
         }
         lastIndex = index;
       }
-      drawLayout(element, building, null, undefined, ratio, palette, {
-        underlay: (ctx) => {
-          ctx.save();
-          ctx.beginPath();
-          ctx.rect(0, 0, building.width, building.height);
-          ctx.clip();
-          ctx.imageSmoothingEnabled = true;
-          ctx.drawImage(layer, 0, 0, building.width, building.height);
-          ctx.restore();
+      drawLayout(
+        element,
+        frameLayout(building, agents),
+        null,
+        undefined,
+        ratio,
+        palette,
+        {
+          underlay: (ctx) => {
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(0, 0, building.width, building.height);
+            ctx.clip();
+            ctx.imageSmoothingEnabled = true;
+            ctx.drawImage(layer, 0, 0, building.width, building.height);
+            ctx.restore();
+          },
         },
-      });
+      );
       drawAgents(element, building, agents, ratio, palette);
     };
     const unsubscribe = player.subscribeRender(redraw);
@@ -189,6 +200,7 @@ function Playback({
       <div className="playback-stage">
         <div className="canvas-wrap playback-canvas-wrap">
           <canvas
+            data-world-canvas
             ref={canvas}
             width={1200}
             height={800}
@@ -226,12 +238,15 @@ function Playback({
           </div>
         </div>
         {recording && (
-          <p className="note live-trails-note">
-            LIVE PLAYBACK TRAILS · Accumulates recorded occupant positions as
-            playback advances. Pause freezes the layer; reset clears it; seeking
-            rebuilds it. Colors use a fixed scale for this recording. Sampled
-            frame observations are not the backend's full traffic totals.
-          </p>
+          <details className="live-trails-note">
+            <summary>Recorded traffic trails</summary>
+            <p>
+              Accumulates sampled positions as playback advances. Pause freezes
+              trails; reset clears them; seeking rebuilds them. Colors use a
+              fixed scale for this recording. These observations are not the
+              backend's full accumulated traffic totals.
+            </p>
+          </details>
         )}
         <div className="playback-dock">
           <div className="playback-transport">
@@ -388,9 +403,9 @@ function Playback({
                     Recorded outcome: <strong>{recording.status}</strong> ·{" "}
                     {recording.evacuated} / {recording.total_population}{" "}
                     evacuated · {recording.remaining} remaining (
-                    {recording.trapped} unreachable).{" "}
+                    {recording.trapped} trapped).{" "}
                     {recording.status !== "completed" &&
-                      "The evacuation did not complete; the recording ending does not imply success."}
+                      "Recording ended before full evacuation."}
                   </p>
                 )}
                 <a
@@ -403,7 +418,7 @@ function Playback({
                     }
                   }}
                 >
-                  Explore analytics ↗
+                  Open Analytics ↗
                 </a>
 
                 <p className="note">
@@ -422,13 +437,12 @@ function Playback({
               </p>
             ) : !recording ? (
               <p className="note">
-                No simulation has run. The current layout is shown. Run a
-                simulation or enable the synthetic preview to try playback.
+                No recording yet. Run Simulation
+                {allowSyntheticPreview ? " or try the synthetic preview." : "."}
               </p>
             ) : !frames.length ? (
               <p className="note">
-                The result contains no animation frames. Playback controls are
-                unavailable.
+                No recorded frames. Playback is unavailable.
               </p>
             ) : (
               <p className="note">
@@ -458,6 +472,7 @@ export function SimulationView({
   replayTarget,
   live = null,
   active = true,
+  allowSyntheticPreview = true,
   onOpenAnalytics,
 }: SimulationViewProps) {
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
@@ -466,7 +481,8 @@ export function SimulationView({
     setAnalyticsOpen(false);
     analyticsButton.current?.focus();
   }
-  const [preview, setPreview] = useState(false);
+  const [previewRequested, setPreview] = useState(false);
+  const preview = previewRequested && allowSyntheticPreview;
   const running = live !== null;
   // A newly returned API result takes precedence over a development preview.
   useEffect(() => {
@@ -493,7 +509,7 @@ export function SimulationView({
             <input
               type="checkbox"
               checked={preview}
-              disabled={live !== null}
+              disabled={live !== null || !allowSyntheticPreview}
               onChange={(event) => setPreview(event.target.checked)}
             />
             Use synthetic playback preview
@@ -522,9 +538,8 @@ export function SimulationView({
       </div>
       {preview && !live && (
         <p className="playback-synthetic-note" role="note">
-          Scripted development fixture only. No simulation was run. Separate 4 ×
-          3 m layout with two occupants; it does not represent your edited
-          building or the full Analytics view.
+          Synthetic preview: two occupants in a separate 4 × 3 m layout. No
+          simulation was run for your building. Full Analytics uses API results.
         </p>
       )}
       {live ? (
@@ -533,6 +548,7 @@ export function SimulationView({
         <Playback
           synthetic={preview}
           replayTarget={replayTarget}
+          allowSyntheticPreview={allowSyntheticPreview}
           analyticsOpen={analyticsOpen}
           onCloseAnalytics={closeAnalytics}
           onOpenAnalytics={onOpenAnalytics}
