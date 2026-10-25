@@ -1,8 +1,5 @@
-<<<<<<< HEAD
 import DxfImport from "./dxf/DxfImport";
-=======
 import { DisasterControls } from "./DisasterControls";
->>>>>>> connor/catastrophes
 import {
   addFurniture,
   furnitureKind,
@@ -1130,40 +1127,12 @@ export function BuildingEditor({
             <p className={`editor-help${spawnProblem ? " is-invalid" : ""}`}>
               {furnitureKind(tool)
                 ? "Click to place or drag a footprint. Furniture blocks its full rectangle."
-<<<<<<< HEAD
-                : tool === "select"
-                  ? "Drag to move or marquee select · Shift-click to add · Double-click for Properties"
-                  : tool === "wall-freehand"
-                    ? freehand?.error &&
-                      gesture?.curve &&
-                      gesture.curve.length > 1
-                      ? freehand.error
-                      : "Drag or click–trace–click · Escape cancels · Alt-click selects one segment"
-                    : tool === "wall"
-                      ? "Drag a straight wall at any angle. Nearby endpoints snap together."
-                      : tool === "wall-rectangle"
-                        ? "Drag opposite corners · Shift for square · Creates four walls"
-                        : tool === "wall-circle"
-                          ? "Drag an ellipse · Shift for circle · Saves 32 connected wall segments"
-                          : tool === "door" ||
-                              tool === "exit" ||
-                              tool === "window"
-                            ? `Click a wall to place ${tool === "exit" ? "an exit" : tool === "window" ? "a window" : "a door"}. Adjust its width in Properties.`
-                            : tool === "stairs"
-                              ? "Drag a walkable stair-area marker. It does not connect floors or block occupants."
-                              : tool === "spawn"
-                                ? (spawnProblem ??
-                                  (spawnDraft
-                                    ? `${spawnDraft.spawn_zones.at(-1)!.width.toFixed(2)} × ${spawnDraft.spawn_zones.at(-1)!.height.toFixed(2)} m · ${spawnDraft.spawn_zones.at(-1)!.count} occupants · Release to place`
-                                    : "Drag a rectangular spawn area · Shift for square · Set occupants in Properties"))
-                                : "Drag a rectangle · Shift for square · Edit dimensions in Properties"}
-=======
                 : tool === "hazard"
                   ? "Click to set the hazard's origin. Agents learn its location during the run."
                   : tool === "tornado-zone"
                     ? "Drag a safe shelter area for tornado response."
                     : tool === "select"
-                      ? "Drag objects or a hazard's centre marker to move · Shift-click to add · Double-click for Properties"
+                      ? "Drag objects or a hazard’s centre marker to move or marquee select · Shift-click to add · Double-click for Properties"
                       : tool === "wall-freehand"
                         ? freehand?.error &&
                           gesture?.curve &&
@@ -1176,14 +1145,18 @@ export function BuildingEditor({
                             ? "Drag opposite corners · Shift for square · Creates four walls"
                             : tool === "wall-circle"
                               ? "Drag an ellipse · Shift for circle · Saves 32 connected wall segments"
-                              : tool === "door" || tool === "exit"
-                                ? `Click a wall to place ${tool === "exit" ? "an exit" : "a door"}. Adjust its width in Properties.`
+                              : tool === "door" ||
+                                  tool === "exit" ||
+                                  tool === "window"
+                                ? `Click a wall to place ${tool === "exit" ? "an exit" : tool === "window" ? "a window" : "a door"}. Adjust its width in Properties.`
                                 : tool === "stairs"
                                   ? "Drag a walkable stair-area marker. It does not connect floors or block occupants."
                                   : tool === "spawn"
-                                    ? "Drag a spawn area, then set its name and occupant count in Properties."
+                                    ? (spawnProblem ??
+                                      (spawnDraft
+                                        ? `${spawnDraft.spawn_zones.at(-1)!.width.toFixed(2)} × ${spawnDraft.spawn_zones.at(-1)!.height.toFixed(2)} m · ${spawnDraft.spawn_zones.at(-1)!.count} occupants · Release to place`
+                                        : "Drag a rectangular spawn area · Shift for square · Set occupants in Properties"))
                                     : "Drag a rectangle · Shift for square · Edit dimensions in Properties"}
->>>>>>> connor/catastrophes
             </p>
             <div className="canvas-wrap editor-canvas-wrap">
               <canvas

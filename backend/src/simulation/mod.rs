@@ -148,7 +148,7 @@ fn run(
     let mut evacuated = vec![false; agents.len()];
     let total_population = agents.len() as u32;
     let mut evacuated_count = 0;
-    let mut step = 0;
+    let mut step = 0_u32;
     let mut idle_steps = 0;
     let movement_budget = motion::WALKING_SPEED * scenario.time_step_seconds;
 
@@ -164,13 +164,9 @@ fn run(
         agents.len(),
         &geometry,
     );
-    windows.update(
-        0,
-        &agents,
-        &evacuated,
-        scenario.exits.iter().all(|e| world.states[&e.id].blocked),
-        &geometry,
-    );
+    let mut all_exits_blocked = scenario.exits.iter().all(|e| world.states[&e.id].blocked);
+    let mut window_fallback = vec![all_exits_blocked; agents.len()];
+    windows.update(0, &agents, &evacuated, &window_fallback, &geometry);
     let mut window_escapes = 0;
     let mut frames = vec![frame(0, &agents, &evacuated, &world, &windows)];
     let live_stride = (0.05 / scenario.time_step_seconds).ceil().max(1.0) as u32;
@@ -191,23 +187,19 @@ fn run(
         let (changed_beliefs, information_changed) =
             awareness::update_knowledge(&mut agents, &evacuated, &world, &geometry);
         for i in 0..agents.len() {
-<<<<<<< HEAD
-            if evacuated[i] || windows.controls(i) || !changed_beliefs[i] {
-=======
             let versions: Vec<_> = agents[i]
                 .known_hazards
                 .values()
                 .map(|area| (area.id, area.revision))
                 .collect();
             let changed_disaster = versions != routed_disaster[i];
-            if evacuated[i] || (!changed_beliefs[i] && !changed_disaster) {
->>>>>>> connor/catastrophes
+            if evacuated[i] || windows.controls(i) || (!changed_beliefs[i] && !changed_disaster) {
                 continue;
             }
             let map = beliefs.geometry_for_agent(&agents[i]);
             let mut from = agents[i].position;
             let valid = routes[i].as_ref().is_some_and(|route| {
-                !map.opening_is_blocked(&route.exit_id)
+                !map.opening_is_unsafe(&route.exit_id)
                     && route.waypoints[next_waypoint[i]..].iter().all(|&to| {
                         let clear = map.can_move(from, to);
                         from = to;
@@ -245,12 +237,21 @@ fn run(
                 continue;
             }
             let (map, navigation) = beliefs.for_agent(&agents[i]);
-            let candidate = navigation.find_route_with_forecast(
-                agents[i].position,
-                map,
-                &forecast,
-                scenario.agent_radius,
-            );
+            let candidate = if windows.has_eligible() {
+                navigation.find_safe_route_with_forecast(
+                    agents[i].position,
+                    map,
+                    &forecast,
+                    scenario.agent_radius,
+                )
+            } else {
+                navigation.find_route_with_forecast(
+                    agents[i].position,
+                    map,
+                    &forecast,
+                    scenario.agent_radius,
+                )
+            };
             let improves = candidate.as_ref().is_some_and(|route| {
                 current_cost.is_none_or(|current| {
                     navigation::route_cost(
@@ -272,18 +273,61 @@ fn run(
             routed_disaster[i] = versions;
             last_disaster_replan[i] = now;
         }
-        let fallback = scenario
-            .exits
-            .iter()
-            .all(|exit| world.states[&exit.id].blocked);
+        // An exit can remain physically open while known gas cuts off every
+        // approach. Decide locally whether to try a window, searching for a
+        // danger-free normal detour first. This is not proof of entrapment.
+        for i in 0..agents.len() {
+            if evacuated[i] || tornado || !windows.has_eligible() {
+                window_fallback[i] = false;
+                continue;
+            }
+            if all_exits_blocked {
+                window_fallback[i] = true;
+                continue;
+            }
+            if windows.controls(i)
+                && window_fallback[i]
+                && !changed_beliefs[i]
+                && !step.is_multiple_of(retry_ticks)
+            {
+                continue;
+            }
+            let map = beliefs.geometry_for_agent(&agents[i]);
+            let mut from = agents[i].position;
+            let safe = routes[i].as_ref().is_some_and(|route| {
+                !map.opening_is_unsafe(&route.exit_id)
+                    && route.waypoints[next_waypoint[i]..].iter().all(|&to| {
+                        let clear = map.can_move(from, to) && map.avoids_known_danger(from, to);
+                        from = to;
+                        clear
+                    })
+            });
+            if safe {
+                window_fallback[i] = false;
+                continue;
+            }
+            let (map, navigation) = beliefs.for_agent(&agents[i]);
+            let candidate = navigation.find_route_avoiding_danger(agents[i].position, map);
+            window_fallback[i] = candidate.is_none();
+            if let Some(route) = candidate {
+                routes[i] = Some(route);
+                next_waypoint[i] = 0;
+                statistics[i].route_found = true;
+                commitments[i].forced(now);
+            }
+        }
         let controlled: Vec<_> = (0..agents.len()).map(|i| windows.controls(i)).collect();
-        windows.update(step, &agents, &evacuated, fallback, &geometry);
+        windows.update(step, &agents, &evacuated, &window_fallback, &geometry);
         for i in 0..agents.len() {
             if windows.controls(i) {
                 statistics[i].route_found = true;
             } else if controlled[i] && !evacuated[i] {
                 let (map, navigation) = beliefs.for_agent(&agents[i]);
-                routes[i] = navigation.find_route(agents[i].position, map);
+                routes[i] = if windows.has_eligible() {
+                    navigation.find_route_avoiding_danger(agents[i].position, map)
+                } else {
+                    navigation.find_route(agents[i].position, map)
+                };
                 next_waypoint[i] = 0;
                 stalled_ticks[i] = 0;
                 statistics[i].route_found = routes[i].is_some();
@@ -360,12 +404,22 @@ fn run(
                 )
             });
             let (map, navigation) = beliefs.for_agent(&agents[i]);
-            if let Some(route) = navigation.find_route_with_forecast(
-                before[i],
-                map,
-                &forecasts[i],
-                scenario.agent_radius,
-            ) {
+            let candidate = if windows.has_eligible() {
+                navigation.find_safe_route_with_forecast(
+                    before[i],
+                    map,
+                    &forecasts[i],
+                    scenario.agent_radius,
+                )
+            } else {
+                navigation.find_route_with_forecast(
+                    before[i],
+                    map,
+                    &forecasts[i],
+                    scenario.agent_radius,
+                )
+            };
+            if let Some(route) = candidate {
                 let cost = navigation::route_cost(
                     before[i],
                     &route.waypoints,
@@ -471,6 +525,9 @@ fn run(
                     before[i],
                     scenario.time_step_seconds,
                 ));
+                if agents[i].injury > 0.0 {
+                    velocity_limits[i].extend(motion::injury_speed_limits(agents[i].injury));
+                }
                 continue;
             }
             let Some(route) = &mut routes[i] else {
@@ -485,6 +542,7 @@ fn run(
                 let target = math::closest_point_on_segment(before[i], start, end);
                 let last = route.waypoints.last_mut().unwrap();
                 if map.can_move(before[i], target)
+                    && map.avoids_known_danger(before[i], target)
                     && navigation::route_cost(
                         before[i],
                         &[target],
@@ -503,6 +561,7 @@ fn run(
             for future in (next_waypoint[i] + 1..route.waypoints.len()).rev() {
                 let shortcut = [route.waypoints[future]];
                 if map.can_move(before[i], shortcut[0])
+                    && map.avoids_known_danger(before[i], shortcut[0])
                     && navigation::route_cost(
                         before[i],
                         &shortcut,
@@ -572,7 +631,8 @@ fn run(
             };
             if windows.controls(i) {
                 let neighbors = previous_neighbors(i);
-                let budget = windows.movement_budget(i, movement_budget);
+                let budget =
+                    windows.movement_budget(i, movement_budget * (1.0 - 0.75 * agents[i].injury));
                 let candidate = if windows.traversing(i)
                     || (windows.has_priority(i)
                         && math::distance_to_point(before[i], waypoint)
@@ -716,7 +776,8 @@ fn run(
                 proposed[i] = before[i];
             }
             if windows.controls(i) {
-                let budget = windows.movement_budget(i, movement_budget);
+                let budget =
+                    windows.movement_budget(i, movement_budget * (1.0 - 0.75 * agents[i].injury));
                 if math::distance_to_point(before[i], proposed[i]) > budget + 1e-8 {
                     proposed[i] = math::move_toward(before[i], proposed[i], budget);
                     if !windows
@@ -730,12 +791,8 @@ fn run(
         }
         motion::resolve_collisions(&before, &mut proposed, &active, scenario.agent_radius);
         #[cfg(test)]
-<<<<<<< HEAD
         tests::assert_accepted_moves(scenario, &geometry, &before, &proposed, &active, &windows);
-=======
-        tests::assert_accepted_moves(scenario, &geometry, &before, &proposed, &active);
         let previous_hazard = world.prepare_hazards(step + 1);
->>>>>>> connor/catastrophes
         let mut leaving = Vec::new();
         let mut progress = false;
         for i in 0..agents.len() {
@@ -793,35 +850,6 @@ fn run(
         record_traffic(scenario, &agents, &evacuated, &mut traffic);
         for i in leaving {
             evacuated[i] = true;
-<<<<<<< HEAD
-            evacuated_count += 1;
-            statistics[i].evacuation_step = Some(step);
-            statistics[i].evacuation_seconds = Some(f64::from(step) * scenario.time_step_seconds);
-            statistics[i].exit_id = routes[i].as_ref().map(|route| route.exit_id.clone());
-            if !scenario.windows.is_empty() {
-                statistics[i].escape_route =
-                    statistics[i]
-                        .exit_id
-                        .as_ref()
-                        .map(|id| crate::models::EscapeRoute {
-                            kind: crate::models::EscapeRouteKind::NormalExit,
-                            opening_id: id.clone(),
-                        });
-            }
-        }
-        for (i, id) in windows.finish(step, &agents) {
-            evacuated[i] = true;
-            evacuated_count += 1;
-            window_escapes += 1;
-            statistics[i].evacuation_step = Some(step);
-            statistics[i].evacuation_seconds = Some(f64::from(step) * scenario.time_step_seconds);
-            statistics[i].exit_id = None;
-            statistics[i].escape_route = Some(crate::models::EscapeRoute {
-                kind: crate::models::EscapeRouteKind::EmergencyWindow,
-                opening_id: id,
-            });
-            progress = true;
-=======
             if tornado {
                 sheltered_count += 1;
                 agents[i].sheltered = true;
@@ -838,32 +866,53 @@ fn run(
                 statistics[i].evacuation_seconds =
                     Some(f64::from(step) * scenario.time_step_seconds);
                 statistics[i].exit_id = routes[i].as_ref().map(|route| route.exit_id.clone());
+                if !scenario.windows.is_empty() {
+                    statistics[i].escape_route =
+                        statistics[i]
+                            .exit_id
+                            .as_ref()
+                            .map(|id| crate::models::EscapeRoute {
+                                kind: crate::models::EscapeRouteKind::NormalExit,
+                                opening_id: id.clone(),
+                            });
+                }
             }
->>>>>>> connor/catastrophes
+        }
+        for (i, id) in windows.finish(step, &agents) {
+            evacuated[i] = true;
+            evacuated_count += 1;
+            window_escapes += 1;
+            statistics[i].evacuation_step = Some(step);
+            statistics[i].evacuation_seconds = Some(f64::from(step) * scenario.time_step_seconds);
+            statistics[i].exit_id = None;
+            statistics[i].escape_route = Some(crate::models::EscapeRoute {
+                kind: crate::models::EscapeRouteKind::EmergencyWindow,
+                opening_id: id,
+            });
+            progress = true;
         }
         if world.apply(step, &agents, &evacuated) {
             geometry =
                 geometry::Geometry::with_blocked_openings(scenario, emergencies, world.blocked());
+            geometry.hazard_areas = world
+                .disaster_state()
+                .map_or_else(Vec::new, |state| state.areas.clone());
             windows.refresh(emergencies, world.blocked(), &geometry);
+        }
+        let previously_all_blocked = all_exits_blocked;
+        all_exits_blocked = scenario.exits.iter().all(|e| world.states[&e.id].blocked);
+        if all_exits_blocked || previously_all_blocked != all_exits_blocked {
+            window_fallback.fill(all_exits_blocked);
         }
         // State changes at this timestamp are recorded in both live and saved
         // frames; preparation deadlines are never shifted by rendering stride.
-        windows.update(
-            step,
-            &agents,
-            &evacuated,
-            scenario.exits.iter().all(|e| world.states[&e.id].blocked),
-            &geometry,
-        );
-        for i in 0..agents.len() {
+        windows.update(step, &agents, &evacuated, &window_fallback, &geometry);
+        for (i, statistic) in statistics.iter_mut().enumerate() {
             if windows.controls(i) {
-                statistics[i].route_found = true;
+                statistic.route_found = true;
             }
         }
-        geometry.hazard_areas = world
-            .disaster_state()
-            .map_or_else(Vec::new, |state| state.areas.clone());
-        if step % frame_stride == 0 {
+        if step.is_multiple_of(frame_stride) {
             frames.push(frame(step, &agents, &evacuated, &world, &windows));
         }
         if step.is_multiple_of(live_stride)
@@ -920,11 +969,7 @@ fn run(
             status,
             total_population,
             evacuated: evacuated_count,
-<<<<<<< HEAD
-            trapped: if no_available_exits && !windows.has_eligible() {
-=======
-            trapped: if no_available_exits && !tornado {
->>>>>>> connor/catastrophes
+            trapped: if no_available_exits && !windows.has_eligible() && !tornado {
                 remaining
             } else {
                 0
@@ -955,15 +1000,12 @@ fn frame(
     windows: &windows::Windows<'_>,
 ) -> AnimationFrame {
     AnimationFrame {
-<<<<<<< HEAD
         window_states: windows.snapshots(agents),
-=======
         disaster_state: world.disaster_state().cloned(),
         sheltered: {
             let count = agents.iter().filter(|agent| agent.sheltered).count() as u32;
             (count > 0).then_some(count)
         },
->>>>>>> connor/catastrophes
         blocked_opening_ids: Some(world.blocked().into_iter().collect()),
         step,
         agents: agents

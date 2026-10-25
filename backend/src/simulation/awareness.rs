@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::perception::{self, WallKnowledge};
 use super::{Emergency, agent::Agent, geometry::Geometry, math, navigation::Navigation};
-use crate::models::{BuildingScenario, Opening, Point};
+use crate::models::BuildingScenario;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Observation {
@@ -269,19 +269,6 @@ impl<'a> OpeningStates<'a> {
     }
 }
 
-fn center(scenario: &BuildingScenario, opening: &Opening) -> Point {
-    let wall = scenario
-        .walls
-        .iter()
-        .find(|w| w.id == opening.wall_id)
-        .unwrap();
-    math::interpolate(
-        wall.start,
-        wall.end,
-        (opening.offset + opening.width / 2.0) / wall.length(),
-    )
-}
-
 fn learn(agent: &mut Agent, id: &str, observation: Observation) -> bool {
     if agent
         .knowledge
@@ -340,10 +327,11 @@ pub(super) fn update_knowledge(
             );
             informed |= perception::remember(&mut agent.known_walls, &visible);
             for opening in scenario.doors.iter().chain(&scenario.exits) {
-                if math::distance_to_point(agent.position, center(scenario, opening))
-                    <= scenario.awareness.sight_range_metres
-                    && geometry.can_see_opening(agent.position, opening)
-                {
+                if geometry.can_see_opening(
+                    agent.position,
+                    opening,
+                    scenario.awareness.sight_range_metres,
+                ) {
                     informed |= learn(agent, &opening.id, world.states[&opening.id]);
                 }
             }
@@ -466,7 +454,7 @@ impl<'a> BeliefMaps<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{OpeningStateChange, Wall};
+    use crate::models::{Opening, OpeningStateChange, Point, Wall};
 
     fn scenario() -> BuildingScenario {
         let mut b: BuildingScenario =
@@ -503,6 +491,211 @@ mod tests {
 
     fn at(id: u32, x: f64, y: f64) -> Agent {
         Agent::new(id, Point { x, y })
+    }
+
+    #[test]
+    fn seeing_the_near_edge_of_a_closed_exit_is_enough_to_warn_the_group() {
+        let mut b = scenario();
+        b.exits[0].offset = 1.0;
+        b.exits[0].width = 8.0;
+        b.awareness.sight_range_metres = 0.75;
+        b.awareness.communication_range_metres = 2.1;
+        let world = OpeningStates::new(&b);
+        let geometry = Geometry::new(&b);
+        let mut agents = vec![at(0, 1.5, 0.5), at(1, 1.5, 2.5), at(2, 1.5, 4.5)];
+        let (changed, _) = update_knowledge(&mut agents, &[false; 3], &world, &geometry);
+        assert!(
+            agents[0]
+                .knowledge
+                .get("left")
+                .is_some_and(|state| state.blocked)
+        );
+        assert!(
+            agents[1]
+                .knowledge
+                .get("left")
+                .is_some_and(|state| state.blocked)
+        );
+        assert!(
+            !agents[2].knowledge.contains_key("left"),
+            "no same-tick chain broadcast"
+        );
+        assert!(changed[0] && changed[1]);
+        update_knowledge(&mut agents, &[false; 3], &world, &geometry);
+        assert!(
+            agents[2]
+                .knowledge
+                .get("left")
+                .is_some_and(|state| state.blocked)
+        );
+        let mut maps = BeliefMaps::new(&b, &[]);
+        let (map, navigation) = maps.for_agent(&agents[2]);
+        assert_eq!(
+            navigation
+                .find_route(agents[2].position, map)
+                .unwrap()
+                .exit_id,
+            "right"
+        );
+    }
+
+    #[test]
+    fn reported_fire_and_gas_rule_out_an_exit_before_the_recipient_can_see_it() {
+        use crate::models::{Disaster, DisasterKind};
+        for kind in [DisasterKind::Fire, DisasterKind::GasLeak] {
+            let mut b = scenario();
+            b.blocked_exit_ids.clear();
+            b.awareness.sight_range_metres = 0.6;
+            b.disaster = Some(Disaster {
+                kind,
+                center: Point { x: 2.0, y: 0.2 },
+                radius: 0.2,
+                dynamics: None,
+            });
+            let world = OpeningStates::new(&b);
+            let geometry = Geometry::new(&b);
+            let mut agents = vec![
+                at(0, 2.0, 1.0),
+                at(1, 2.0, 3.0),
+                at(2, 2.0, 5.0),
+                at(3, 2.0, 9.0),
+            ];
+            let mut maps = BeliefMaps::new(&b, &[]);
+            let (changed, _) = update_knowledge(&mut agents, &[false; 4], &world, &geometry);
+            assert!(changed[0] && changed[1]);
+            assert!(
+                !agents[1].knowledge.contains_key("left"),
+                "the receiver cannot see the exit"
+            );
+            assert!(
+                agents[1].known_hazards.contains_key(&0),
+                "the witness reports the hazard's location"
+            );
+            let (map, navigation) = maps.for_agent(&agents[1]);
+            assert!(
+                map.opening_is_unsafe("left"),
+                "{kind:?} makes that destination unsafe"
+            );
+            assert_eq!(
+                navigation
+                    .find_route(agents[1].position, map)
+                    .unwrap()
+                    .exit_id,
+                "right"
+            );
+            let (map, navigation) = maps.for_agent(&agents[2]);
+            assert!(!map.opening_is_unsafe("left"), "no instantaneous relay");
+            assert_eq!(
+                navigation
+                    .find_route(agents[2].position, map)
+                    .unwrap()
+                    .exit_id,
+                "left"
+            );
+            update_knowledge(&mut agents, &[false; 4], &world, &geometry);
+            assert!(
+                maps.geometry_for_agent(&agents[2])
+                    .opening_is_unsafe("left")
+            );
+            assert!(
+                !maps
+                    .geometry_for_agent(&agents[3])
+                    .opening_is_unsafe("left"),
+                "out-of-range groups remain unaware"
+            );
+        }
+    }
+
+    #[test]
+    fn a_closed_door_blocks_fire_reports_until_there_is_a_clear_path() {
+        let mut b = scenario();
+        b.awareness.sight_range_metres = 0.6;
+        b.disaster = Some(crate::models::Disaster {
+            kind: crate::models::DisasterKind::Fire,
+            center: Point { x: 2.0, y: 0.2 },
+            radius: 0.2,
+            dynamics: None,
+        });
+        b.walls.push(Wall {
+            id: "divider".into(),
+            name: None,
+            start: Point { x: 0.0, y: 2.0 },
+            end: Point { x: 20.0, y: 2.0 },
+            thickness: 0.2,
+        });
+        b.doors.push(Opening {
+            id: "door".into(),
+            name: None,
+            wall_id: "divider".into(),
+            offset: 1.0,
+            width: 2.0,
+        });
+        b.opening_events = vec![
+            OpeningStateChange {
+                step: 0,
+                opening_id: "door".into(),
+                blocked: true,
+            },
+            OpeningStateChange {
+                step: 1,
+                opening_id: "door".into(),
+                blocked: false,
+            },
+        ];
+        let mut world = OpeningStates::new(&b);
+        let mut agents = vec![at(0, 2.0, 1.0), at(1, 2.0, 3.0)];
+        world.apply(0, &agents, &[false; 2]);
+        let geometry = Geometry::with_blocked_openings(&b, &[], world.blocked());
+        update_knowledge(&mut agents, &[false; 2], &world, &geometry);
+        assert!(agents[0].known_hazards.contains_key(&0));
+        assert!(agents[1].known_hazards.is_empty());
+        world.apply(1, &agents, &[false; 2]);
+        let geometry = Geometry::with_blocked_openings(&b, &[], world.blocked());
+        update_knowledge(&mut agents, &[false; 2], &world, &geometry);
+        assert!(agents[1].known_hazards.contains_key(&0));
+        assert!(
+            BeliefMaps::new(&b, &[])
+                .geometry_for_agent(&agents[1])
+                .opening_is_unsafe("left")
+        );
+    }
+
+    #[test]
+    fn a_reported_hazard_does_not_create_solid_wall_inside_an_occupied_doorway() {
+        let mut b = scenario();
+        b.blocked_exit_ids.clear();
+        b.disaster = Some(crate::models::Disaster {
+            kind: crate::models::DisasterKind::GasLeak,
+            center: Point { x: 2.0, y: 2.0 },
+            radius: 0.1,
+            dynamics: Some(crate::models::DisasterDynamics {
+                growth_rate: 0.2,
+                max_radius: 1.5,
+                max_patches: 1,
+                ..Default::default()
+            }),
+        });
+        let mut world = OpeningStates::new(&b);
+        let mut agents = vec![at(0, 2.0, 0.1)];
+        world.apply(60, &agents, &[false]);
+        assert!(
+            !world.states["left"].blocked,
+            "closure waits for the occupant to clear"
+        );
+        let mut geometry = Geometry::with_blocked_openings(&b, &[], world.blocked());
+        geometry.hazard_areas = world.disaster_state().unwrap().areas.clone();
+        update_knowledge(&mut agents, &[false], &world, &geometry);
+        let mut maps = BeliefMaps::new(&b, &[]);
+        let (map, navigation) = maps.for_agent(&agents[0]);
+        assert!(map.opening_is_unsafe("left"));
+        assert!(map.can_stand_at(agents[0].position));
+        assert_eq!(
+            navigation
+                .find_route(agents[0].position, map)
+                .unwrap()
+                .exit_id,
+            "right"
+        );
     }
 
     #[test]

@@ -95,11 +95,8 @@ export function LiveSimulationView({
         window.devicePixelRatio || 1,
         palette,
         {
-<<<<<<< HEAD
           windowStates: frame?.window_states,
-=======
           disasterState: frame?.disaster_state,
->>>>>>> connor/catastrophes
           underlay: (ctx) => {
             const layer = heatLayer.current;
             if (!layer) return;

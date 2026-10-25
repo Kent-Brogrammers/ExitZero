@@ -32,12 +32,9 @@ export function drawLayout(
     furniture?: ReadonlyMap<string, FurnitureKind>;
     underlay?: (ctx: CanvasRenderingContext2D) => void;
     showDimensions?: boolean;
-<<<<<<< HEAD
     showLabels?: boolean;
     windowStates?: readonly WindowFrameState[];
-=======
     disasterState?: import("../types/simulation").DisasterState;
->>>>>>> connor/catastrophes
   },
 ) {
   const ctx = canvas.getContext("2d");
@@ -200,33 +197,20 @@ export function drawLayout(
       ctx.stroke();
       continue;
     }
-<<<<<<< HEAD
     if (options?.showLabels !== false) {
       ctx.fillStyle = spawn ? palette.wall : palette.obstacleText;
       ctx.font = `${12 * px}px system-ui`;
       ctx.fillText(
         spawn
           ? `${rectangle.count} ${rectangle.count === 1 ? "occupant" : "occupants"}`
-          : "Obstruction",
+          : shelter
+            ? (rectangle.name ?? "Tornado zone")
+            : "Obstruction",
         rectangle.x + 6 * px,
         rectangle.y + 17 * px,
         Math.max(rectangle.width - 8 * px, px),
       );
     }
-=======
-    ctx.fillStyle = spawn ? palette.wall : palette.obstacleText;
-    ctx.font = `${12 * px}px system-ui`;
-    ctx.fillText(
-      spawn
-        ? `${rectangle.count} ${rectangle.count === 1 ? "occupant" : "occupants"}`
-        : shelter
-          ? (rectangle.name ?? "Tornado zone")
-          : "Obstruction",
-      rectangle.x + 6 * px,
-      rectangle.y + 17 * px,
-      Math.max(rectangle.width - 8 * px, px),
-    );
->>>>>>> connor/catastrophes
   }
   ctx.lineCap = "round";
   for (const wall of building.walls) {

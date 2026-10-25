@@ -126,6 +126,42 @@ describe("playback Canvas", () => {
     expect(context.stroke).toHaveBeenCalledOnce();
   });
 
+  it("draws injury groups and recorded window queue rings in the same frame", () => {
+    const { context, element } = fixture(600, 400);
+    const building = {
+      ...syntheticBuilding,
+      walls: [],
+      spawn_zones: [],
+      doors: [],
+      exits: [],
+    };
+    drawPlayback(
+      element,
+      building,
+      {
+        step: 1,
+        agents: [
+          { id: 1, x: 1, y: 1, injury: 0.2 },
+          { id: 2, x: 2, y: 1, injury: 0.6 },
+        ],
+        window_states: [
+          {
+            window_id: "pane",
+            state: "broken",
+            preparation_ready_step: 1,
+            queue_agent_ids: [1],
+            traversing_agent_id: 2,
+            traversal_earliest_finish_step: 31,
+          },
+        ],
+      },
+      1,
+    );
+    expect(context.arc).toHaveBeenCalledTimes(4);
+    expect(context.fill).toHaveBeenCalledTimes(2);
+    expect(context.stroke).toHaveBeenCalledTimes(4);
+  });
+
   it("maps fractional world coordinates with a top-left origin and letterboxing", () => {
     const view = canvasView(600, 400, syntheticBuilding);
     expect(worldToCanvas({ x: 1.25, y: 1.5 }, view).x).toBeCloseTo(200);

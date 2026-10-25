@@ -12,6 +12,14 @@ pub(super) fn state_blocks_opening(
     opening: &Opening,
     state: &crate::models::DisasterState,
 ) -> bool {
+    areas_block_opening(scenario, opening, &state.areas)
+}
+
+pub(super) fn areas_block_opening(
+    scenario: &BuildingScenario,
+    opening: &Opening,
+    areas: &[crate::models::HazardArea],
+) -> bool {
     let Some(disaster) = scenario.disaster else {
         return false;
     };
@@ -31,7 +39,7 @@ pub(super) fn state_blocks_opening(
         wall.end,
         (opening.offset + opening.width) / wall.length(),
     );
-    state.areas.iter().any(|area| {
+    areas.iter().any(|area| {
         let mut footprint = disaster;
         footprint.center = area.center;
         footprint.radius = area.radius;

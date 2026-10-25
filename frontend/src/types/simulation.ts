@@ -45,6 +45,8 @@ export interface WindowFrameState {
   queue_agent_ids: number[];
   traversing_agent_id: number | null;
   traversal_earliest_finish_step: number | null;
+  unavailable_reason?: string;
+  approaching_agent_ids?: number[];
 }
 export interface EscapeRoute {
   kind: "normal_exit" | "emergency_window";
@@ -158,12 +160,9 @@ export interface AnimationFrame {
   agents: AgentPosition[];
   /** Physical state at this time; absent in older recordings. */
   blocked_opening_ids?: string[];
-<<<<<<< HEAD
   window_states?: WindowFrameState[];
-=======
   sheltered?: number;
   disaster_state?: DisasterState;
->>>>>>> connor/catastrophes
 }
 
 export interface AgentStatistics {

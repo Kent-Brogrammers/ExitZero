@@ -29,11 +29,10 @@ export function drawPlayback(
     undefined,
     pixelRatio,
     palette,
-<<<<<<< HEAD
-    { windowStates: frame?.window_states },
-=======
-    { disasterState: frame?.disaster_state },
->>>>>>> connor/catastrophes
+    {
+      windowStates: frame?.window_states,
+      disasterState: frame?.disaster_state,
+    },
   );
   drawAgents(canvas, building, frame, pixelRatio, palette);
 }
@@ -89,9 +88,6 @@ export function drawAgents(
     context.fill();
     context.stroke();
   }
-<<<<<<< HEAD
-  context.fill();
-  context.stroke();
   // Queue membership is recorded by Rust, never inferred from proximity or missing IDs.
   const waiting = new Set(
     frame.window_states?.flatMap((s) => s.queue_agent_ids),
@@ -115,8 +111,6 @@ export function drawAgents(
       : palette.door;
     context.stroke();
   }
-=======
->>>>>>> connor/catastrophes
   context.restore();
 }
 
@@ -145,11 +139,8 @@ export function createPlaybackRenderer(
     }
     const nextOpeningState = JSON.stringify([
       frame?.blocked_opening_ids,
-<<<<<<< HEAD
       frame?.window_states?.map((s) => [s.window_id, s.state]),
-=======
       frame?.disaster_state,
->>>>>>> connor/catastrophes
     ]);
     if (
       width !== nextWidth ||
@@ -165,11 +156,10 @@ export function createPlaybackRenderer(
         undefined,
         nextRatio,
         palette,
-<<<<<<< HEAD
-        { windowStates: frame?.window_states },
-=======
-        { disasterState: frame?.disaster_state },
->>>>>>> connor/catastrophes
+        {
+          windowStates: frame?.window_states,
+          disasterState: frame?.disaster_state,
+        },
       );
       width = canvas.width;
       height = canvas.height;

@@ -96,13 +96,11 @@ pub struct AnimationFrame {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blocked_opening_ids: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-<<<<<<< HEAD
     pub window_states: Option<Vec<super::WindowFrameState>>,
-=======
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sheltered: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub disaster_state: Option<super::DisasterState>,
->>>>>>> connor/catastrophes
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -332,6 +330,12 @@ impl SimulationResult {
                         !windows.insert(&s.window_id)
                             || s.window_id.trim().is_empty()
                             || s.window_id.chars().count() > 64
+                            || s.unavailable_reason.as_ref().is_some_and(|reason| {
+                                reason.trim().is_empty() || reason.chars().count() > 240
+                            })
+                            || s.approaching_agent_ids
+                                .as_ref()
+                                .is_some_and(|ids| ids.len() > 10_000)
                             || matches!(
                                 s.state,
                                 super::WindowState::Opening | super::WindowState::Breaking
@@ -345,8 +349,10 @@ impl SimulationResult {
                                     s.state,
                                     super::WindowState::Open | super::WindowState::Broken
                                 )
-                            || s.queue_agent_ids
+                            || s.approaching_agent_ids
                                 .iter()
+                                .flatten()
+                                .chain(s.queue_agent_ids.iter())
                                 .chain(s.traversing_agent_id.iter())
                                 .any(|id| !ids.contains(id) || !participants.insert(*id))
                     })

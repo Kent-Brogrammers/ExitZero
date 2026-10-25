@@ -46,18 +46,13 @@ export class ApiError extends Error {
 
 function checkMetrics(metrics: SimulationMetrics): void {
   if (
-<<<<<<< HEAD
-    metrics.evacuated + metrics.remaining !== metrics.total_population ||
+    metrics.evacuated + (metrics.sheltered ?? 0) + metrics.remaining !==
+      metrics.total_population ||
     metrics.trapped > metrics.remaining ||
     (metrics.evacuated_by_route &&
       metrics.evacuated_by_route.normal_exit +
         metrics.evacuated_by_route.emergency_window !==
         metrics.evacuated)
-=======
-    metrics.evacuated + (metrics.sheltered ?? 0) + metrics.remaining !==
-      metrics.total_population ||
-    metrics.trapped > metrics.remaining
->>>>>>> connor/catastrophes
   ) {
     throw new ApiError(
       200,
@@ -157,6 +152,7 @@ function validWindowStates(frame: AnimationFrame): boolean {
       return false;
     windows.add(s.window_id);
     return [
+      ...(s.approaching_agent_ids ?? []),
       ...s.queue_agent_ids,
       ...(s.traversing_agent_id === null ? [] : [s.traversing_agent_id]),
     ].every((id) => {
