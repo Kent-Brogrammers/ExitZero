@@ -486,3 +486,22 @@ canvas {
     padding-inline: 6px;
   }
 }
+
+.halloween-soundtrack {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 10px 20px;
+  background: var(--cad-panel);
+  color: var(--cad-text);
+  border-bottom: 1px solid var(--cad-border);
+  font-size: 13px;
+}
+.halloween-soundtrack audio {
+  width: min(300px, 100%);
+  height: 34px;
+}
+.halloween-soundtrack small {
+  color: var(--cad-muted);
+}

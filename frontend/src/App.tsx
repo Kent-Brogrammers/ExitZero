@@ -1,3 +1,4 @@
+import halloweenPreset from "./editor/presets/halloween-pursuit.json";
 import { LengthInput } from "./ui/LengthInput";
 import { formatDimensions } from "./utils/units";
 import type { ReplayTarget } from "./simulation/replayTarget";
@@ -77,6 +78,7 @@ export default function App() {
   const [building, setBuilding] = useState<BuildingScenario>(() =>
     structuredClone(example),
   );
+  const [halloweenMusic, setHalloweenMusic] = useState(false);
   const layoutProblem = buildingError(building);
   const [savedLayoutJson, setSavedLayoutJson] = useState(() =>
     JSON.stringify(building),
@@ -164,6 +166,7 @@ export default function App() {
   ) {
     if (busy || !canReplace(name)) return;
     // Pass this same independent copy to run(), without waiting for React state.
+    setHalloweenMusic(!source && next === halloweenPreset);
     const selected = structuredClone(next);
     setBuilding(selected);
     setBaseline(null);
@@ -216,6 +219,22 @@ export default function App() {
   const [viewOriginal, setViewOriginal] = useState(false);
   const [replayTarget, setReplayTarget] = useState<ReplayTarget | null>(null);
   const [live, setLive] = useState<LiveSimulation | null>(null);
+  const soundtrack = useRef<HTMLAudioElement>(null);
+  const soundtrackRunning =
+    halloweenMusic &&
+    !!building.pursuit &&
+    view === "simulation" &&
+    live !== null &&
+    busy;
+  useEffect(() => {
+    const audio = soundtrack.current;
+    return () => {
+      if (audio) {
+        audio.pause();
+        audio.currentTime = 0;
+      }
+    };
+  }, [soundtrackRunning]);
   const liveRequest = useRef<AbortController | null>(null);
   const computationId = useRef<string | null>(null);
   const stopRequested = useRef(false);
@@ -910,6 +929,32 @@ export default function App() {
           </div>
         </header>
         <main className={`studio-main${officeDemo ? " has-office-demo" : ""}`}>
+          {halloweenMusic &&
+            building.pursuit &&
+            !officeDemo &&
+            view === "simulation" &&
+            live !== null &&
+            busy && (
+              <section
+                aria-label="Halloween pursuit soundtrack"
+                className="halloween-soundtrack"
+              >
+                <span>Halloween — The Pursuit · Soundtrack</span>
+                <audio
+                  ref={soundtrack}
+                  aria-label="Halloween soundtrack playback and volume"
+                  src={`${import.meta.env.BASE_URL}audio/halloween-pursuit.mp3`}
+                  controls
+                  autoPlay
+                  loop
+                  preload="none"
+                />
+                <small>
+                  Press Play if sound does not start. Use the speaker control to
+                  mute.
+                </small>
+              </section>
+            )}
           {view !== "templates" && <h1 className="sr-only">ExitZero Studio</h1>}
           {officeDemo && view !== "templates" && (
             <OfficeDemoNotice
