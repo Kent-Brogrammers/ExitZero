@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { WindowReadout } from "./WindowReadout";
+import { SimulationDetails } from "./SimulationDetails";
 import type {
   AnimationFrame,
   BuildingScenario,
@@ -160,20 +160,6 @@ export function LiveSimulationView({
             </span>
           </div>
         </div>
-        <p className="note live-trails-note">
-          Current busiest zone:{" "}
-          {live.frame
-            ? Math.max(
-                0,
-                ...frameCrowding(
-                  live.frame,
-                  building.width,
-                  building.height,
-                ).map((spot) => spot.count),
-              )
-            : 0}{" "}
-          occupants in a 2 × 2 m zone.
-        </p>
         <div className="playback-dock">
           <div className="playback-bottomline">
             <dl className="playback-readout">
@@ -210,17 +196,38 @@ export function LiveSimulationView({
                 <dd role="status">{frame ? "Live" : "Starting…"}</dd>
               </div>
             </dl>
+            {frame && (
+              <SimulationDetails
+                building={building}
+                states={frame.window_states}
+              >
+                <section
+                  className="simulation-detail-section"
+                  aria-label="Live crowding"
+                >
+                  <h4>Live crowding</h4>
+                  <p className="note">
+                    Current busiest zone:{" "}
+                    {Math.max(
+                      0,
+                      ...frameCrowding(
+                        frame,
+                        building.width,
+                        building.height,
+                      ).map((spot) => spot.count),
+                    )}{" "}
+                    occupants in a 2 × 2 m zone.
+                  </p>
+                  <p className="note">
+                    Colors show current positions, relative to this frame. They
+                    are not accumulated traffic or validated congestion
+                    measurements. Rewind, replay and peak crowding snapshots are
+                    available after the run.
+                  </p>
+                </section>
+              </SimulationDetails>
+            )}
           </div>
-          <WindowReadout building={building} states={frame?.window_states} />
-          <details className="live-crowding-details note">
-            <summary>About live crowding</summary>
-            <p>
-              Colors show current positions, relative to this frame. They are
-              not accumulated traffic or validated congestion measurements.
-              Rewind, replay and peak crowding snapshots are available after the
-              run.
-            </p>
-          </details>
         </div>
       </div>
     </div>
