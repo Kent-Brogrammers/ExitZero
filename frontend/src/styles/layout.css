@@ -182,16 +182,6 @@ body,
   flex: 1;
   min-height: 0;
 }
-.computation-jobs {
-  width: min(500px, 80vw);
-  max-height: 65vh;
-  overflow: auto;
-  font-size: 12px;
-}
-.computation-jobs li {
-  padding: 10px 0;
-  border-bottom: 1px solid var(--cad-border);
-}
 .layout-comparison {
   margin-top: 24px;
 }

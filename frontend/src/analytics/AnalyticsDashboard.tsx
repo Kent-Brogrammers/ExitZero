@@ -249,7 +249,10 @@ export default function AnalyticsDashboard({
         </section>
       </div>
       {view === "advanced" && (
-        <div className="analytics-grid">
+        <div
+          className="analytics-grid analytics-advanced"
+          aria-label="Advanced analytics"
+        >
           <div className="panel">
             <div className="panel-heading">
               <div>
@@ -334,10 +337,13 @@ export default function AnalyticsDashboard({
                     </strong>
                   </div>
                 </div>
-                <details>
-                  <summary>Population breakdown</summary>
+                <section
+                  className="advanced-population"
+                  aria-label="Population breakdown"
+                >
+                  <h3>Population breakdown</h3>
                   <PopulationChart metrics={metrics} />
-                </details>
+                </section>
                 <p className="note">
                   Trapped occupants are included in remaining occupants. The
                   engine only counts trapped occupants when every exit is
@@ -351,15 +357,12 @@ export default function AnalyticsDashboard({
               </div>
             )}
           </div>
-          <details className="panel">
-            <summary>Traffic and peak crowding</summary>
-            <TrafficHeatmap building={building} result={result} />
-            <CrowdingRanking
-              building={building}
-              result={result}
-              onViewInSimulation={onViewInSimulation}
-            />
-          </details>
+          <TrafficHeatmap building={building} result={result} />
+          <CrowdingRanking
+            building={building}
+            result={result}
+            onViewInSimulation={onViewInSimulation}
+          />
           <div className="panel comparison-panel">
             <h2>Vulnerability comparison</h2>
             <ScenarioComparison
@@ -385,6 +388,7 @@ export default function AnalyticsDashboard({
           building={building}
           result={result}
           onWatchOriginal={onWatchOriginal}
+          showLayouts={view === "advanced"}
         />
       )}
     </section>

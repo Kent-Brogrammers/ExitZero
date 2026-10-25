@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { api } from "./api";
 import type { JobList, JobSnapshot } from "../types/simulation";
 
-import { jobLabel } from "./jobPresentation";
+import { jobName, jobProgress } from "./jobPresentation";
+import "./ComputationJobs.css";
 
 export function ComputationJobs({
   current,
@@ -16,6 +17,8 @@ export function ComputationJobs({
   const [list, setList] = useState<JobList | null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [cancelling, setCancelling] = useState<Set<string>>(() => new Set());
   useEffect(() => {
     const controller = new AbortController();
     async function refresh() {
@@ -49,60 +52,164 @@ export function ComputationJobs({
       controller.abort();
       clearInterval(timer);
     };
-  }, [current?.id, current?.status]);
-  const jobs = list?.jobs ?? [];
+  }, [current?.id, current?.status, refreshKey]);
   const displayedCurrent =
     current && (!list || current.server_id === list.server_id) ? current : null;
-  const active = jobs.filter((j) =>
-    ["queued", "running", "cancelling"].includes(j.status),
-  ).length;
+  const jobs = (list?.jobs ?? (displayedCurrent ? [displayedCurrent] : [])).map(
+    (job) => ({
+      ...job,
+      cached:
+        job.cached ||
+        (displayedCurrent?.id === job.id && displayedCurrent.cached),
+    }),
+  );
+  const isActive = (job: JobSnapshot) =>
+    ["queued", "running", "cancelling"].includes(job.status);
+  const active = jobs.filter(isActive);
+  const recent = jobs.filter((job) => !isActive(job));
+  useEffect(() => {
+    if (!list) return;
+    setCancelling((previous) => {
+      const remaining = new Set(
+        [...previous].filter((id) =>
+          list.jobs.some(
+            (job) =>
+              job.id === id &&
+              ["queued", "running", "cancelling"].includes(job.status),
+          ),
+        ),
+      );
+      return remaining.size === previous.size ? previous : remaining;
+    });
+  }, [list]);
+  async function cancel(id: string) {
+    setError("");
+    setCancelling((previous) => new Set(previous).add(id));
+    try {
+      await api.cancelComputation(id);
+      setRefreshKey((value) => value + 1);
+    } catch (failure) {
+      setError(
+        failure instanceof Error
+          ? failure.message
+          : "Could not cancel computation. Retry Cancel.",
+      );
+      setCancelling((previous) => {
+        const next = new Set(previous);
+        next.delete(id);
+        return next;
+      });
+    }
+  }
+  function rows(entries: JobSnapshot[]) {
+    return (
+      <ul className="job-list">
+        {entries.map((job) => {
+          const stopping = cancelling.has(job.id) && isActive(job);
+          const status = stopping ? "cancelling" : job.status;
+          const progress = jobProgress({ ...job, status });
+          return (
+            <li className="job-card" key={job.id}>
+              <div className="job-info">
+                <div className="job-heading">
+                  <h5>{jobName(job)}</h5>
+                  <span className="job-status" data-status={status}>
+                    {status}
+                  </span>
+                  {job.cached && (
+                    <span className="job-cached">Reused result</span>
+                  )}
+                </div>
+                <p className="job-context">
+                  {job.context ?? `Run ${job.id.slice(-8)}`}
+                </p>
+                {progress && <p className="job-progress">{progress}</p>}
+                {job.error && <p className="job-error">{job.error}</p>}
+              </div>
+              {(isActive(job) || job.status === "completed") && (
+                <div className="job-actions">
+                  {job.status === "completed" ? (
+                    <button
+                      type="button"
+                      className="studio-control"
+                      disabled={disabled}
+                      onClick={() => onOpen(job.id)}
+                    >
+                      Open results
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="studio-control"
+                      disabled={stopping || job.status === "cancelling"}
+                      onClick={() => void cancel(job.id)}
+                    >
+                      {stopping || job.status === "cancelling"
+                        ? "Cancelling…"
+                        : "Cancel"}
+                    </button>
+                  )}
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    );
+  }
   return (
     <section className="computation-jobs" aria-label="Computations">
-      <h3>
-        Computations{active ? ` · ${active} active` : ""}
-        {displayedCurrent ? ` — ${jobLabel(displayedCurrent)}` : ""}
-      </h3>
-      <p className="note">
-        Calculate Results, stress tests, and optimization continue after
-        refresh. Reopen or cancel them here. Live playback stops when its
-        connection closes. Results expire after 15 minutes and may be evicted
-        earlier to stay within local memory limits. Completed means the
-        computation finished; the evacuation itself may still be incomplete.
-      </p>
-      {notice && <p role="status">{notice}</p>}
-      {error && <p role="status">{error}</p>}
-      {!jobs.length && (
-        <p className="note">No saved computations on this server.</p>
-      )}
-      <ul>
-        {jobs.map((job) => (
-          <li key={job.id}>
-            <span>{jobLabel(job)}</span>{" "}
-            {job.status === "completed" && (
-              <button
-                className="studio-control"
-                disabled={disabled}
-                onClick={() => onOpen(job.id)}
-              >
-                Open results
-              </button>
-            )}
-            {(job.status === "queued" || job.status === "running") && (
-              <button
-                className="studio-control"
-                onClick={() =>
-                  void api
-                    .cancelComputation(job.id)
-                    .catch((failure) => setError(String(failure)))
-                }
-              >
-                Cancel
-              </button>
-            )}
-            {job.error && <p>{job.error}</p>}
-          </li>
-        ))}
-      </ul>
+      <header className="jobs-header">
+        <div>
+          <h3>Computations</h3>
+          <p>
+            Background jobs survive refresh. Live playback stops on disconnect.
+          </p>
+        </div>
+        <span className="jobs-count">{active.length} active</span>
+      </header>
+      <div className="jobs-scroll">
+        {notice && (
+          <p className="jobs-notice" role="status">
+            {notice}
+          </p>
+        )}
+        {error && (
+          <p className="jobs-error" role="alert">
+            {error}
+          </p>
+        )}
+        {!list && !jobs.length && !error && (
+          <p className="jobs-empty" role="status">
+            Loading computations…
+          </p>
+        )}
+        <section className="jobs-group" aria-label="Active computations">
+          <h4>
+            Active <span>{active.length}</span>
+          </h4>
+          {active.length ? (
+            rows(active)
+          ) : (
+            <p className="jobs-empty">No active computations.</p>
+          )}
+        </section>
+        <section className="jobs-group" aria-label="Recent computations">
+          <h4>
+            Recent <span>{recent.length}</span>
+          </h4>
+          {recent.length ? (
+            rows(recent)
+          ) : (
+            <p className="jobs-empty">No recent computations.</p>
+          )}
+        </section>
+      </div>
+      <footer className="jobs-footer">
+        Results are kept for up to 15 minutes, within local memory limits.
+        Server restarts clear history. Completed means calculation finished, not
+        necessarily full evacuation.
+      </footer>
     </section>
   );
 }

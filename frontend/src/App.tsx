@@ -943,12 +943,18 @@ export default function App() {
                 </div>
               )}
             </StudioPopover>
-            <StudioPopover label="Computations">
-              {() => (
+            <StudioPopover
+              label="Computations"
+              className="computations-popover"
+            >
+              {(close) => (
                 <ComputationJobs
                   current={job}
                   disabled={busy}
-                  onOpen={(id) => void openJob(id)}
+                  onOpen={(id) => {
+                    void openJob(id);
+                    close();
+                  }}
                 />
               )}
             </StudioPopover>
