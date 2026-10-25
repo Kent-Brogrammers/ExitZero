@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { BuildingScenario } from "../types/simulation";
 import { buildingPresets } from "../editor/presets";
 import { buildingError } from "../editor/geometry";
-import { TemplatePreview } from "./TemplatePreview";
+import { TemplateCard } from "./TemplateCard";
 import {
   createTemplate,
   readTemplates,
@@ -101,85 +101,54 @@ export function TemplatesPage({
     custom?: UserTemplate,
     savedRecording = false,
   ) {
-    const problem = buildingError(layout);
     return (
-      <article
-        className="template-card"
-        aria-label={`${name} template`}
+      <TemplateCard
+        name={name}
+        building={layout}
+        busy={busy}
+        online={online}
+        onEdit={() => onOpen(layout, name, "edit")}
+        onRun={() => onOpen(layout, name, "simulate")}
         key={custom?.id ?? name}
       >
-        <TemplatePreview building={layout} name={name} />
-        <div className="template-card-content">
-          <h3>{name}</h3>
-          <p className="template-metadata">
-            {layout.width} × {layout.height} m <span aria-hidden="true">·</span>{" "}
-            {layout.spawn_zones.reduce((count, zone) => count + zone.count, 0)}{" "}
-            occupants
-          </p>
-          <div className="template-actions">
-            <button
-              type="button"
-              className="studio-control"
-              disabled={busy}
-              onClick={() => onOpen(layout, name, "edit")}
-            >
-              Edit
-            </button>
-            <button
-              type="button"
-              className="studio-control"
-              disabled={busy || !online || !!problem}
-              title={
-                problem ??
-                (!online
-                  ? "Backend offline. Open Settings to retry."
-                  : "Compute a new Rust simulation for this template.")
-              }
-              onClick={() => onOpen(layout, name, "simulate")}
-            >
-              Run Simulation
-            </button>
-          </div>
-          {problem && <p className="note">{problem}</p>}
-          {savedRecording && (
+        {savedRecording && (
+          <button
+            type="button"
+            className="template-secondary"
+            disabled={busy}
+            onClick={onOfficeRecording}
+          >
+            View saved office recording →
+          </button>
+        )}
+        {custom && (
+          <div className="template-secondary-actions">
             <button
               type="button"
               className="template-secondary"
               disabled={busy}
-              onClick={onOfficeRecording}
+              onClick={() => rename(custom)}
             >
-              View saved office recording →
+              Rename
             </button>
-          )}
-          {custom && (
-            <div className="template-secondary-actions">
-              <button
-                type="button"
-                className="template-secondary"
-                disabled={busy}
-                onClick={() => rename(custom)}
-              >
-                Rename
-              </button>
-              <button
-                type="button"
-                className="template-secondary"
-                disabled={busy}
-                onClick={() => {
-                  if (
-                    window.confirm(
-                      `Delete “${name}” from My Templates? Your current layout will stay unchanged.`,
-                    )
+            <button
+              type="button"
+              className="template-secondary"
+              disabled={busy}
+              onClick={() => {
+                if (
+                  window.confirm(
+                    `Delete “${name}” from My Templates? Your current layout will stay unchanged.`,
                   )
-                    persist(templates.filter((t) => t.id !== custom.id));
-                }}
-              >
-                Delete
-              </button>
-            </div>
-          )}
-        </div>
-      </article>
+                )
+                  persist(templates.filter((t) => t.id !== custom.id));
+              }}
+            >
+              Delete
+            </button>
+          </div>
+        )}
+      </TemplateCard>
     );
   }
   return (

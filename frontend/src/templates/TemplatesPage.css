@@ -34,11 +34,32 @@
   align-items: start;
 }
 .template-card {
+  position: relative;
+  isolation: isolate;
   min-width: 0;
   background: var(--cad-surface);
   border: 1px solid var(--cad-border);
   border-radius: var(--radius-control);
   overflow: hidden;
+}
+.template-card:hover {
+  border-color: var(--cad-border-strong);
+}
+/* Extend the real Edit button across the card, retaining native keyboard and
+   disabled behavior. Explicit actions remain above it, without nested buttons. */
+.template-card-edit::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+.template-card button:not(.template-card-edit) {
+  position: relative;
+  z-index: 1;
+}
+.template-card:has(.template-card-edit:focus-visible) {
+  outline: 2px solid var(--cad-accent);
+  outline-offset: 3px;
 }
 .template-preview {
   width: 100%;

@@ -297,6 +297,8 @@ export default function App() {
           disabled={busy}
           onOpen={() => navigate("edit")}
           onTemplates={() => navigate("templates")}
+          onOpenTemplate={loadTemplate}
+          online={connection === "online"}
           onLoadExample={() =>
             loadTemplate(example, "the example building", "edit")
           }

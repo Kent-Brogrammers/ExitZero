@@ -14,6 +14,7 @@ import {
   TEMPLATE_STORAGE_KEY,
 } from "./templates";
 import { StudioWelcome } from "../studio/StudioWelcome";
+import { TemplateCard } from "./TemplateCard";
 
 function memoryStorage() {
   const data = new Map<string, string>();
@@ -192,5 +193,45 @@ describe("Templates presentation", () => {
     expect(html).toContain("Browse templates");
     expect(html).toContain("Open Studio");
     expect(html).toContain("Load example building");
+  });
+  it("shares native, independently actionable Edit and Run buttons across gallery cards", () => {
+    const html = renderToStaticMarkup(
+      <TemplateCard
+        name="My office"
+        building={example}
+        busy={false}
+        online={true}
+        onEdit={() => {}}
+        onRun={() => {}}
+      >
+        <button type="button">Rename</button>
+      </TemplateCard>,
+    );
+    expect(html).toContain('class="studio-control template-card-edit"');
+    expect(html).toContain('title="Open My office in the editor"');
+    expect(html.match(/<button /g)).toHaveLength(3);
+    expect(html.match(/<\/button>/g)).toHaveLength(3);
+    expect(html).not.toContain('role="button"');
+    expect(html).toContain("Rename");
+  });
+  it("offers an in-page welcome gallery with a focusable scroll target and a separate full-library action", () => {
+    const html = renderToStaticMarkup(
+      <StudioWelcome
+        building={example}
+        onOpen={() => {}}
+        onLoadExample={() => {}}
+        onTemplates={() => {}}
+        onOpenTemplate={() => {}}
+        online={true}
+      />,
+    );
+    expect(html).toContain('aria-controls="welcome-templates"');
+    expect(html).toContain('id="welcome-templates-heading" tabindex="-1"');
+    expect(html).toContain("Building templates");
+    expect(html).toContain("Open Templates");
+    expect(html.match(/class="template-card"/g)).toHaveLength(4);
+    expect(html).toContain('class="entry-action"');
+    expect(html).toContain('class="welcome-action-secondary"');
+    expect(html).toContain('class="welcome-action-tertiary"');
   });
 });
