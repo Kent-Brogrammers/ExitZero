@@ -22,6 +22,7 @@ describe("curated office demo", () => {
   afterEach(() => vi.unstubAllGlobals());
   it("adds an editable office without removing the existing presets or inventing fields", () => {
     expect(buildingPresets.map((p) => p.id)).toEqual([
+      "halloween-pursuit",
       "house",
       "classroom",
       "office",

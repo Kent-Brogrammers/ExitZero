@@ -224,6 +224,7 @@ mod tests {
     fn request() -> StressTestRequest {
         StressTestRequest {
             building: BuildingScenario {
+                pursuit: None,
                 tornado_zones: vec![],
                 disaster: None,
                 awareness: Default::default(),
@@ -325,6 +326,7 @@ mod tests {
         SimulationResult {
             metrics,
             frames: vec![AnimationFrame {
+                pursuit: None,
                 window_states: None,
                 disaster_state: None,
                 sheltered: None,

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { renderToStaticMarkup } from "react-dom/server";
+import { formatDimensions } from "../utils/units";
 import example from "../../../shared/examples/building.json";
 import { buildingError } from "../editor/geometry";
 import { setOpeningBlocked } from "../editor/openingState";
@@ -154,7 +155,7 @@ describe("Templates presentation", () => {
     for (const preset of buildingPresets) {
       expect(html).toContain(`${preset.label} floor plan preview`);
       expect(html).toContain(
-        `${preset.building.width} × ${preset.building.height} m`,
+        formatDimensions(preset.building.width, preset.building.height),
       );
       expect(html).toContain(
         `${preset.building.spawn_zones.reduce((n, z) => n + z.count, 0)} occupants`,
@@ -165,7 +166,7 @@ describe("Templates presentation", () => {
     );
     expect(html).toContain("View saved office recording");
     expect(html).toContain("My Templates");
-    expect(html).toContain("Save Current Layout");
+    expect(html).toContain("Save as Template");
   });
   it("renders local templates and disables simulation while offline without disabling Edit", () => {
     const storage = memoryStorage();

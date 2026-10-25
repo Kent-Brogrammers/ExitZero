@@ -4,8 +4,14 @@ import office from "./presets/office.json";
 import officeDemo from "./presets/office-demo.json";
 import schoolEmergency from "./presets/school-emergency.json";
 import corporateOffice from "./presets/corporate-office.json";
+import halloween from "./presets/halloween-pursuit.json";
 import type { BuildingScenario } from "../types/simulation";
 export const buildingPresets = [
+  {
+    id: "halloween-pursuit",
+    label: "Halloween — The Pursuit",
+    building: halloween as BuildingScenario,
+  },
   { id: "house", label: "Small house", building: house as BuildingScenario },
   {
     id: "classroom",

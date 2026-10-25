@@ -47,7 +47,7 @@ describe("real-result optimization presentation and application", () => {
     );
     expect(html.indexOf("120 steps")).toBeLessThan(html.indexOf("121 steps"));
     expect(html).toContain("123 steps");
-    expect(html).toContain("1.6 → 2.1 m");
+    expect(html).toContain("5.2 ft → 6.9 ft");
     expect(html).toContain("Candidate layout preview, rank 1");
     expect(html).toContain("Apply candidate");
     expect(evaluation).toEqual(before);
@@ -62,7 +62,7 @@ describe("real-result optimization presentation and application", () => {
     expect(next.exits[0]!.width).toBe(2.1);
     expect(next.exits[0]!.name).toBe("Main exit");
     expect(openingChanges(current, next)).toEqual([
-      "Exit Main exit: 1.6 → 2.1 m",
+      "Exit Main exit: 5.2 ft → 6.9 ft",
     ]);
     next.walls[0]!.start.x = 0.25;
     expect(current).toEqual(beforeCurrent);

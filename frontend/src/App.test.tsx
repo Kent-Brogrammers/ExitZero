@@ -87,12 +87,11 @@ afterEach(async () => {
 describe("optimization editor history", () => {
   it("undoes and redoes application separately from the preceding Fire edit", async () => {
     await mount();
-    const select = document.querySelector<HTMLSelectElement>(
-      '[aria-label="Emergency scenario"]',
+    const fire = document.querySelector<HTMLInputElement>(
+      '[aria-label="Fire evacuation"]',
     )!;
     await act(async () => {
-      select.value = "fire";
-      select.dispatchEvent(new Event("change", { bubbles: true }));
+      fire.click();
     });
     const beforeApplication = workspace().building;
     expect(beforeApplication.disaster?.kind).toBe("fire");

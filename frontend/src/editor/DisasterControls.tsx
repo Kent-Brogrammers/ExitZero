@@ -1,4 +1,8 @@
 import { defaultDynamics } from "./disasterDynamics";
+import { PursuitControls } from "./PursuitControls";
+import { useId } from "react";
+import { LengthInput } from "../ui/LengthInput";
+import { lengthFromInput, lengthInputValue, toFeet } from "../utils/units";
 import type {
   BuildingScenario,
   DisasterKind,
@@ -14,6 +18,7 @@ export function DisasterControls({
   onChange: (next: BuildingScenario) => void;
   onLocate: () => void;
 }) {
+  const pickerId = useId();
   const disaster = building.disaster;
   const dynamics = disaster
     ? (disaster.dynamics ?? {
@@ -28,9 +33,11 @@ export function DisasterControls({
         disaster: { ...disaster, dynamics: { ...dynamics, ...patch } },
       });
   }
-  function choose(value: string) {
+  function choose(value: DisasterKind | "") {
+    const ordinary = { ...building };
+    delete ordinary.pursuit;
     if (!value) {
-      const next = { ...building };
+      const next = ordinary;
       delete next.disaster;
       onChange(next);
       return;
@@ -43,11 +50,11 @@ export function DisasterControls({
           Math.hypot(wall.end.x - wall.start.x, wall.end.y - wall.start.y)
         : 0;
     onChange({
-      ...building,
+      ...ordinary,
       disaster: {
-        kind: value as DisasterKind,
+        kind: value,
         dynamics: defaultDynamics(
-          value as DisasterKind,
+          value,
           disaster?.radius ??
             Math.min(2, Math.min(building.width, building.height) / 5),
         ),
@@ -67,19 +74,70 @@ export function DisasterControls({
   }
   return (
     <div className="disaster-controls">
-      <label>
-        Emergency scenario
-        <select
-          aria-label="Emergency scenario"
-          value={disaster?.kind ?? ""}
-          onChange={(e) => choose(e.target.value)}
-        >
-          <option value="">Baseline evacuation</option>
-          <option value="fire">Fire</option>
-          <option value="gas_leak">Gas leak</option>
-          <option value="tornado">Tornado</option>
-        </select>
-      </label>
+      <PursuitControls building={building} onChange={onChange} />
+      <fieldset className="scenario-picker">
+        <legend>Scenario</legend>
+        <div className="scenario-options">
+          {(
+            [
+              [
+                "",
+                "Evacuation",
+                "Baseline evacuation",
+                "M9 4H4v16h5 M9 12h11 M16 8l4 4-4 4",
+              ],
+              [
+                "fire",
+                "Fire",
+                "Fire evacuation",
+                "M13 3c1 5-4 5-2 9 2-1 3-3 3-3 4 5 5 9 1 12-6 3-12-3-8-9 0 3 2 3 2 3-2-6 4-7 4-12Z",
+              ],
+              [
+                "gas_leak",
+                "Gas leak",
+                "Gas leak evacuation",
+                "M4 15h12a4 4 0 1 0-2-7 4 4 0 0 0-8 0 3.5 3.5 0 0 0-2 7 M7 18v3 M12 18v2 M17 18v3",
+              ],
+              [
+                "tornado",
+                "Tornado",
+                "Indoor shelter response",
+                "M3 4h18 M5 8h15 M8 12h10 M10 16h6 M12 20h3",
+              ],
+            ] as const
+          ).map(([kind, label, description, path]) => (
+            <label
+              key={kind}
+              className="scenario-option"
+              data-scenario={kind || "baseline"}
+              title={description}
+            >
+              <input
+                type="radio"
+                name={pickerId}
+                value={kind}
+                aria-label={description}
+                checked={!building.pursuit && (disaster?.kind ?? "") === kind}
+                onChange={() => choose(kind)}
+              />
+              <span className="scenario-choice">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d={path} />
+                </svg>
+                {label}
+              </span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
       {disaster && (
         <>
           <button type="button" className="studio-control" onClick={onLocate}>
@@ -87,16 +145,13 @@ export function DisasterControls({
           </button>
           {(["x", "y"] as const).map((axis) => (
             <label key={axis}>
-              Hazard {axis.toUpperCase()} (m)
-              <input
-                type="number"
+              Hazard {axis.toUpperCase()} (ft)
+              <LengthInput
                 aria-label={`Hazard ${axis.toUpperCase()}`}
                 min={0}
                 max={axis === "x" ? building.width : building.height}
-                step="0.1"
                 value={disaster.center[axis]}
-                onChange={(event) => {
-                  const value = event.currentTarget.valueAsNumber;
+                onValue={(value) => {
                   if (Number.isFinite(value))
                     onChange({
                       ...building,
@@ -119,16 +174,13 @@ export function DisasterControls({
             </label>
           ))}
           <label>
-            Hazard radius (m)
-            <input
-              type="number"
+            Hazard radius (ft)
+            <LengthInput
               aria-label="Hazard radius"
-              min="0.1"
-              max="1000"
-              step="0.1"
+              min={0.1}
+              max={1000}
               value={disaster.radius}
-              onChange={(e) => {
-                const radius = e.target.valueAsNumber;
+              onValue={(radius) => {
                 if (Number.isFinite(radius) && radius > 0)
                   onChange({
                     ...building,
@@ -173,7 +225,7 @@ export function DisasterControls({
               <div className="disaster-parameters">
                 {(disaster.kind === "tornado"
                   ? [
-                      ["speed", "Speed (m/s)", 0, 10, 0.1],
+                      ["speed", "Speed (ft/s)", 0, 10, 0.1],
                       ["turn_rate_degrees", "Turning speed (deg/s)", 1, 180, 1],
                       [
                         "wander_interval_seconds",
@@ -184,14 +236,14 @@ export function DisasterControls({
                       ],
                       [
                         "shelter_clearance",
-                        "Extra shelter clearance (m)",
+                        "Extra shelter clearance (ft)",
                         0,
                         20,
                         0.1,
                       ],
                     ]
                   : [
-                      ["growth_rate", "Growth rate (m/s)", 0, 2, 0.01],
+                      ["growth_rate", "Growth rate (ft/s)", 0, 2, 0.01],
                       [
                         "spread_interval_seconds",
                         "New patch every (s)",
@@ -202,40 +254,49 @@ export function DisasterControls({
                       ["max_patches", "Maximum patches", 1, 64, 1],
                       [
                         "max_radius",
-                        "Maximum patch radius (m)",
+                        "Maximum patch radius (ft)",
                         0.01,
                         1000,
                         0.1,
                       ],
                     ]
-                ).map(([key, label, min, max, step]) => (
-                  <label key={key}>
-                    {label}
-                    <input
-                      type="number"
-                      aria-label={String(label)}
-                      min={min}
-                      max={max}
-                      step={step}
-                      disabled={!dynamics.enabled}
-                      value={
-                        dynamics[
-                          key as Exclude<keyof DisasterDynamics, "enabled">
-                        ]
-                      }
-                      onChange={(e) => {
-                        const value = e.target.valueAsNumber;
-                        if (
-                          Number.isFinite(value) &&
-                          value >= Number(min) &&
-                          value <= Number(max) &&
-                          (key !== "max_patches" || Number.isInteger(value))
-                        )
-                          updateDynamics({ [String(key)]: value });
-                      }}
-                    />
-                  </label>
-                ))}
+                ).map(([key, label, min, max, step]) => {
+                  const distance = [
+                    "speed",
+                    "shelter_clearance",
+                    "growth_rate",
+                    "max_radius",
+                  ].includes(String(key));
+                  const current =
+                    dynamics[key as Exclude<keyof DisasterDynamics, "enabled">];
+                  return (
+                    <label key={key}>
+                      {label}
+                      <input
+                        type="number"
+                        aria-label={String(label)}
+                        min={distance ? toFeet(Number(min)) : min}
+                        max={distance ? toFeet(Number(max)) : max}
+                        step={distance ? "any" : step}
+                        disabled={!dynamics.enabled}
+                        value={distance ? lengthInputValue(current) : current}
+                        onChange={(e) => {
+                          const input = e.target.valueAsNumber;
+                          const value = distance
+                            ? lengthFromInput(input, current)
+                            : input;
+                          if (
+                            Number.isFinite(value) &&
+                            value >= Number(min) &&
+                            value <= Number(max) &&
+                            (key !== "max_patches" || Number.isInteger(value))
+                          )
+                            updateDynamics({ [String(key)]: value });
+                        }}
+                      />
+                    </label>
+                  );
+                })}
               </div>
               <label>
                 Scenario random seed

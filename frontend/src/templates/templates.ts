@@ -6,12 +6,13 @@ export interface UserTemplate {
   id: string;
   name: string;
   building: BuildingScenario;
+  kind?: "layout" | "template";
 }
 
 export function templateName(value: string) {
   const name = value.trim();
   if (!name || name.length > 80)
-    throw new Error("Use a template name between 1 and 80 characters.");
+    throw new Error("Use a name between 1 and 80 characters.");
   return name;
 }
 
@@ -19,10 +20,16 @@ export function createTemplate(
   building: BuildingScenario,
   name: string,
   id: string = crypto.randomUUID(),
+  kind: "layout" | "template" = "template",
 ): UserTemplate {
   const problem = buildingError(building, false);
   if (problem) throw new Error(`Cannot save this layout: ${problem}`);
-  return { id, name: templateName(name), building: structuredClone(building) };
+  return {
+    id,
+    name: templateName(name),
+    building: structuredClone(building),
+    ...(kind === "layout" ? { kind } : {}),
+  };
 }
 
 export function readTemplates(
@@ -44,6 +51,9 @@ export function readTemplates(
       ids.has(entry.id) ||
       !("name" in entry) ||
       typeof entry.name !== "string" ||
+      ("kind" in entry &&
+        entry.kind !== "layout" &&
+        entry.kind !== "template") ||
       !("building" in entry) ||
       buildingError(entry.building, false)
     )
@@ -55,6 +65,7 @@ export function readTemplates(
       entry.building as BuildingScenario,
       entry.name,
       entry.id,
+      "kind" in entry && entry.kind === "layout" ? "layout" : "template",
     );
   });
 }

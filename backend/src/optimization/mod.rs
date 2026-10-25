@@ -231,6 +231,7 @@ mod tests {
         SimulationResult {
             metrics,
             frames: vec![AnimationFrame {
+                pursuit: None,
                 window_states: None,
                 disaster_state: None,
                 sheltered: None,
