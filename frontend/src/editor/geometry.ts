@@ -1,4 +1,5 @@
 import Ajv from "ajv";
+import { formatLength } from "../utils/units";
 import schema from "../../../shared/schemas/contracts.schema.json";
 import type {
   BuildingScenario,
@@ -132,7 +133,7 @@ export function buildingError(
     p.x >= 0 && p.y >= 0 && p.x <= b.width && p.y <= b.height;
   for (const wall of b.walls) {
     if (!inside(wall.start) || !inside(wall.end) || wallLength(wall) < 0.1)
-      return "Walls need endpoints inside the workspace and length of at least 0.1 m.";
+      return `Walls need endpoints inside the workspace and length of at least ${formatLength(0.1, 2)}.`;
   }
   const openings = [...b.doors, ...b.exits, ...(b.windows ?? [])];
   for (let index = 0; index < openings.length; index++) {
@@ -255,6 +256,21 @@ export function buildingError(
     population += zone.count;
   }
   if (population > 10000) return "Total population must not exceed 10,000.";
+  if (b.pursuit) {
+    const p = b.pursuit;
+    if (!inside(p.stalker_start))
+      return "Place the stalker start inside the workspace.";
+    if (b.disaster || population > 64)
+      return "Halloween pursuit supports up to 64 survivors without a simultaneous disaster.";
+    if (
+      p.capture_radius < b.agent_radius * 2 ||
+      p.capture_radius > b.agent_radius * 2 + 1 ||
+      p.avoidance_radius < p.capture_radius
+    )
+      return "Pursuit capture range must fit the agents' bodies, and avoidance range must be at least capture range.";
+    if (b.windows?.some((w) => w.emergency_escape?.enabled))
+      return "Halloween pursuit uses doors and exits. Switch to ordinary evacuation for emergency window service.";
+  }
   return null;
 }
 

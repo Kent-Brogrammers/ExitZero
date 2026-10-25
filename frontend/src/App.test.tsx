@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import example from "../../shared/examples/building.json";
 import App from "./App";
 import { api } from "./services/api";
+import { storeLayout } from "./templates/layouts";
+import { readTemplates, TEMPLATE_STORAGE_KEY } from "./templates/templates";
 import type { BuildingScenario, SimulationResult } from "./types/simulation";
 
 vi.mock("./services/api", () => ({
@@ -17,6 +19,8 @@ vi.mock("./services/api", () => ({
     listJobs: vi.fn(),
     simulate: vi.fn(),
     recordScenario: vi.fn(),
+    jobRequest: vi.fn(),
+    jobResult: vi.fn(),
   },
 }));
 vi.mock("./simulation/SimulationView", () => ({
@@ -45,8 +49,10 @@ const recording: SimulationResult = {
 };
 let root: Root;
 function button(text: string): HTMLButtonElement {
-  const found = [...document.querySelectorAll("button")].find((element) =>
-    element.textContent?.trim().startsWith(text),
+  const found = [...document.querySelectorAll("button")].find(
+    (element) =>
+      !element.closest("[hidden]") &&
+      element.textContent?.trim().startsWith(text),
   );
   if (!found) throw new Error(`Missing button: ${text}`);
   return found;
@@ -91,6 +97,94 @@ afterEach(async () => {
 });
 
 describe("optimization editor history", () => {
+  it("keeps a saved layout intact when opening another layout's computation", async () => {
+    window.localStorage.removeItem(TEMPLATE_STORAGE_KEY);
+    const saved = storeLayout(
+      window.localStorage,
+      example,
+      "Original saved layout",
+      "layout",
+    );
+    const other = structuredClone(example);
+    other.doors[0]!.width += 0.5;
+    vi.mocked(api.jobRequest).mockResolvedValue({
+      kind: "simulate",
+      building: other,
+    });
+    vi.mocked(api.jobResult).mockResolvedValue(recording);
+    vi.mocked(api.listJobs).mockResolvedValue({
+      server_id: "test",
+      jobs: [
+        {
+          id: "other-run",
+          server_id: "test",
+          kind: "simulate",
+          status: "completed",
+          cached: false,
+          error: null,
+          progress: {
+            evaluations_completed: 1,
+            evaluations_total: 1,
+            step: 1,
+            step_limit: 100,
+          },
+        },
+      ],
+    });
+    try {
+      await mount();
+      await click("Templates");
+      await act(async () =>
+        document
+          .querySelector<HTMLButtonElement>(
+            '[aria-label="Original saved layout template"] .template-card-edit',
+          )!
+          .click(),
+      );
+      expect(
+        document.querySelector('[aria-label="Layout save status"]')!
+          .textContent,
+      ).toContain(saved.name);
+      await click("Computations");
+      await click("Open results");
+      expect(workspace().building).toEqual(other);
+      await click("Edit");
+      await click("Save");
+      const dialog = document.querySelector<HTMLDialogElement>(
+        ".layout-name-dialog",
+      );
+      expect(dialog?.open).toBe(true);
+      expect(dialog!.textContent).toContain("Save layout");
+      expect(readTemplates(window.localStorage)).toEqual([saved]);
+      await click("Cancel");
+    } finally {
+      window.localStorage.removeItem(TEMPLATE_STORAGE_KEY);
+    }
+  });
+
+  it("keeps pursuit outside safety analysis even before a recording exists", async () => {
+    await mount();
+    await click("Templates");
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Halloween — The Pursuit template"] .template-card-edit',
+        )!
+        .click(),
+    );
+    expect(workspace().building.pursuit).toBeDefined();
+    await click("Analytics");
+    await act(async () => vi.dynamicImportSettled());
+    expect(button("Stress Test").disabled).toBe(true);
+    expect(button("Optimize").disabled).toBe(true);
+    expect(
+      [...document.querySelectorAll("button")]
+        .filter((b) => !b.closest("[hidden]"))
+        .some((b) => b.textContent === "Run stress test"),
+    ).toBe(false);
+    expect(api.stressTest).not.toHaveBeenCalled();
+    expect(api.optimize).not.toHaveBeenCalled();
+  });
   it("preserves the original recording after applying a candidate and rerunning", async () => {
     vi.mocked(api.simulateLive).mockResolvedValue(recording);
     await mount();
@@ -193,12 +287,11 @@ describe("optimization editor history", () => {
   });
   it("undoes and redoes application separately from the preceding Fire edit", async () => {
     await mount();
-    const select = document.querySelector<HTMLSelectElement>(
-      '[aria-label="Emergency scenario"]',
+    const fire = document.querySelector<HTMLInputElement>(
+      '[aria-label="Fire evacuation"]',
     )!;
     await act(async () => {
-      select.value = "fire";
-      select.dispatchEvent(new Event("change", { bubbles: true }));
+      fire.click();
     });
     const beforeApplication = workspace().building;
     expect(beforeApplication.disaster?.kind).toBe("fire");

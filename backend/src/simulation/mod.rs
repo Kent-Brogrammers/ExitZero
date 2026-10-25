@@ -18,6 +18,7 @@ mod math;
 mod motion;
 mod navigation;
 mod perception;
+mod pursuit;
 mod windows;
 pub use emergency::Emergency;
 
@@ -78,6 +79,14 @@ fn run(
     scenario
         .validate()
         .map_err(SimulationError::InvalidScenario)?;
+    if scenario.pursuit.is_some() {
+        if !emergencies.is_empty() {
+            return Err(SimulationError::InvalidScenario(
+                "Pursuit cannot be combined with extra emergencies".into(),
+            ));
+        }
+        return pursuit::run(scenario, on_frame);
+    }
 
     if emergencies.len() > 100 {
         return Err(SimulationError::InvalidScenario(
@@ -1042,6 +1051,7 @@ fn frame(
     windows: &windows::Windows<'_>,
 ) -> AnimationFrame {
     AnimationFrame {
+        pursuit: None,
         window_states: windows.snapshots(agents),
         disaster_state: world.disaster_state().cloned(),
         sheltered: {

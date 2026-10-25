@@ -1,4 +1,11 @@
+import {
+  formatLength,
+  formatDimensions,
+  lengthInputValue,
+  lengthFromInput,
+} from "../utils/units";
 import DxfImport from "./dxf/DxfImport";
+import type { LayoutSaveActions } from "../templates/layouts";
 import { DisasterControls } from "./DisasterControls";
 import {
   addFurniture,
@@ -89,7 +96,8 @@ interface BuildingEditorProps {
   onChange: (building: BuildingScenario) => void;
   disabled?: boolean;
   savedLayoutJson?: string;
-  onSaved?: (building: BuildingScenario) => void;
+  onSaved?: (building: BuildingScenario, reason?: "export" | "replace") => void;
+  saveActions?: LayoutSaveActions;
   editorRef?: Ref<BuildingEditorHandle>;
 }
 
@@ -104,18 +112,21 @@ function NumberField({
   onCommit: (value: number) => void;
   integer?: boolean;
 }) {
+  const displayed = integer ? value : lengthInputValue(value);
   return (
     <label className="number-field">
       {label}
+      {integer ? "" : " (ft)"}
       <input
         key={value}
         type="number"
         step={integer ? 1 : "any"}
-        defaultValue={Number(value.toFixed(4))}
+        defaultValue={displayed}
         onBlur={(event) => {
-          const next = event.currentTarget.valueAsNumber;
+          const input = event.currentTarget.valueAsNumber;
+          const next = integer ? input : lengthFromInput(input, value);
           if (Number.isFinite(next) && next !== value) onCommit(next);
-          event.currentTarget.value = String(Number(value.toFixed(4)));
+          event.currentTarget.value = String(displayed);
         }}
         onKeyDown={(event) => {
           if (event.key === "Enter") event.currentTarget.blur();
@@ -131,6 +142,7 @@ export function BuildingEditor({
   disabled = false,
   savedLayoutJson,
   onSaved,
+  saveActions,
   editorRef,
 }: BuildingEditorProps) {
   const theme = useStudioTheme();
@@ -947,7 +959,7 @@ export function BuildingEditor({
       curveGroups.current.clear();
       setFurnitureSymbols(new Map());
       savedLayout.current = JSON.stringify(next);
-      onSaved?.(next);
+      onSaved?.(next, "replace");
       selectElement(null);
       setGesture(null);
 
@@ -957,7 +969,7 @@ export function BuildingEditor({
   }
   function exportLayout() {
     savedLayout.current = JSON.stringify(building);
-    onSaved?.(building);
+    onSaved?.(building, "export");
     const url = URL.createObjectURL(
       new Blob([JSON.stringify(building, null, 2) + "\n"], {
         type: "application/json",
@@ -1009,7 +1021,7 @@ export function BuildingEditor({
           <p className="eyebrow">01 / Building</p>
           <h2 id="building-title">Build your floor plan</h2>
         </div>
-        <span className="badge">Freeform · metres</span>
+        <span className="badge">Freeform · feet</span>
       </div>
       <DxfImport
         base={building}
@@ -1035,6 +1047,7 @@ export function BuildingEditor({
               onOpenPanel={() => setPropertiesOpen(false)}
             />
             <EditorUtilityRail
+              saveActions={saveActions}
               disabled={disabled}
               canUndo={history.length > 0}
               canRedo={redo.length > 0}
@@ -1069,12 +1082,12 @@ export function BuildingEditor({
                 <div className="canvas-size-controls">
                   <h3>Drawing area</h3>
                   <NumberField
-                    label="Width (m)"
+                    label="Width"
                     value={building.width}
                     onCommit={(width) => commit({ ...building, width })}
                   />
                   <NumberField
-                    label="Height (m)"
+                    label="Height"
                     value={building.height}
                     onCommit={(height) => commit({ ...building, height })}
                   />
@@ -1099,8 +1112,8 @@ export function BuildingEditor({
                     Expand drawing area +25%
                   </button>
                   <p className="note">
-                    Up to 1,000 m per side. Existing objects keep their size and
-                    position. Undo restores the previous area.
+                    Up to {formatLength(1000)} per side. Existing objects keep
+                    their size and position. Undo restores the previous area.
                   </p>
                   <hr />
                   <button
@@ -1174,7 +1187,7 @@ export function BuildingEditor({
                                   : tool === "spawn"
                                     ? (spawnProblem ??
                                       (spawnDraft
-                                        ? `${spawnDraft.spawn_zones.at(-1)!.width.toFixed(2)} × ${spawnDraft.spawn_zones.at(-1)!.height.toFixed(2)} m · ${spawnDraft.spawn_zones.at(-1)!.count} occupants · Release to place`
+                                        ? `${formatDimensions(spawnDraft.spawn_zones.at(-1)!.width, spawnDraft.spawn_zones.at(-1)!.height, 2)} · ${spawnDraft.spawn_zones.at(-1)!.count} occupants · Release to place`
                                         : "Drag a rectangular spawn area · Shift for square · Set occupants in Properties"))
                                     : "Drag a rectangle · Shift for square · Edit dimensions in Properties"}
             </p>
@@ -1187,7 +1200,7 @@ export function BuildingEditor({
                 tabIndex={0}
                 data-selected-count={displaySelection.length}
                 role="img"
-                aria-label={`Editable floor plan, ${building.width} by ${building.height} metres. ${building.walls.length} walls, ${building.doors.length} doors, ${building.exits.length} exits, ${building.windows?.length ?? 0} windows, ${building.spawn_zones.length} spawn zones, ${building.obstructions.length} obstructions. ${selections.length > 1 ? `${selections.length} selected objects. ` : selectedElement && selected ? `Selected: ${objectName(building, selected)}. ` : ""}Use layout tools to draw or the element inspector to edit.`}
+                aria-label={`Editable floor plan, ${formatDimensions(building.width, building.height)}. ${building.walls.length} walls, ${building.doors.length} doors, ${building.exits.length} exits, ${building.windows?.length ?? 0} windows, ${building.spawn_zones.length} spawn zones, ${building.obstructions.length} obstructions. ${selections.length > 1 ? `${selections.length} selected objects. ` : selectedElement && selected ? `Selected: ${objectName(building, selected)}. ` : ""}Use layout tools to draw or the element inspector to edit.`}
                 style={{
                   aspectRatio: "3 / 2",
                   cursor:
@@ -1247,9 +1260,9 @@ export function BuildingEditor({
                 </span>
                 <span>
                   {cursor
-                    ? `${cursor.x.toFixed(2)}, ${cursor.y.toFixed(2)} m`
+                    ? `${lengthInputValue(cursor.x, 2)}, ${lengthInputValue(cursor.y, 2)} ft`
                     : drafting.snap
-                      ? `Snap ${gridSpacings[drafting.spacing].label} · geometry in metres`
+                      ? `Snap ${gridSpacings[drafting.spacing].label} · feet`
                       : "Continuous coordinates"}
                 </span>
               </div>
@@ -1467,7 +1480,7 @@ export function BuildingEditor({
                 <p className="note">
                   {"wall_id" in selectedElement
                     ? `On ${objectName(building, { kind: "walls", id: selectedElement.wall_id })}. ${selected.kind === "windows" ? "Windows stay distinct and solid until serviced by the engine." : "Touching openings merge only with matching blocked states and compatible schedules. Blocked openings stay solid."}`
-                    : "Dimensions in metres"}
+                    : "Dimensions in feet"}
                 </p>
                 {"start" in selectedElement ? (
                   <>

@@ -48,11 +48,15 @@ impl JobRequest {
             Self::Optimize { request } => &request.building,
             Self::Replay { scenario_id, .. } => return scenario_id.clone(),
         };
-        let emergency = match building.disaster.map(|d| d.kind) {
-            Some(DisasterKind::Fire) => "fire",
-            Some(DisasterKind::GasLeak) => "gas",
-            Some(DisasterKind::Tornado) => "tornado",
-            None => "baseline",
+        let emergency = if building.pursuit.is_some() {
+            "pursuit"
+        } else {
+            match building.disaster.map(|d| d.kind) {
+                Some(DisasterKind::Fire) => "fire",
+                Some(DisasterKind::GasLeak) => "gas",
+                Some(DisasterKind::Tornado) => "tornado",
+                None => "baseline",
+            }
         };
         format!(
             "{} × {} m · {} occupants · {emergency} · seed {}",

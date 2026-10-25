@@ -1,3 +1,4 @@
+import { formatLength } from "../utils/units";
 import type { BuildingScenario, Point, Wall } from "../types/simulation";
 import { distance, project } from "./geometry";
 import { nextObjectName } from "./names";
@@ -65,7 +66,10 @@ export function curvePolyline(
     (p, i) => i === 0 || distance(p, finite[i - 1]!) > 1e-8,
   );
   if (unique.length < 2)
-    return { points: unique, error: "Trace a curve at least 0.1 m long." };
+    return {
+      points: unique,
+      error: `Trace a curve at least ${formatLength(0.1, 2)} long.`,
+    };
   // Mild low-pass smoothing on shallow bends only; intentional corners retain their exact vertex.
   const smoothed = unique.map((p, i) => {
     if (!i || i === unique.length - 1) return p;
@@ -105,7 +109,7 @@ export function curvePolyline(
     if (!removed)
       return {
         points,
-        error: "Curve bends must allow wall segments at least 0.1 m long.",
+        error: `Curve bends must allow wall segments at least ${formatLength(0.1, 2)} long.`,
       };
   }
   if (points.length - 1 > Math.min(MAX_CURVE_SEGMENTS, available))

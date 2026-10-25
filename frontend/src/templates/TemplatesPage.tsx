@@ -1,16 +1,13 @@
+import { LayoutNameDialog } from "./LayoutNameDialog";
+import { storeLayout } from "./layouts";
+import { formatDimensions } from "../utils/units";
 import { useState } from "react";
 import type { BuildingScenario } from "../types/simulation";
 import { buildingPresets } from "../editor/presets";
 import { emergencyPresets } from "../editor/emergencyPresets";
 import { buildingError } from "../editor/geometry";
 import { TemplateCard } from "./TemplateCard";
-import {
-  createTemplate,
-  readTemplates,
-  writeTemplates,
-  templateName,
-  type UserTemplate,
-} from "./templates";
+import { readTemplates, writeTemplates, type UserTemplate } from "./templates";
 import "./TemplatesPage.css";
 
 interface TemplatesPageProps {
@@ -21,9 +18,13 @@ interface TemplatesPageProps {
     building: BuildingScenario,
     name: string,
     action: "edit" | "simulate",
+    source?: UserTemplate,
   ) => void;
   onSaved: (building: BuildingScenario) => void;
   onOfficeRecording: () => void;
+  onSaveLayout?: () => void;
+  onSaveTemplate?: () => void;
+  onEntryChanged?: (id: string, entry: UserTemplate | null) => void;
 }
 
 export function TemplatesPage({
@@ -33,6 +34,9 @@ export function TemplatesPage({
   onOpen,
   onSaved,
   onOfficeRecording,
+  onSaveLayout,
+  onSaveTemplate,
+  onEntryChanged,
 }: TemplatesPageProps) {
   const [initial] = useState(() => {
     try {
@@ -53,6 +57,10 @@ export function TemplatesPage({
   });
   const [templates, setTemplates] = useState<UserTemplate[]>(initial.templates);
   const [error, setError] = useState("");
+  const [nameAction, setNameAction] = useState<{
+    entry?: UserTemplate;
+    duplicate?: boolean;
+  } | null>(null);
   const saveProblem = buildingError(building, false);
   function persist(next: UserTemplate[]) {
     try {
@@ -68,33 +76,21 @@ export function TemplatesPage({
     }
   }
   function saveCurrent() {
-    const name = window.prompt("Template name (1–80 characters)", "My layout");
-    if (name === null) return;
-    try {
-      const next = createTemplate(building, name);
-      if (persist([...templates, next])) onSaved(building);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not save this layout.");
-    }
+    if (onSaveTemplate) onSaveTemplate();
+    else setNameAction({});
   }
-  function rename(template: UserTemplate) {
-    const name = window.prompt(
-      "Rename template (1–80 characters)",
-      template.name,
+  function confirmName(name: string) {
+    const entry = nameAction?.entry;
+    const saved = storeLayout(
+      window.localStorage,
+      entry?.building ?? building,
+      name,
+      entry?.kind === "layout" ? "layout" : "template",
+      nameAction?.duplicate ? undefined : entry,
     );
-    if (name === null) return;
-    try {
-      const nextName = templateName(name);
-      persist(
-        templates.map((t) =>
-          t.id === template.id ? { ...t, name: nextName } : t,
-        ),
-      );
-    } catch (e) {
-      setError(
-        e instanceof Error ? e.message : "Could not rename this template.",
-      );
-    }
+    setTemplates(readTemplates(window.localStorage));
+    onEntryChanged?.(saved.id, saved);
+    if (!entry) onSaved(building);
   }
   function card(
     name: string,
@@ -109,8 +105,8 @@ export function TemplatesPage({
         building={layout}
         busy={busy}
         online={online}
-        onEdit={() => onOpen(layout, name, "edit")}
-        onRun={() => onOpen(layout, name, "simulate")}
+        onEdit={() => onOpen(layout, name, "edit", custom)}
+        onRun={() => onOpen(layout, name, "simulate", custom)}
         key={custom?.id ?? name}
       >
         {description && <p className="templates-local-note">{description}</p>}
@@ -130,9 +126,17 @@ export function TemplatesPage({
               type="button"
               className="template-secondary"
               disabled={busy}
-              onClick={() => rename(custom)}
+              onClick={() => setNameAction({ entry: custom })}
             >
               Rename
+            </button>
+            <button
+              type="button"
+              className="template-secondary"
+              disabled={busy}
+              onClick={() => setNameAction({ entry: custom, duplicate: true })}
+            >
+              Duplicate
             </button>
             <button
               type="button"
@@ -141,10 +145,24 @@ export function TemplatesPage({
               onClick={() => {
                 if (
                   window.confirm(
-                    `Delete “${name}” from My Templates? Your current layout will stay unchanged.`,
+                    `Delete “${name}” from ${custom.kind === "layout" ? "Saved Layouts" : "My Templates"}? Your current layout will stay unchanged.`,
                   )
-                )
-                  persist(templates.filter((t) => t.id !== custom.id));
+                ) {
+                  try {
+                    if (
+                      persist(
+                        readTemplates(window.localStorage).filter(
+                          (t) => t.id !== custom.id,
+                        ),
+                      )
+                    )
+                      onEntryChanged?.(custom.id, null);
+                  } catch {
+                    setError(
+                      "Saved layouts could not be read. Existing storage has not been overwritten.",
+                    );
+                  }
+                }
               }}
             >
               Delete
@@ -191,6 +209,34 @@ export function TemplatesPage({
           )}
         </div>
       </section>
+      <section aria-label="Saved Layouts" id="saved-layouts">
+        <h2>Saved Layouts</h2>
+        <p className="templates-local-note">
+          Open a layout to continue working. Save updates that copy; Save As
+          keeps a separate version.
+        </p>
+        {onSaveLayout && (
+          <button
+            type="button"
+            className="studio-control"
+            disabled={busy || !!initial.error || !!saveProblem}
+            onClick={onSaveLayout}
+          >
+            Save Current Layout
+          </button>
+        )}
+        {!templates.some((entry) => entry.kind === "layout") && (
+          <p className="templates-local-note">
+            No saved layouts yet. Use Save in the editor to name your first
+            layout.
+          </p>
+        )}
+        <div className="template-gallery">
+          {templates
+            .filter((entry) => entry.kind === "layout")
+            .map((entry) => card(entry.name, entry.building, entry))}
+        </div>
+      </section>
       <section aria-label="My Templates">
         <h2>My Templates</h2>
         <p className="templates-local-note">
@@ -213,16 +259,46 @@ export function TemplatesPage({
             onClick={saveCurrent}
           >
             <span aria-hidden="true">＋</span>
-            <strong>Save Current Layout</strong>
+            <strong>Save as Template</strong>
             <span>
-              {building.width} × {building.height} m · Name your template
+              {formatDimensions(building.width, building.height)} · Name your
+              template
             </span>
           </button>
-          {templates.map((template) =>
-            card(template.name, template.building, template),
-          )}
+          {templates
+            .filter((template) => template.kind !== "layout")
+            .map((template) =>
+              card(template.name, template.building, template),
+            )}
         </div>
       </section>
+      {nameAction && (
+        <LayoutNameDialog
+          title={
+            nameAction.entry
+              ? nameAction.duplicate
+                ? "Duplicate saved layout"
+                : "Rename saved layout"
+              : "Save as template"
+          }
+          initialName={
+            nameAction.entry
+              ? nameAction.duplicate
+                ? `${nameAction.entry.name.slice(0, 75)} copy`
+                : nameAction.entry.name
+              : "My template"
+          }
+          action={
+            nameAction.entry
+              ? nameAction.duplicate
+                ? "Duplicate"
+                : "Rename"
+              : "Save as Template"
+          }
+          onConfirm={confirmName}
+          onClose={() => setNameAction(null)}
+        />
+      )}
     </div>
   );
 }

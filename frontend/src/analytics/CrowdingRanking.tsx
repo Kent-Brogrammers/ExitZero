@@ -1,3 +1,4 @@
+import { formatDimensions, lengthInputValue } from "../utils/units";
 import { useEffect, useMemo, useRef } from "react";
 import type { BuildingScenario, SimulationResult } from "../types/simulation";
 import { drawLayout } from "../editor/draw";
@@ -116,12 +117,15 @@ function Snapshot({
       <canvas
         ref={canvas}
         role="img"
-        aria-label={`Crowding heatmap snapshot ${rank}: ${spot.count} occupants in the highlighted zone at x ${spot.x}, y ${spot.y} metres, step ${spot.frame.step}.`}
+        aria-label={`Crowding heatmap snapshot ${rank}: ${spot.count} occupants in the highlighted zone at x ${lengthInputValue(spot.x, 2)}, y ${lengthInputValue(spot.y, 2)} feet, step ${spot.frame.step}.`}
       />
       <p>
-        Zone: ({spot.x}, {spot.y}) m ·{" "}
-        {Math.min(CROWD_ZONE, building.width - spot.x).toFixed(1)} ×{" "}
-        {Math.min(CROWD_ZONE, building.height - spot.y).toFixed(1)} m
+        Zone: ({lengthInputValue(spot.x, 2)}, {lengthInputValue(spot.y, 2)}) ft
+        ·{" "}
+        {formatDimensions(
+          Math.min(CROWD_ZONE, building.width - spot.x),
+          Math.min(CROWD_ZONE, building.height - spot.y),
+        )}
         {spot.frame.step === 0 ? " · Initial occupancy" : ""}
       </p>
       {onViewInSimulation && (
@@ -157,9 +161,9 @@ function Cards({
     >
       <h2>Peak crowding</h2>
       <p className="note">
-        Three busiest 2 × 2 m zones in recorded frames, including initial
-        occupancy. Ranked by occupant count, not density or proven congestion;
-        boundary zones may be smaller.
+        Three busiest {formatDimensions(CROWD_ZONE, CROWD_ZONE)} zones in
+        recorded frames, including initial occupancy. Ranked by occupant count,
+        not density or proven congestion; boundary zones may be smaller.
       </p>
       <div className="crowding-legend">
         <span>Fewer occupants</span>

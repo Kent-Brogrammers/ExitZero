@@ -17,6 +17,8 @@ export function comparisonContext(
   const differences: string[] = [];
   const equal = (a: unknown, b: unknown) =>
     JSON.stringify(a) === JSON.stringify(b);
+  if (!equal(original.pursuit, current.pursuit))
+    differences.push("pursuit mode or configuration changed");
   if (original.seed !== current.seed) differences.push("random seed changed");
   if (before.result.total_population !== result.total_population)
     differences.push("population changed");

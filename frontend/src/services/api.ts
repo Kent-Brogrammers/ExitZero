@@ -79,6 +79,54 @@ function checkSimulation(
   building: BuildingScenario,
 ): SimulationResult {
   checkMetrics(result);
+  let previousCaught = new Map<number, number>(),
+    previousEscaped = 0;
+  if (building.pursuit && !result.frames.length)
+    throw new ApiError(
+      200,
+      "invalid_response",
+      "The backend returned no pursuit recording. Restart the updated Rust server.",
+    );
+  for (const frame of result.frames) {
+    const p = frame.pursuit;
+    if (!!p !== !!building.pursuit)
+      throw new ApiError(
+        200,
+        "invalid_response",
+        "The backend recording does not match the requested pursuit mode.",
+      );
+    if (!p) continue;
+    const caught = new Map(p.caught.map((c) => [c.agent_id, c.step]));
+    if (
+      p.stalker.x > result.width ||
+      p.stalker.y > result.height ||
+      caught.size !== p.caught.length ||
+      p.caught.some(
+        (c) => c.agent_id >= result.total_population || c.step > frame.step,
+      ) ||
+      [...previousCaught].some(([id, step]) => caught.get(id) !== step) ||
+      p.escaped < previousEscaped ||
+      p.escaped + caught.size + frame.agents.length !==
+        result.total_population ||
+      frame.agents.some(
+        (a) => a.id >= result.total_population || caught.has(a.id),
+      )
+    )
+      throw new ApiError(
+        200,
+        "invalid_response",
+        "The backend returned invalid pursuit outcomes or survivor accounting.",
+      );
+    previousCaught = caught;
+    previousEscaped = p.escaped;
+  }
+  const finalPursuit = result.frames.at(-1)?.pursuit;
+  if (finalPursuit && finalPursuit.escaped !== result.evacuated)
+    throw new ApiError(
+      200,
+      "invalid_response",
+      "Pursuit escapes disagree with the recorded outcome.",
+    );
   if (result.communication_events) {
     const ids = new Set([
       ...(result.frames[0]?.agents.map((a) => a.id) ?? []),

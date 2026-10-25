@@ -142,6 +142,12 @@ pub struct BuildingScenario {
     pub tornado_zones: Vec<Obstruction>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub disaster: Option<super::Disaster>,
+    #[serde(
+        default,
+        deserialize_with = "super::windows::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub pursuit: Option<super::PursuitConfig>,
     pub agent_radius: f64,
     pub time_step_seconds: f64,
     pub seed: u64,
@@ -220,6 +226,9 @@ impl BuildingScenario {
     }
 
     pub fn validate(&self) -> Result<(), String> {
+        if let Some(pursuit) = &self.pursuit {
+            pursuit.validate(self)?;
+        }
         if !positive(self.width, 1000.0) || !positive(self.height, 1000.0) {
             return Err("workspace dimensions must be finite and between 0 and 1000 metres".into());
         }

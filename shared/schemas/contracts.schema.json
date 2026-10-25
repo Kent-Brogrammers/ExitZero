@@ -287,6 +287,7 @@
         "disaster": {
           "$ref": "#/$defs/Disaster"
         },
+        "pursuit": { "$ref": "#/$defs/PursuitConfig" },
         "tornado_zones": {
           "type": "array",
           "maxItems": 100,
@@ -493,6 +494,55 @@
         },
         "disaster_state": {
           "$ref": "#/$defs/DisasterState"
+        },
+        "pursuit": { "$ref": "#/$defs/PursuitFrame" }
+      }
+    },
+    "PursuitConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stalker_start",
+        "stalker_speed",
+        "survivor_speed",
+        "capture_radius",
+        "avoidance_radius"
+      ],
+      "properties": {
+        "stalker_start": { "$ref": "#/$defs/Point" },
+        "stalker_speed": { "type": "number", "minimum": 0.1, "maximum": 3 },
+        "survivor_speed": { "type": "number", "minimum": 0.1, "maximum": 3 },
+        "capture_radius": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 5
+        },
+        "avoidance_radius": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 20
+        }
+      }
+    },
+    "PursuitFrame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stalker", "escaped", "caught"],
+      "properties": {
+        "stalker": { "$ref": "#/$defs/Point" },
+        "escaped": { "type": "integer", "minimum": 0, "maximum": 64 },
+        "caught": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["agent_id", "step"],
+            "properties": {
+              "agent_id": { "type": "integer", "minimum": 0, "maximum": 63 },
+              "step": { "type": "integer", "minimum": 0, "maximum": 100000 }
+            }
+          }
         }
       }
     },

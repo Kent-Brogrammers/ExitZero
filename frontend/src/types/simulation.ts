@@ -103,6 +103,8 @@ export interface ShelterArrival {
 }
 
 export interface BuildingScenario {
+  /** Optional fictional Halloween pursuit. Not combined with disasters. */
+  pursuit?: PursuitConfig;
   width: number;
   height: number;
   walls: Wall[];
@@ -156,6 +158,7 @@ export interface AgentPosition extends Point {
 }
 
 export interface AnimationFrame {
+  pursuit?: PursuitFrame;
   step: number;
   agents: AgentPosition[];
   /** Physical state at this time; absent in older recordings. */
@@ -163,6 +166,20 @@ export interface AnimationFrame {
   window_states?: WindowFrameState[];
   sheltered?: number;
   disaster_state?: DisasterState;
+}
+
+export interface PursuitConfig {
+  stalker_start: Point;
+  stalker_speed: number;
+  survivor_speed: number;
+  capture_radius: number;
+  avoidance_radius: number;
+}
+export interface PursuitFrame {
+  /** Separate actor, excluded from survivor population and stable survivor IDs. */
+  stalker: Point;
+  escaped: number;
+  caught: { agent_id: number; step: number }[];
 }
 
 export interface AgentStatistics {

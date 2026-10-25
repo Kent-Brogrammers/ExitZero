@@ -32,6 +32,28 @@ function outsideDetails(html: string) {
 }
 
 describe("live first run and recorded review", () => {
+  it("offers recording export only for completed recordings with duration", () => {
+    const html = renderToStaticMarkup(
+      <SimulationView building={building} result={result} />,
+    );
+    expect(html).toMatch(
+      /<button[^>]*title="Download the full real recording at 1× speed."[^>]*>Export Recording<\/button>/,
+    );
+    const empty = renderToStaticMarkup(
+      <SimulationView building={building} result={null} />,
+    );
+    expect(empty).toMatch(
+      /<button[^>]*disabled=""[^>]*>Export Recording<\/button>/,
+    );
+    const live = renderToStaticMarkup(
+      <SimulationView
+        building={building}
+        result={null}
+        live={{ frame: result.frames[0]! }}
+      />,
+    );
+    expect(live).not.toContain("Export Recording");
+  });
   it("defaults both agent features off and keeps chat unavailable during a live run", () => {
     const html = renderToStaticMarkup(
       <SimulationView building={building} result={result} />,
