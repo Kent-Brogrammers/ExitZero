@@ -64,7 +64,6 @@ export function StudioWelcome({
             <button
               type="button"
               className="studio-control welcome-templates-action"
-              disabled={disabled}
               onClick={onTemplates}
               title="Browse all templates and emergency scenarios"
             >
@@ -85,19 +84,14 @@ export function StudioWelcome({
             Design a floor plan. Run an evacuation. Examine the traffic.
           </p>
           <div className="welcome-actions">
-            <button
-              type="button"
-              className="entry-action"
-              disabled={disabled}
-              onClick={onOpen}
-            >
-              Open Studio <span aria-hidden="true">↗</span>
+            <button type="button" className="entry-action" onClick={onOpen}>
+              {disabled ? "Return to Studio" : "Open Studio"}{" "}
+              <span aria-hidden="true">↗</span>
             </button>
             {(onTemplates || onOpenTemplate) && (
               <button
                 type="button"
                 className="welcome-action-secondary"
-                disabled={disabled}
                 onClick={browseTemplates}
                 aria-controls={onOpenTemplate ? "welcome-templates" : undefined}
               >
@@ -158,7 +152,6 @@ export function StudioWelcome({
               <button
                 type="button"
                 className="studio-control"
-                disabled={disabled}
                 onClick={onTemplates}
               >
                 View all templates <span aria-hidden="true">↗</span>

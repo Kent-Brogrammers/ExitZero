@@ -97,6 +97,40 @@ VITE_API_BASE_URL=http://127.0.0.1:3001/api npm run dev
 
 For production builds, provide that variable to `npm run build` instead; Vite embeds it at build time. `npm run preview` serves the built frontend and does not use the development proxy, so use a direct API base URL and configure backend CORS for your chosen preview origin before testing that mode. The initial CORS allowlist covers only `http://localhost:5173` and `http://127.0.0.1:5173`.
 
+## Deploy on Render (one Docker web service)
+
+Create a [Render Web Service](https://render.com/docs/docker) from this repository.
+Select **Docker**, use the repository root as the build context, and `./Dockerfile`
+as the Dockerfile path. Choose the Free instance and set the health check path to
+`/api/health`. Leave the Docker command override empty; no separate build/start
+commands or frontend service are needed.
+
+The image builds both apps, then runs only a stripped release Rust binary and the
+static frontend as a non-root user. Axum serves the site, assets, navigation
+fallback, API, and live NDJSON streams on the same origin. It binds to `0.0.0.0`
+using Render's `PORT` (image default `10000`; local Rust fallback `3001`). Keep
+`VITE_API_BASE_URL=/api`, which is set during the image build. The image sets
+`EXITZERO_FRONTEND_DIR=/app/frontend` and one compute worker to limit concurrent
+simulation memory use on a 512 MB instance. Large populations, long recordings,
+and stress batches can still exceed that budget; use modest demo runs.
+
+To try the production service locally with Docker:
+
+```sh
+docker build -t exitzero .
+docker run --rm -p 10000:10000 --memory=512m exitzero
+```
+
+Open `http://localhost:10000`; `/api/health` should return the usual health JSON.
+For a different port, set `-e PORT=8080 -p 8080:8080` instead. `./dev.sh` and the
+Vite proxy remain unchanged. Outside Docker, setting `EXITZERO_FRONTEND_DIR` to
+the absolute path of `frontend/dist` enables the same frontend serving; omit it
+for the existing API-only development server.
+
+Layouts/templates remain browser-local; server job history is in memory and is
+lost on restart. Free services can sleep when idle, so the first visit may take
+longer. See [Render's free-service limits](https://render.com/docs/free).
+
 ## Structure and ownership
 
 ```text
