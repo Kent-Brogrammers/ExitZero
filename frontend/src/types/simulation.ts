@@ -201,6 +201,8 @@ export interface SimulationResult extends SimulationMetrics {
   analytics?: SimulationAnalytics;
   /** Actual opening discoveries and accepted shares; absent in older recordings. */
   communication_events?: CommunicationEvent[];
+  /** Personal observations, intentions and outcomes; not additional broadcasts. */
+  agent_events?: AgentEvent[];
   frames: AnimationFrame[];
   /** Weighted world positions representing accumulated traffic, not density. */
   traffic_samples: TrafficSample[];
@@ -220,15 +222,73 @@ export interface CommunicationEvent {
   blocked: boolean;
 }
 
+export interface AgentEvent {
+  step: number;
+  agent_id: number;
+  kind:
+    | "heading_to_exit"
+    | "hazard_discovered"
+    | "hazard_spreading"
+    | "rerouting"
+    | "route_unavailable"
+    | "window_approach"
+    | "window_queue"
+    | "window_opening"
+    | "window_breaking"
+    | "window_traversal"
+    | "exposure"
+    | "waiting"
+    | "evacuated"
+    | "sheltered";
+  subject_id?: string;
+  position?: Point;
+  hazard_kind?: DisasterKind;
+}
+
 /** Newline-delimited events from POST /api/simulate/live. */
 export type SimulationStreamEvent =
   | { type: "frame"; frame: AnimationFrame }
+  | ({ type: "chat" } & LiveChatBatch)
   | { type: "complete"; result: SimulationResult }
   | { type: "error"; error: { code: string; message: string } };
 
 /** A running simulation has no outcome or known duration yet. */
 export interface LiveSimulation {
   frame: AnimationFrame | null;
+  chat?: ChatHistory;
+  status?: "running" | "cancelled";
+  speed?: LiveSpeedControl["speed"];
+  speed_pending?: boolean;
+  control_error?: string;
+}
+
+export interface LiveRunQuery {
+  run_id?: string;
+}
+
+export interface LiveSpeedControl {
+  speed: 1 | 2 | 4 | 8;
+}
+
+export type ChatEvent = CommunicationEvent | AgentEvent;
+
+/** Presentation summaries; the recording retains the original observations. */
+export interface ChatSummary {
+  key: string;
+  event: ChatEvent;
+  last_step: number;
+  agent_ids: number[];
+  recipient_ids: number[];
+}
+
+export interface ChatHistory {
+  messages: ChatSummary[];
+  total: number;
+}
+
+export interface LiveChatBatch {
+  communication_events: CommunicationEvent[];
+  agent_events: AgentEvent[];
 }
 
 export interface StressTestConfig {

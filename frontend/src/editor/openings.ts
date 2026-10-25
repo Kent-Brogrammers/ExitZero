@@ -10,6 +10,11 @@ import { openingSegment, wallLength, project, distance } from "./geometry";
 // Match Rust and the shared opening bounds/overlap tolerance, in metres.
 const OPENING_EPSILON = 1e-8;
 
+/** Playback-only door states; never part of the saved building contract. */
+export type OpeningLayout = BuildingScenario & {
+  closedDoorIds?: readonly string[];
+};
+
 /** Suggest an exterior only when all occupied spawn rectangles lie on one side.
  * This is a setup hint, not a topology or outdoor-clearance check. */
 export function suggestedWindowExterior(
@@ -40,14 +45,86 @@ export function suggestedWindowExterior(
   return occupiedSide ? (occupiedSide > 0 ? -1 : 1) : null;
 }
 
+/** New windows are ready for emergency use. Explicit per-window overrides stay
+ * intact; switching escape on also supplies the required scenario assumptions. */
+export function configureWindowEscape(
+  building: BuildingScenario,
+  pane: WindowOpening,
+  patch: Partial<NonNullable<WindowOpening["emergency_escape"]>> = {},
+): BuildingScenario {
+  const wall = building.walls.find((wall) => wall.id === pane.wall_id);
+  let exterior = suggestedWindowExterior(building, pane);
+  if (exterior === null && wall) {
+    // Before occupants are placed, point away from the rest of the plan.
+    let x = 0,
+      y = 0,
+      weight = 0;
+    for (const other of building.walls.filter(
+      (other) => other.id !== wall.id,
+    )) {
+      const length = wallLength(other);
+      x += ((other.start.x + other.end.x) / 2) * length;
+      y += ((other.start.y + other.end.y) / 2) * length;
+      weight += length;
+    }
+    const center = weight
+      ? { x: x / weight, y: y / weight }
+      : { x: building.width / 2, y: building.height / 2 };
+    const side =
+      (center.x - wall.start.x) * -(wall.end.y - wall.start.y) +
+      (center.y - wall.start.y) * (wall.end.x - wall.start.x);
+    exterior = side >= 0 ? -1 : 1;
+  }
+  const escape = {
+    enabled: true,
+    preparation: "break" as const,
+    clear_width_metres: pane.width,
+    clear_height_metres: Math.max(
+      1.2,
+      building.window_escape_context?.required_clear_height_metres ?? 1,
+    ),
+    preparation_seconds: 5,
+    traversal_seconds: 3,
+    exterior_side: exterior ?? -1,
+    exterior_available: true,
+    ...pane.emergency_escape,
+    ...(patch.enabled === true ? { exterior_available: true } : {}),
+    ...patch,
+  };
+  const ready = { ...pane, emergency_escape: escape };
+  const existing =
+    building.windows?.some((window) => window.id === pane.id) ?? false;
+  return {
+    ...building,
+    windows: existing
+      ? building.windows!.map((window) =>
+          window.id === pane.id ? ready : window,
+        )
+      : [...(building.windows ?? []), ready],
+    ...(escape.enabled &&
+    (!building.window_escape_context || !existing || patch.enabled === true)
+      ? {
+          window_escape_context: {
+            floor_elevation_metres: 0,
+            required_clear_height_metres:
+              building.window_escape_context?.required_clear_height_metres ?? 1,
+            all_agents_can_traverse: true,
+          },
+        }
+      : {}),
+  };
+}
+
 /** Same interval sweep as Rust: touching gaps are continuous; blocked exits stay solid. */
 export function solidWallSegments(
-  building: BuildingScenario,
+  building: OpeningLayout,
   wall: Wall,
   windowStates: readonly WindowFrameState[] = [],
 ): [Point, Point][] {
   const openings = [
-    ...building.doors,
+    ...building.doors.filter(
+      (door) => !building.closedDoorIds?.includes(door.id),
+    ),
     ...building.exits.filter((o) => !building.blocked_exit_ids.includes(o.id)),
     ...(building.windows ?? [])
       .filter((w) =>
@@ -96,7 +173,7 @@ export interface OpeningLabel {
 }
 /** Place horizontal labels in nonoverlapping rows near their real opening, in world units. */
 export function openingLabels(
-  building: BuildingScenario,
+  building: OpeningLayout,
   px: number,
   measure: (text: string) => number,
   windowStates: readonly WindowFrameState[] = [],
@@ -116,7 +193,12 @@ export function openingLabels(
         kind === "Window"
           ? windowStates.find((s) => s.window_id === o.id)?.state
           : undefined;
-      const text = `${building.blocked_exit_ids.includes(o.id) ? "Blocked exit" : kind} · ${o.width.toFixed(1)} m${state ? ` · ${state}` : ""}`;
+      const label = building.closedDoorIds?.includes(o.id)
+        ? "Closed door"
+        : building.blocked_exit_ids.includes(o.id)
+          ? "Blocked exit"
+          : kind;
+      const text = `${label} · ${o.width.toFixed(1)} m${state ? ` · ${state}` : ""}`;
       const width = Math.min(measure(text), building.width),
         height = 13 * px;
       const x = Math.max(

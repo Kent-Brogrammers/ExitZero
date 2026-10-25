@@ -33,7 +33,7 @@ npm run dev
 
 Open [http://127.0.0.1:5173](http://127.0.0.1:5173). The header should show **Backend online**. If the backend starts later, use **Retry**.
 
-**Run simulation** opens a live first run at normal speed. It shows elapsed simulation time and occupant counts without a predicted finish time. When the run ends, the recorded timeline opens at the end; rewind, step, or replay to review what happened.
+**Run simulation** opens a live first run at normal speed. The **Speed** button cycles through 1×, 2×, 4× and 8× while the backend continues running the same physics ticks. **Cancel run** stops the stream and keeps its last frame visible; cancelled runs do not produce a completed recording. The view shows elapsed simulation time and occupant counts without a predicted finish time. When the run ends, the recorded timeline opens at the end; rewind, step, or replay to review what happened.
 
 Under **Settings → Agent awareness**, adjust sight range (default 8 m) and communication/yelling range (default 3 m). These settings are saved with the building. A range of 0 disables that behavior. Agents start with exit locations and assume doors and exits are open, including initially blocked exits. Their route maps do not start with the complete wall layout. They learn an opening's state by seeing it or receiving a nearby person's report.
 
@@ -49,7 +49,7 @@ the opening themselves. Unknown hazards and unseen growth remain unknown.
 An unsafe destination does not create a solid barrier inside an occupant;
 physical closures still wait for people to clear the doorway.
 
-Simulation mode offers **Show Agent Numbers** and **Show Agent Chat**, both off by default. Numbers display stable agent IDs plus one. Recorded results optionally include `communication_events`: `{step, event_type, sender_id, recipient_ids, opening_id, blocked}`. A `discovery` records an observer learning a changed state, with no recipients; `shared` records successful new information accepted under the existing local sharing rules, grouped per sender/opening/tick. Missing types in earlier share-only recordings mean `shared`. Repeated states and routine initial open confirmations are omitted, so an ordinary run with no changed opening information correctly has an empty log. Chat follows simulated time and rewinds with playback; older recordings (including the saved office demo) show an unavailable state. Live chat updates are deferred; the completed live recording includes these events.
+Simulation mode offers **Show Agent Numbers** and a bottom chat notification during live runs. Recorded playback also offers **Show Agent Chat**. Both overlays start closed. Numbers display stable agent IDs plus one. Recorded results optionally include `communication_events`: `{step, event_type, sender_id, recipient_ids, opening_id, blocked}`. A `discovery` records an observer learning a changed state, with no recipients; `shared` records successful new information accepted under the existing local sharing rules, grouped per sender/opening/tick. Missing types in earlier share-only recordings mean `shared`. Repeated states and routine initial open confirmations are omitted, so an ordinary run with no changed opening information has an empty opening-event list. Chat follows simulated time and rewinds with playback; older recordings (including the saved office demo) show an unavailable state. The optional `agent_events` list adds personal dialogue about learned hazards and growth, destinations and reroutes, waiting, window approaches and service, exposure, evacuation and shelter arrival. These comments record actual state changes without broadcasting extra knowledge. Growth alerts are limited to material changes at least five seconds apart. Both lists share the playback timeline. The live stream includes new chat observations, and the completed recording retains them for replay. Chat shows conversational callouts; similar observations within ten simulated seconds share a line with a count of others saying the same thing. Opening state reversals get a fresh line. The unread badge counts these grouped callouts, and the panel keeps the latest 80 visible.
 
 Agents reassess routes every two simulated seconds, with checks staggered across the crowd. Each observer estimates nearby people's motion from consecutive visible positions, smoothing speed and direction over roughly 0.6 seconds. As confidence builds over the first second of observation, routing blends current congestion with one-, two-, and three-second motion forecasts. Traffic flowing along the route costs less than slow or stopped traffic; opposing traffic receives no flow discount. Forecasts stop at remembered obstacles and remove predicted arrivals through believed available exits. Losing sight discards the motion estimate, and forecasts never alter real movement or population counts.
 
@@ -65,7 +65,9 @@ The alarm sounds at the start of the run. Occupants know which response to take 
 
 The Rust `simulate_with_emergencies` entry point still supports its original static circular exclusion zones. The optional `disaster` and `tornado_zones` fields work through both normal and live simulation APIs, and are saved in layout JSON.
 
-Fire and gas spread as connected circular patches, with seeded random branching and uneven radial growth. Controls set growth rate, new-patch interval, maximum patch count, and maximum patch radius. Gas defaults to faster growth and more frequent branching. Footprints are bounded by workspace extents; this approximation does not model fuel, airflow, diffusion through rooms, or wall-dependent fire spread. Overlapping patches contribute the strongest exposure rather than multiplying injury by patch count.
+Fire ignites connected patches along the exposed edges of areas already burning. Each new patch overlaps existing fire but starts on fresh ground, rather than being hidden inside the source. Seeded branching and uneven patch growth make the fire spread outward from its reached areas. Controls set growth rate, ignition interval, maximum patch count, and maximum patch radius.
+
+Gas stays a single cloud at its original position. Its radius grows at the configured metres per second until the maximum cloud radius; it never spawns extra patches. Older gas layouts with multi-patch settings remain readable, but those branching controls are ignored. Both models are clipped to workspace extents for display; they do not model fuel, airflow, diffusion through rooms, or wall-dependent fire spread. Overlapping fire patches contribute the strongest exposure rather than multiplying injury by patch count.
 
 Tornado controls set travel speed, maximum turning speed, direction-change interval, and extra shelter clearance. A seeded wandering heading turns gradually; steering and braking avoid workspace edges and every tornado zone. Swept movement checks keep the full exposure radius, occupant body margin, and configured extra clearance outside shelters, including between physics ticks. The initial tornado location must also meet that clearance. The scenario random seed controls both repeatable hazards and occupant placement.
 
@@ -132,7 +134,7 @@ All bodies and property names use JSON and snake_case. Computation requests requ
 
 Errors have the shape `{"error":{"code":"validation_error","message":"..."}}`. Invalid scenario semantics and failed occupant placement return `422`; JSON syntax, shape, and content-type errors preserve Axum's relevant `4xx` status with code `invalid_json`. The frontend validates successful response shapes against the shared schemas and exposes `ApiError` with `status`, `code`, and `message`; network errors use status `0`.
 
-The studio uses `POST /api/simulate/live` with a `BuildingScenario` body. Its `application/x-ndjson` response emits `SimulationStreamEvent` objects, one per line: `{type: "frame", frame}` during computation, followed by `{type: "complete", result}` containing the ordinary `SimulationResult` and recording. Errors after streaming starts use `{type: "error", error: {code, message}}`. Frames are paced by their simulated timestamps; disconnecting cancels the worker. The batch `/api/simulate` endpoint remains available to integrations.
+The studio uses `POST /api/simulate/live` with a `BuildingScenario` body. Its `application/x-ndjson` response emits `SimulationStreamEvent` objects, one per line: `{type: "frame", frame}` during computation, followed by `{type: "complete", result}` containing the ordinary `SimulationResult` and recording. Errors after streaming starts use `{type: "error", error: {code, message}}`. New dialogue is streamed as `{type: "chat", communication_events, agent_events}` after its corresponding frame. Frames are paced by their simulated timestamps; disconnecting cancels the worker. Clients can supply an optional `?run_id=<unique ID>` (1–64 letters, digits, hyphens or underscores). During that run, `POST /api/simulate/live/{run_id}/speed` accepts and returns `LiveSpeedControl`: `{speed: 1 | 2 | 4 | 8}`. Speed changes affect wall-clock pacing, preserving physics time steps and simulated metrics; completed or disconnected runs release their controls. The batch `/api/simulate` endpoint remains available to integrations.
 
 From the repository root, with both servers running:
 
@@ -218,6 +220,13 @@ move, rename, delete and edit width/offset with the existing Properties workflow
 Creation and single selection keep Properties closed. Windows remain separate
 stable records even when touching; doors, exits and windows cannot overlap.
 JSON without windows remains compatible.
+
+Newly placed windows default to enabled emergency escape, break preparation,
+an available exterior landing, and ground-floor traversal assumptions. The
+exterior direction points away from occupants, or away from the rest of the plan
+when no occupants are placed yet. Existing saved settings remain editable;
+switching an older window's escape checkbox on supplies the other required
+checkbox settings in the same action.
 
 The optional `windows[].emergency_escape` config explicitly specifies enabled,
 open/break preparation, clear width/height, preparation/traversal seconds, exterior

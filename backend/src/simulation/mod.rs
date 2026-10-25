@@ -1,7 +1,8 @@
 use self::agent::Agent;
 use crate::models::{
-    AgentPosition, AgentStatistics, AnimationFrame, BuildingScenario, Point, SimulationMetrics,
-    SimulationResult, SimulationStatus, TrafficSample,
+    AgentEvent, AgentPosition, AgentStatistics, AnimationFrame, BuildingScenario,
+    CommunicationEvent, Point, SimulationMetrics, SimulationResult, SimulationStatus,
+    TrafficSample,
 };
 use std::{collections::BTreeMap, fmt};
 mod agent;
@@ -9,6 +10,7 @@ mod analytics;
 mod awareness;
 mod catastrophe;
 mod congestion;
+mod dialogue;
 mod emergency;
 mod evolution;
 mod geometry;
@@ -54,7 +56,7 @@ pub fn simulate_with_emergencies(
     scenario: &BuildingScenario,
     emergencies: &[Emergency],
 ) -> Result<SimulationResult, SimulationError> {
-    run(scenario, emergencies, None)
+    run(scenario, emergencies, None, None)
 }
 
 /// Observe actual physics frames before completion. Returning false cancels the
@@ -63,13 +65,26 @@ pub fn simulate_live(
     scenario: &BuildingScenario,
     on_frame: &mut dyn FnMut(&AnimationFrame) -> bool,
 ) -> Result<SimulationResult, SimulationError> {
-    run(scenario, &[], Some(on_frame))
+    run(scenario, &[], Some(on_frame), None)
+}
+
+type ChatObserver<'a> = dyn FnMut(&[CommunicationEvent], &[AgentEvent]) -> bool + 'a;
+
+/// Send newly recorded messages after the corresponding live physics frame.
+/// Returning false from either observer cancels the run.
+pub fn simulate_live_with_chat(
+    scenario: &BuildingScenario,
+    on_frame: &mut dyn FnMut(&AnimationFrame) -> bool,
+    on_chat: &mut ChatObserver<'_>,
+) -> Result<SimulationResult, SimulationError> {
+    run(scenario, &[], Some(on_frame), Some(on_chat))
 }
 
 fn run(
     scenario: &BuildingScenario,
     emergencies: &[Emergency],
     mut on_frame: Option<&mut dyn FnMut(&AnimationFrame) -> bool>,
+    mut on_chat: Option<&mut ChatObserver<'_>>,
 ) -> Result<SimulationResult, SimulationError> {
     scenario
         .validate()
@@ -151,6 +166,7 @@ fn run(
     let mut step = 0_u32;
     let mut idle_steps = 0;
     let mut communication_events = Vec::new();
+    let mut dialogue = dialogue::Dialogue::new(agents.len());
     let movement_budget = motion::WALKING_SPEED * scenario.time_step_seconds;
 
     // Bound animation output by sampling ticks, retaining initial/final frames.
@@ -172,6 +188,23 @@ fn run(
     let mut frames = vec![frame(0, &agents, &evacuated, &world, &windows)];
     let live_stride = (0.05 / scenario.time_step_seconds).ceil().max(1.0) as u32;
     let mut last_live_step = 0;
+    let mut sent_communications = 0;
+    let mut sent_activity = 0;
+    let mut emit_chat = |communications: &[CommunicationEvent], activity: &[AgentEvent]| {
+        if let Some(emit) = &mut on_chat
+            && (communications.len() > sent_communications || activity.len() > sent_activity)
+        {
+            if !emit(
+                &communications[sent_communications..],
+                &activity[sent_activity..],
+            ) {
+                return false;
+            }
+            sent_communications = communications.len();
+            sent_activity = activity.len();
+        }
+        true
+    };
     if let Some(emit) = &mut on_frame
         && !emit(&frames[0])
     {
@@ -333,6 +366,14 @@ fn run(
         }
         let controlled: Vec<_> = (0..agents.len()).map(|i| windows.controls(i)).collect();
         windows.update(step, &agents, &evacuated, &window_fallback, &geometry);
+        dialogue.observe(
+            step,
+            scenario,
+            &agents,
+            &routes,
+            &statistics,
+            windows.snapshots(&agents).as_deref(),
+        );
         for i in 0..agents.len() {
             if windows.controls(i) {
                 statistics[i].route_found = true;
@@ -922,6 +963,14 @@ fn run(
         // State changes at this timestamp are recorded in both live and saved
         // frames; preparation deadlines are never shifted by rendering stride.
         windows.update(step, &agents, &evacuated, &window_fallback, &geometry);
+        dialogue.observe(
+            step,
+            scenario,
+            &agents,
+            &routes,
+            &statistics,
+            windows.snapshots(&agents).as_deref(),
+        );
         for (i, statistic) in statistics.iter_mut().enumerate() {
             if windows.controls(i) {
                 statistic.route_found = true;
@@ -934,6 +983,9 @@ fn run(
             && let Some(emit) = &mut on_frame
         {
             if !emit(&frame(step, &agents, &evacuated, &world, &windows)) {
+                return Err(SimulationError::Cancelled);
+            }
+            if !emit_chat(&communication_events, &dialogue.events) {
                 return Err(SimulationError::Cancelled);
             }
             last_live_step = step;
@@ -959,6 +1011,9 @@ fn run(
         && let Some(emit) = &mut on_frame
         && !emit(frames.last().unwrap())
     {
+        return Err(SimulationError::Cancelled);
+    }
+    if !emit_chat(&communication_events, &dialogue.events) {
         return Err(SimulationError::Cancelled);
     }
     // Graph-search failure alone is not proof of entrapment. We only classify
@@ -1005,6 +1060,7 @@ fn run(
         time_step_seconds: scenario.time_step_seconds,
         analytics: Some(analytics),
         communication_events: Some(communication_events),
+        agent_events: Some(dialogue.events),
     })
 }
 

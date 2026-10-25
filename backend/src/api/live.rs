@@ -1,25 +1,83 @@
 use std::{
+    collections::{HashMap, hash_map::Entry},
     convert::Infallible,
     pin::Pin,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU32, Ordering},
+    },
     task::{Context, Poll},
     time::{Duration, Instant},
 };
 
 use axum::{
-    Json,
+    Json, Router,
     body::{Body, Bytes},
-    extract::rejection::JsonRejection,
-    http::header,
+    extract::{
+        Path, Query, State,
+        rejection::{JsonRejection, QueryRejection},
+    },
+    http::{StatusCode, header},
     response::Response,
+    routing::post,
 };
 use futures_core::Stream;
 use tokio::sync::mpsc;
 
 use super::routes::ApiError;
 use crate::{
-    models::{BuildingScenario, SimulationStreamError, SimulationStreamEvent},
+    models::{
+        BuildingScenario, LiveRunQuery, LiveSpeedControl, SimulationStreamError,
+        SimulationStreamEvent,
+    },
     simulation,
 };
+
+#[derive(Clone, Default)]
+struct LiveRuns(Arc<Mutex<HashMap<String, Arc<AtomicU32>>>>);
+
+struct Registration {
+    runs: LiveRuns,
+    id: String,
+}
+
+impl Drop for Registration {
+    fn drop(&mut self) {
+        self.runs.0.lock().unwrap().remove(&self.id);
+    }
+}
+
+pub(super) fn router() -> Router {
+    Router::new()
+        .route("/api/simulate/live", post(simulate_live))
+        .route("/api/simulate/live/{id}/speed", post(set_speed))
+        .with_state(LiveRuns::default())
+}
+
+async fn set_speed(
+    State(runs): State<LiveRuns>,
+    Path(id): Path<String>,
+    payload: Result<Json<LiveSpeedControl>, JsonRejection>,
+) -> Result<Json<LiveSpeedControl>, ApiError> {
+    let Json(control) = payload?;
+    if ![1, 2, 4, 8].contains(&control.speed) {
+        return Err(ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "validation_error",
+            "Live speed must be 1, 2, 4 or 8.",
+        ));
+    }
+    let runs = runs.0.lock().unwrap();
+    let speed = runs.get(&id).ok_or_else(|| {
+        ApiError::new(
+            StatusCode::NOT_FOUND,
+            "not_found",
+            "This live run has finished or was cancelled.",
+        )
+    })?;
+    speed.store(control.speed, Ordering::Relaxed);
+    Ok(Json(control))
+}
 
 struct LiveBody(mpsc::Receiver<Bytes>);
 
@@ -37,39 +95,94 @@ fn send(sender: &mpsc::Sender<Bytes>, event: SimulationStreamEvent) -> bool {
     sender.blocking_send(Bytes::from(json)).is_ok()
 }
 
-pub(super) async fn simulate_live(
+async fn simulate_live(
+    State(runs): State<LiveRuns>,
+    query: Result<Query<LiveRunQuery>, QueryRejection>,
     payload: Result<Json<BuildingScenario>, JsonRejection>,
 ) -> Result<Response, ApiError> {
     let Json(building) = payload?;
     building
         .validate()
         .map_err(simulation::SimulationError::InvalidScenario)?;
+    let Query(query) = query.map_err(|error| {
+        ApiError::new(StatusCode::BAD_REQUEST, "invalid_query", error.body_text())
+    })?;
+    let speed = Arc::new(AtomicU32::new(1));
+    let registration = if let Some(id) = query.run_id {
+        if id.is_empty()
+            || id.len() > 64
+            || !id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+        {
+            return Err(ApiError::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "validation_error",
+                "Live run IDs must contain 1–64 letters, numbers, hyphens or underscores.",
+            ));
+        }
+        match runs.0.lock().unwrap().entry(id.clone()) {
+            Entry::Vacant(entry) => {
+                entry.insert(speed.clone());
+            }
+            Entry::Occupied(_) => {
+                return Err(ApiError::new(
+                    StatusCode::CONFLICT,
+                    "run_exists",
+                    "This live run ID is already in use.",
+                ));
+            }
+        }
+        Some(Registration { runs, id })
+    } else {
+        None
+    };
     // Bound pending output. A slow or disconnected reader cannot leave an
     // unbounded frame queue or a detached simulation computing indefinitely.
     let (sender, receiver) = mpsc::channel(2);
     tokio::task::spawn_blocking(move || {
-        let mut started = None;
-        let result = simulation::simulate_live(&building, &mut |frame| {
-            if sender.is_closed() {
-                return false;
-            }
-            let start = *started.get_or_insert_with(Instant::now);
-            let deadline =
-                start + Duration::from_secs_f64(f64::from(frame.step) * building.time_step_seconds);
-            // Small sleep intervals allow cancellation even for coarse ticks.
-            while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
-                if sender.is_closed() {
-                    return false;
+        let _registration = registration;
+        let mut last_clock = None;
+        let mut paced_seconds = 0.0;
+        let result = simulation::simulate_live_with_chat(
+            &building,
+            &mut |frame| {
+                let target = f64::from(frame.step) * building.time_step_seconds;
+                // Integrate elapsed wall time at the current speed, so changing
+                // speed never jumps to a different point in the run.
+                loop {
+                    if sender.is_closed() {
+                        return false;
+                    }
+                    let now = Instant::now();
+                    let rate = f64::from(speed.load(Ordering::Relaxed));
+                    let previous = last_clock.replace(now).unwrap_or(now);
+                    paced_seconds += now.duration_since(previous).as_secs_f64() * rate;
+                    if paced_seconds >= target {
+                        break;
+                    }
+                    std::thread::sleep(
+                        Duration::from_secs_f64((target - paced_seconds) / rate)
+                            .min(Duration::from_millis(25)),
+                    );
                 }
-                std::thread::sleep(remaining.min(Duration::from_millis(25)));
-            }
-            send(
-                &sender,
-                SimulationStreamEvent::Frame {
-                    frame: frame.clone(),
-                },
-            )
-        });
+                send(
+                    &sender,
+                    SimulationStreamEvent::Frame {
+                        frame: frame.clone(),
+                    },
+                )
+            },
+            &mut |communication_events, agent_events| {
+                send(
+                    &sender,
+                    SimulationStreamEvent::Chat {
+                        communication_events: communication_events.to_vec(),
+                        agent_events: agent_events.to_vec(),
+                    },
+                )
+            },
+        );
         match result {
             Ok(result) => {
                 send(&sender, SimulationStreamEvent::Complete { result });

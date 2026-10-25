@@ -1,12 +1,12 @@
-import type {
-  BuildingScenario,
-  Point,
-  WindowFrameState,
-} from "../types/simulation";
+import type { Point, WindowFrameState } from "../types/simulation";
 import { canvasView, openingSegment, type Selection } from "./geometry";
 import { drawGrid } from "./drawGrid";
 import type { DraftingPreferences } from "./drafting";
-import { solidWallSegments, openingLabels } from "./openings";
+import {
+  solidWallSegments,
+  openingLabels,
+  type OpeningLayout,
+} from "./openings";
 import { doorLeaves } from "./doorSymbols";
 import { drawFurniture, type FurnitureKind } from "./furniture";
 import { dragRectangle, wallShapePoints } from "./shapes";
@@ -15,7 +15,7 @@ import { canvasPalette, type CanvasPalette } from "../styles/canvasPalette";
 
 export function drawLayout(
   canvas: HTMLCanvasElement,
-  building: BuildingScenario,
+  building: OpeningLayout,
   selected: Selection | readonly Selection[] | null,
   draft?: {
     start: Point;
@@ -247,15 +247,17 @@ export function drawLayout(
       const [a, b] = openingSegment(opening, wall);
       const blueprintDoor =
         palette.blueprint === "1" && openings === building.doors;
+      const closedDoor = building.closedDoorIds?.includes(opening.id) ?? false;
       ctx.lineCap = "butt";
       ctx.lineWidth = selectedIds.has(opening.id) ? 5 * px : 3 * px;
-      ctx.strokeStyle =
-        blueprintDoor && selectedIds.has(opening.id)
+      ctx.strokeStyle = closedDoor
+        ? palette.danger
+        : blueprintDoor && selectedIds.has(opening.id)
           ? palette.selection
           : building.blocked_exit_ids.includes(opening.id)
             ? palette.danger
             : color;
-      if (!blueprintDoor) {
+      if (!blueprintDoor || closedDoor) {
         ctx.beginPath();
         ctx.moveTo(a.x, a.y);
         ctx.lineTo(b.x, b.y);
@@ -277,7 +279,7 @@ export function drawLayout(
           );
         }
         ctx.stroke();
-        for (const leaf of doorLeaves(opening, wall)) {
+        for (const leaf of closedDoor ? [] : doorLeaves(opening, wall)) {
           ctx.beginPath();
           ctx.moveTo(leaf.hinge.x, leaf.hinge.y);
           ctx.lineTo(leaf.tip.x, leaf.tip.y);
@@ -378,7 +380,8 @@ export function drawLayout(
       )) {
     ctx.fillStyle = building.windows?.some((w) => w.id === label.id)
       ? palette.muted
-      : building.blocked_exit_ids.includes(label.id)
+      : building.blocked_exit_ids.includes(label.id) ||
+          building.closedDoorIds?.includes(label.id)
         ? palette.danger
         : building.exits.some((o) => o.id === label.id)
           ? palette.exit

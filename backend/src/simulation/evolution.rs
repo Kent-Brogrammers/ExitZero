@@ -47,7 +47,8 @@ impl HazardEvolution {
             if self.config.kind == DisasterKind::Tornado {
                 d.speed > 0.0
             } else {
-                self.state.areas.len() < d.max_patches as usize
+                (self.config.kind == DisasterKind::Fire
+                    && self.state.areas.len() < d.max_patches as usize)
                     || (d.growth_rate > 0.0
                         && self
                             .state
@@ -88,7 +89,11 @@ impl HazardEvolution {
             } else {
                 for area in &mut self.state.areas {
                     // Persistent per-patch variation produces uneven growth.
-                    let variation = 0.7 + f64::from((area.id.wrapping_mul(37) + 19) % 61) / 100.0;
+                    let variation = if self.config.kind == DisasterKind::GasLeak {
+                        1.0
+                    } else {
+                        0.7 + f64::from((area.id.wrapping_mul(37) + 19) % 61) / 100.0
+                    };
                     let radius = (area.radius + dt * dynamics.growth_rate * variation)
                         .min(dynamics.max_radius);
                     if radius > area.radius {
@@ -97,37 +102,58 @@ impl HazardEvolution {
                         changed = true;
                     }
                 }
-                while now + 1e-9 >= self.next_spread
+                while self.config.kind == DisasterKind::Fire
+                    && now + 1e-9 >= self.next_spread
                     && self.state.areas.len() < dynamics.max_patches as usize
                 {
                     self.next_spread += dynamics.spread_interval_seconds;
-                    let parent_index = if self.sample() < 0.65 {
-                        self.state.areas.len() - 1
-                    } else {
-                        (self.sample() * self.state.areas.len() as f64) as usize
-                    };
-                    let parent = self.state.areas[parent_index];
-                    let angle = self.sample() * std::f64::consts::TAU;
-                    let radius = (self.config.radius * 0.25)
-                        .max(0.01)
-                        .min(dynamics.max_radius);
-                    let distance = (parent.radius + radius) * 0.7;
-                    let center = Point {
-                        x: (parent.center.x + angle.cos() * distance).clamp(0.0, scenario.width),
-                        y: (parent.center.y + angle.sin() * distance).clamp(0.0, scenario.height),
-                    };
-                    self.state.areas.push(HazardArea {
-                        id: self.state.areas.len() as u32,
-                        revision: tick,
-                        center,
-                        radius,
-                    });
-                    changed = true;
+                    changed |= self.ignite_frontier(tick, scenario);
                 }
             }
         }
         self.last_step = step;
         changed
+    }
+
+    /// Ignite new ground at an exposed edge of an existing flame. The new
+    /// footprint overlaps its parent, but its centre is outside every current
+    /// footprint, so patches cannot disappear inside the growing source.
+    fn ignite_frontier(&mut self, tick: u32, scenario: &BuildingScenario) -> bool {
+        let radius = (self.config.radius * 0.25)
+            .max(0.01)
+            .min(self.config.dynamics.unwrap().max_radius);
+        for _ in 0..64 {
+            let index = if self.sample() < 0.65 {
+                self.state.areas.len() - 1
+            } else {
+                (self.sample() * self.state.areas.len() as f64) as usize
+            };
+            let parent = self.state.areas[index];
+            let angle = self.sample() * std::f64::consts::TAU;
+            let distance = parent.radius + radius * 0.5;
+            let center = Point {
+                x: parent.center.x + angle.cos() * distance,
+                y: parent.center.y + angle.sin() * distance,
+            };
+            if center.x < 0.0
+                || center.x > scenario.width
+                || center.y < 0.0
+                || center.y > scenario.height
+                || self.state.areas.iter().any(|area| {
+                    math::distance_to_point(center, area.center) <= area.radius + radius * 0.1
+                })
+            {
+                continue;
+            }
+            self.state.areas.push(HazardArea {
+                id: self.state.areas.len() as u32,
+                revision: tick,
+                center,
+                radius,
+            });
+            return true;
+        }
+        false
     }
 
     fn move_tornado(&mut self, dt: f64, now: f64, scenario: &BuildingScenario) {
@@ -252,41 +278,117 @@ mod tests {
     }
 
     #[test]
-    fn fire_and_gas_branch_repeatably_in_random_directions_with_bounded_growth() {
-        for kind in [DisasterKind::Fire, DisasterKind::GasLeak] {
-            let scenario = scenario(kind);
-            let mut a = HazardEvolution::new(scenario.disaster.unwrap(), 42);
-            let mut b = HazardEvolution::new(scenario.disaster.unwrap(), 42);
-            let mut different = HazardEvolution::new(scenario.disaster.unwrap(), 43);
-            for tick in 1..=100 {
-                a.advance(tick, &scenario);
-            }
-            b.advance(100, &scenario);
-            b.advance(100, &scenario);
-            different.advance(100, &scenario);
-            let json = |value: &HazardEvolution| serde_json::to_value(&value.state).unwrap();
-            assert_eq!(
-                json(&a),
-                json(&b),
-                "sampling or repeated calls must not change RNG progression"
-            );
-            assert_ne!(json(&a), json(&different));
-            assert_eq!(a.state.areas.len(), 8);
-            assert!(a.state.areas.iter().all(|area| area.radius <= 2.0
-                && area.radius > 0.0
-                && area.center.x >= 0.0
-                && area.center.x <= scenario.width
-                && area.center.y >= 0.0
-                && area.center.y <= scenario.height));
-            assert!(a.state.areas[0].radius > scenario.disaster.unwrap().radius);
-            assert!(
-                a.state
-                    .areas
-                    .iter()
-                    .any(|area| (area.center.x - 5.0).abs() > 0.1
-                        && (area.center.y - 5.0).abs() > 0.1)
-            );
+    fn fire_branches_repeatably_along_existing_burning_edges_with_bounded_growth() {
+        let scenario = scenario(DisasterKind::Fire);
+        let mut a = HazardEvolution::new(scenario.disaster.unwrap(), 42);
+        let mut b = HazardEvolution::new(scenario.disaster.unwrap(), 42);
+        let mut different = HazardEvolution::new(scenario.disaster.unwrap(), 43);
+        for tick in 1..=100 {
+            a.advance(tick, &scenario);
         }
+        b.advance(100, &scenario);
+        b.advance(100, &scenario);
+        different.advance(100, &scenario);
+        let json = |value: &HazardEvolution| serde_json::to_value(&value.state).unwrap();
+        assert_eq!(
+            json(&a),
+            json(&b),
+            "sampling or repeated calls must not change RNG progression"
+        );
+        assert_ne!(json(&a), json(&different));
+        assert_eq!(a.state.areas.len(), 8);
+        assert!(a.state.areas.iter().all(|area| area.radius <= 2.0
+            && area.radius > 0.0
+            && area.center.x >= 0.0
+            && area.center.x <= scenario.width
+            && area.center.y >= 0.0
+            && area.center.y <= scenario.height));
+        assert!(a.state.areas[0].radius > scenario.disaster.unwrap().radius);
+        assert!(
+            a.state
+                .areas
+                .iter()
+                .any(|area| (area.center.x - 5.0).abs() > 0.1 && (area.center.y - 5.0).abs() > 0.1)
+        );
+    }
+
+    #[test]
+    fn new_fire_ignites_fresh_ground_touching_the_existing_frontier() {
+        let mut scenario = scenario(DisasterKind::Fire);
+        let dynamics = scenario
+            .disaster
+            .as_mut()
+            .unwrap()
+            .dynamics
+            .as_mut()
+            .unwrap();
+        dynamics.growth_rate = 0.0;
+        dynamics.max_patches = 32;
+        let mut fire = HazardEvolution::new(scenario.disaster.unwrap(), 42);
+        for tick in 1..=200 {
+            let old_count = fire.state.areas.len();
+            fire.advance(tick, &scenario);
+            for new in &fire.state.areas[old_count..] {
+                let existing = &fire.state.areas[..new.id as usize];
+                assert!(
+                    existing
+                        .iter()
+                        .any(|old| math::distance_to_point(old.center, new.center)
+                            < old.radius + new.radius),
+                    "new fire must touch an already burning area"
+                );
+                assert!(
+                    existing
+                        .iter()
+                        .all(|old| math::distance_to_point(old.center, new.center) > old.radius),
+                    "a new ignition must not be buried inside existing fire"
+                );
+            }
+        }
+        assert_eq!(fire.state.areas.len(), 32);
+        let origin = scenario.disaster.unwrap();
+        assert!(
+            fire.state
+                .areas
+                .iter()
+                .any(|area| math::distance_to_point(area.center, origin.center)
+                    > origin.radius + 2.0 * area.radius),
+            "spread must propagate beyond the initial source, even without radius growth"
+        );
+    }
+
+    #[test]
+    fn gas_stays_one_cloud_growing_at_the_configured_rate_even_with_legacy_branching_settings() {
+        let scenario = scenario(DisasterKind::GasLeak);
+        let config = scenario.disaster.unwrap();
+        let mut gas = HazardEvolution::new(config, 42);
+        let mut other_seed = HazardEvolution::new(config, 99);
+        for tick in 1..=100 {
+            gas.advance(tick, &scenario);
+            assert_eq!(gas.state.areas.len(), 1);
+            assert_eq!(gas.state.areas[0].center.x, config.center.x);
+            assert_eq!(gas.state.areas[0].center.y, config.center.y);
+            let expected = config.radius
+                + f64::from(tick)
+                    * scenario.time_step_seconds
+                    * config.dynamics.unwrap().growth_rate;
+            assert!((gas.state.areas[0].radius - expected).abs() < 1e-9);
+        }
+        other_seed.advance(100, &scenario);
+        assert_eq!(
+            serde_json::to_value(&gas.state).unwrap(),
+            serde_json::to_value(&other_seed.state).unwrap()
+        );
+        gas.advance(1000, &scenario);
+        assert_eq!(
+            gas.state.areas[0].radius,
+            config.dynamics.unwrap().max_radius
+        );
+        assert!(
+            !gas.is_changing(),
+            "unused patch capacity must not keep a capped cloud active"
+        );
+        assert!(!gas.advance(1001, &scenario));
     }
 
     #[test]

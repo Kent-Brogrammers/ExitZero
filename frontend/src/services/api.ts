@@ -10,6 +10,8 @@ import type {
   SimulationMetrics,
   SimulationResult,
   SimulationStreamEvent,
+  LiveChatBatch,
+  LiveSpeedControl,
   StressTestRequest,
   StressTestResult,
 } from "../types/simulation";
@@ -28,6 +30,7 @@ const validateSimulation = validator<SimulationResult>("SimulationResult");
 const validateStreamEvent = validator<SimulationStreamEvent>(
   "SimulationStreamEvent",
 );
+const validateLiveSpeed = validator<LiveSpeedControl>("LiveSpeedControl");
 const validateStress = validator<StressTestResult>("StressTestResult");
 const validateOptimization =
   validator<OptimizationResult>("OptimizationResult");
@@ -62,23 +65,63 @@ function checkMetrics(metrics: SimulationMetrics): void {
   }
 }
 
-function checkSimulation(
-  result: SimulationResult,
+function checkChat(
+  events: Partial<LiveChatBatch>,
   building: BuildingScenario,
-): SimulationResult {
-  checkMetrics(result);
-  if (result.communication_events) {
-    const ids = new Set([
-      ...(result.frames[0]?.agents.map((a) => a.id) ?? []),
-      ...(result.analytics?.agents.map((a) => a.id) ?? []),
-    ]);
+  ids: Set<number>,
+  lastStep: number,
+  firstStep = 0,
+) {
+  if (events.agent_events) {
+    const exits = new Set(building.exits.map((e) => e.id));
+    const windows = new Set(building.windows?.map((w) => w.id));
+    const shelters = new Set(building.tornado_zones?.map((s) => s.id));
+    const seen = new Set<string>();
+    let previous = firstStep;
+    for (const event of events.agent_events) {
+      const key = JSON.stringify([
+        event.step,
+        event.kind,
+        event.agent_id,
+        event.subject_id,
+      ]);
+      const subject = event.subject_id ?? "";
+      const validSubject = event.kind.startsWith("window_")
+        ? windows.has(subject)
+        : event.kind === "sheltered"
+          ? shelters.has(subject)
+          : event.kind === "evacuated"
+            ? exits.has(subject) || windows.has(subject)
+            : event.kind === "heading_to_exit" || event.kind === "rerouting"
+              ? exits.has(subject) || shelters.has(subject)
+              : event.subject_id === undefined;
+      if (
+        event.step < previous ||
+        event.step > lastStep ||
+        !ids.has(event.agent_id) ||
+        !validSubject ||
+        seen.has(key) ||
+        (event.position &&
+          (event.position.x > building.width ||
+            event.position.y > building.height))
+      ) {
+        throw new ApiError(
+          200,
+          "invalid_response",
+          "Backend returned invalid agent activity references or timing.",
+        );
+      }
+      seen.add(key);
+      previous = event.step;
+    }
+  }
+  if (events.communication_events) {
     const openings = new Set(
       [...building.doors, ...building.exits].map((o) => o.id),
     );
-    const lastStep = result.frames.at(-1)?.step ?? -1;
     const seen = new Set<string>();
-    let previousStep = 0;
-    for (const event of result.communication_events) {
+    let previousStep = firstStep;
+    for (const event of events.communication_events) {
       const key = JSON.stringify([
         event.step,
         event.event_type ?? "shared",
@@ -103,6 +146,22 @@ function checkSimulation(
       previousStep = event.step;
     }
   }
+}
+
+function checkSimulation(
+  result: SimulationResult,
+  building: BuildingScenario,
+): SimulationResult {
+  checkMetrics(result);
+  checkChat(
+    result,
+    building,
+    new Set([
+      ...(result.frames[0]?.agents.map((a) => a.id) ?? []),
+      ...(result.analytics?.agents.map((a) => a.id) ?? []),
+    ]),
+    result.frames.at(-1)?.step ?? -1,
+  );
   if (
     result.analytics?.agents.some((a) => {
       const route = a.escape_route;
@@ -268,22 +327,39 @@ export function createApiClient(
       const result = await request("/simulate", validateSimulation, building);
       return checkSimulation(result, building);
     },
+    setLiveSpeed: (
+      runId: string,
+      speed: LiveSpeedControl["speed"],
+      signal?: AbortSignal,
+    ) =>
+      request(
+        `/simulate/live/${encodeURIComponent(runId)}/speed`,
+        validateLiveSpeed,
+        { speed },
+        signal,
+      ),
     simulateLive: async (
       building: BuildingScenario,
       onFrame: (frame: AnimationFrame) => void,
       signal?: AbortSignal,
+      onChat?: (chat: LiveChatBatch) => void,
+      runId?: string,
     ): Promise<SimulationResult> => {
       let response: Response;
       try {
-        response = await fetch(`${baseUrl.replace(/\/$/, "")}/simulate/live`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/x-ndjson",
+        const query = runId ? `?${new URLSearchParams({ run_id: runId })}` : "";
+        response = await fetch(
+          `${baseUrl.replace(/\/$/, "")}/simulate/live${query}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/x-ndjson",
+            },
+            body: JSON.stringify(building),
+            signal,
           },
-          body: JSON.stringify(building),
-          signal,
-        });
+        );
       } catch (error) {
         if (signal?.aborted) throw error;
         throw new ApiError(
@@ -321,6 +397,8 @@ export function createApiClient(
       let buffer = "";
       let lastStep = -1;
       let previousIds: Set<number> | null = null;
+      let initialIds = new Set<number>();
+      let lastChatStep = 0;
       const population = building.spawn_zones.reduce(
         (sum, zone) => sum + zone.count,
         0,
@@ -362,6 +440,22 @@ export function createApiClient(
           }
           return result;
         }
+        if (event.type === "chat") {
+          if (lastStep < 0)
+            throw new ApiError(
+              200,
+              "invalid_response",
+              "Live chat arrived before the simulation started.",
+            );
+          checkChat(event, building, initialIds, lastStep, lastChatStep);
+          lastChatStep = Math.max(
+            lastChatStep,
+            event.communication_events.at(-1)?.step ?? 0,
+            event.agent_events.at(-1)?.step ?? 0,
+          );
+          onChat?.(event);
+          return null;
+        }
         const frame = event.frame;
         const ids = new Set(frame.agents.map((agent) => agent.id));
         if (
@@ -387,6 +481,7 @@ export function createApiClient(
             "Backend returned invalid live positions or timestamps.",
           );
         }
+        if (lastStep < 0) initialIds = ids;
         lastStep = frame.step;
         previousIds = ids;
         onFrame(frame);

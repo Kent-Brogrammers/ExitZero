@@ -1,4 +1,5 @@
 import type { ReplayTarget } from "./simulation/replayTarget";
+import { appendChat } from "./simulation/communication";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import example from "../../shared/examples/building.json";
 import { withoutObjectNames } from "./editor/names";
@@ -24,6 +25,7 @@ import type {
   SimulationResult,
   StressTestResult,
   OptimizationCandidate,
+  LiveSpeedControl,
 } from "./types/simulation";
 
 const AnalyticsDashboard = lazy(() => import("./analytics/AnalyticsDashboard"));
@@ -68,6 +70,7 @@ export default function App() {
       JSON.stringify(withoutObjectNames(next));
     setBuilding(next);
     if (namesOnly) return;
+    setLive(null);
     setResult(null);
     setStressResult(null);
     setOptimization(null);
@@ -85,7 +88,59 @@ export default function App() {
   const [replayTarget, setReplayTarget] = useState<ReplayTarget | null>(null);
   const [live, setLive] = useState<LiveSimulation | null>(null);
   const liveRequest = useRef<AbortController | null>(null);
+  const liveRunId = useRef<string | null>(null);
   useEffect(() => () => liveRequest.current?.abort(), []);
+  function cancelLive() {
+    if (!liveRequest.current || liveRequest.current.signal.aborted) return;
+    liveRequest.current.abort();
+    setLive((previous) =>
+      previous
+        ? {
+            ...previous,
+            status: "cancelled",
+            speed_pending: false,
+            control_error: undefined,
+          }
+        : previous,
+    );
+    setMessage("Simulation cancelled.");
+  }
+  async function changeLiveSpeed(speed: LiveSpeedControl["speed"]) {
+    const controller = liveRequest.current;
+    const id = liveRunId.current;
+    if (!controller || controller.signal.aborted || !id || live?.speed_pending)
+      return;
+    setLive((previous) =>
+      previous
+        ? { ...previous, speed_pending: true, control_error: undefined }
+        : previous,
+    );
+    try {
+      const applied = await api.setLiveSpeed(id, speed, controller.signal);
+      if (liveRequest.current === controller && !controller.signal.aborted)
+        setLive((previous) =>
+          previous ? { ...previous, speed: applied.speed } : previous,
+        );
+    } catch (error) {
+      if (liveRequest.current === controller && !controller.signal.aborted)
+        setLive((previous) =>
+          previous
+            ? {
+                ...previous,
+                control_error:
+                  error instanceof Error
+                    ? error.message
+                    : "Could not change speed.",
+              }
+            : previous,
+        );
+    } finally {
+      if (liveRequest.current === controller)
+        setLive((previous) =>
+          previous ? { ...previous, speed_pending: false } : previous,
+        );
+    }
+  }
   const [stressResult, setStressResult] = useState<StressTestResult | null>(
     null,
   );
@@ -135,6 +190,7 @@ export default function App() {
     )
       return;
     setBusy(true);
+    setLive(null);
     try {
       const recording = await loadOfficeDemo();
       previousWorkspace.current ??= {
@@ -193,26 +249,54 @@ export default function App() {
   async function run(action: "simulate" | "stress" | "optimize") {
     if (busy) return;
     setBusy(true);
+    setLive(null);
     setMessage("Sending request…");
     try {
       if (action === "simulate") {
         if (officeDemo) setOfficeDemo("live");
         const controller = new AbortController();
         liveRequest.current = controller;
+        const runId = crypto.randomUUID();
+        liveRunId.current = runId;
         setResult(null);
         setStressResult(null);
-        setLive({ frame: null });
+        setLive({
+          frame: null,
+          chat: { messages: [], total: 0 },
+          status: "running",
+          speed: 1,
+        });
         setMessage("Starting live simulation…");
         navigate("simulation");
         const recording = await api.simulateLive(
           building,
           (frame) => {
             if (!controller.signal.aborted) {
-              setLive({ frame });
+              setLive((previous) => ({ ...previous, frame }));
               setMessage("");
             }
           },
           controller.signal,
+          (chat) => {
+            if (controller.signal.aborted) return;
+            const incoming = [
+              ...chat.communication_events,
+              ...chat.agent_events,
+            ].sort((a, b) => a.step - b.step);
+            setLive((previous) =>
+              previous
+                ? {
+                    ...previous,
+                    chat: appendChat(
+                      previous.chat,
+                      incoming,
+                      building.time_step_seconds,
+                    ),
+                  }
+                : previous,
+            );
+          },
+          runId,
         );
         if (!controller.signal.aborted) {
           setResult(recording);
@@ -240,10 +324,17 @@ export default function App() {
         setMessage(`${optimized.candidates.length} layout improvements found.`);
       }
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Request failed.");
+      setMessage(
+        liveRequest.current?.signal.aborted
+          ? "Simulation cancelled."
+          : error instanceof Error
+            ? error.message
+            : "Request failed.",
+      );
     } finally {
-      setLive(null);
+      if (!liveRequest.current?.signal.aborted) setLive(null);
       liveRequest.current = null;
+      liveRunId.current = null;
       setBusy(false);
     }
   }
@@ -466,6 +557,8 @@ export default function App() {
               onChange={changeBuilding}
               result={result}
               live={live}
+              onLiveSpeedChange={changeLiveSpeed}
+              onCancelLive={cancelLive}
               replayTarget={replayTarget}
               allowSyntheticPreview={!officeDemo}
               disabled={busy}

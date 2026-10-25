@@ -167,6 +167,8 @@ pub struct SimulationResult {
     /// None for legacy recordings; Some([]) means no new opening information.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub communication_events: Option<Vec<super::CommunicationEvent>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_events: Option<Vec<super::AgentEvent>>,
 }
 
 impl SimulationResult {
@@ -362,6 +364,53 @@ impl SimulationResult {
                 {
                     return Err("invalid window state or queue membership in frame".into());
                 }
+            }
+        }
+        if let Some(events) = &self.agent_events {
+            let ids: std::collections::HashSet<_> = self
+                .frames
+                .first()
+                .into_iter()
+                .flat_map(|f| f.agents.iter().map(|a| a.id))
+                .chain(
+                    self.analytics
+                        .iter()
+                        .flat_map(|a| a.agents.iter().map(|a| a.id)),
+                )
+                .collect();
+            let last = self.frames.last().map_or(0, |f| f.step);
+            let mut previous = 0;
+            let mut seen = std::collections::HashSet::new();
+            for event in events {
+                use super::AgentEventKind::*;
+                let needs_subject = matches!(
+                    event.kind,
+                    HeadingToExit
+                        | Rerouting
+                        | WindowApproach
+                        | WindowQueue
+                        | WindowOpening
+                        | WindowBreaking
+                        | WindowTraversal
+                        | Evacuated
+                        | Sheltered
+                );
+                if event.step < previous
+                    || event.step > last
+                    || !ids.contains(&event.agent_id)
+                    || event
+                        .subject_id
+                        .as_ref()
+                        .is_some_and(|id| id.trim().is_empty() || id.chars().count() > 64)
+                    || needs_subject && event.subject_id.is_none()
+                    || matches!(event.kind, HazardDiscovered | HazardSpreading)
+                        && event.position.is_none()
+                    || event.position.is_some_and(|p| !self.in_bounds(p.x, p.y))
+                    || !seen.insert((event.step, event.kind, event.agent_id, &event.subject_id))
+                {
+                    return Err("invalid agent activity event time, subject or source".into());
+                }
+                previous = event.step;
             }
         }
         if let Some(events) = &self.communication_events {

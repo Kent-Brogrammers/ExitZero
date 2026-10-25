@@ -22,7 +22,7 @@ pub fn router() -> Router {
     Router::new()
         .route("/api/health", get(health))
         .route("/api/simulate", post(simulate))
-        .route("/api/simulate/live", post(super::live::simulate_live))
+        .merge(super::live::router())
         .route("/api/stress-test", post(stress_test))
         .route("/api/optimize", post(optimize))
         .fallback(|| async { ApiError::new(StatusCode::NOT_FOUND, "not_found", "route not found") })
@@ -76,7 +76,7 @@ struct ErrorDetail<'a> {
 }
 
 impl ApiError {
-    fn new(status: StatusCode, code: &'static str, message: impl Into<String>) -> Self {
+    pub(super) fn new(status: StatusCode, code: &'static str, message: impl Into<String>) -> Self {
         Self {
             status,
             code,

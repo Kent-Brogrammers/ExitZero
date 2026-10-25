@@ -90,7 +90,7 @@ it("keeps legacy, empty and awaiting-message states honest", () => {
   expect(chat(syntheticResult)).toContain("Communications were not recorded");
   expect(chat(null)).toContain("Communications were not recorded");
   expect(chat({ ...syntheticResult, communication_events: [] })).toContain(
-    "No new opening information was recorded",
+    "No agent activity was recorded",
   );
   expect(chat(result)).toContain("No messages at this point");
   const html = chat(result, 2);

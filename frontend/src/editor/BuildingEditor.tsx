@@ -6,7 +6,7 @@ import {
   furniturePresets,
   type FurnitureKind,
 } from "./furniture";
-import { hitOpening } from "./openings";
+import { configureWindowEscape, hitOpening } from "./openings";
 import { mergeEditedOpenings, snapOpeningToNeighbor } from "./doorEditing";
 import {
   addFreehandWalls,
@@ -368,7 +368,15 @@ export function BuildingEditor({
       .map((wall) => ({ wall, ...project(point, wall) }))
       .sort((a, b) => a.distance - b.distance)[0];
     if (!closest || closest.distance > tolerance()) return null;
-    const width = Math.min(1.2, wallLength(closest.wall));
+    const width = Math.min(
+      kind === "windows"
+        ? Math.max(
+            1.2,
+            2 * building.agent_radius + closest.wall.thickness + 0.05,
+          )
+        : 1.2,
+      wallLength(closest.wall),
+    );
     const opening = {
       id,
       name: nextObjectName(building, kind),
@@ -380,10 +388,13 @@ export function BuildingEditor({
       ),
       width,
     };
-    const candidate = {
-      ...building,
-      [kind]: [...(building[kind] ?? []), opening],
-    };
+    const candidate =
+      kind === "windows"
+        ? configureWindowEscape(building, opening)
+        : {
+            ...building,
+            [kind]: [...(building[kind] ?? []), opening],
+          };
     return {
       opening,
       ...(drafting.snap && kind !== "windows"

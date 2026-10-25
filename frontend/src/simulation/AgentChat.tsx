@@ -1,8 +1,14 @@
 import { useEffect, useRef } from "react";
-import type { BuildingScenario, SimulationResult } from "../types/simulation";
+import type {
+  BuildingScenario,
+  LiveSimulation,
+  SimulationResult,
+} from "../types/simulation";
 import {
-  communicationsAtTime,
-  communicationMessage,
+  chatAtTime,
+  chatSummaryMessage,
+  chatSummaryNote,
+  CHAT_HISTORY_LIMIT,
   communicationTime,
 } from "./communication";
 
@@ -10,15 +16,18 @@ export function AgentChat({
   building,
   result,
   time,
+  liveChat,
   onClose,
 }: {
   building: BuildingScenario;
   result: SimulationResult | null;
   time: number;
+  liveChat?: LiveSimulation["chat"];
   onClose: () => void;
 }) {
-  const visible = communicationsAtTime(result, time);
-  const latest = visible.events.at(-1);
+  const visible = liveChat ?? chatAtTime(result, time);
+  const timeStep = result?.time_step_seconds ?? building.time_step_seconds;
+  const latest = visible.messages.at(-1);
   const list = useRef<HTMLOListElement>(null);
   useEffect(() => {
     if (list.current) list.current.scrollTop = list.current.scrollHeight;
@@ -31,42 +40,53 @@ export function AgentChat({
           type="button"
           className="studio-control studio-control--icon"
           aria-label="Hide Agent Chat"
+          autoFocus={Boolean(liveChat)}
           onClick={onClose}
         >
           ×
         </button>
       </div>
-      {!result?.communication_events ? (
+      {!liveChat && !result?.communication_events && !result?.agent_events ? (
         <p className="note">
           Communications were not recorded for this simulation.
         </p>
       ) : !visible.total ? (
         <p className="note">
-          {result.communication_events.length
-            ? "No messages at this point in the recording."
-            : "No new opening information was recorded."}
+          {liveChat
+            ? "Waiting for agent messages…"
+            : (result?.communication_events?.length ?? 0) +
+                (result?.agent_events?.length ?? 0)
+              ? "No messages at this point in the recording."
+              : "No agent activity was recorded."}
         </p>
       ) : (
         <>
-          {visible.total > 200 && (
+          {visible.total > CHAT_HISTORY_LIMIT && (
             <p className="note">
-              Showing the latest 200 messages at this time.
+              Showing the latest {CHAT_HISTORY_LIMIT} callouts.
             </p>
           )}
           <ol
             ref={list}
             role="log"
-            aria-label="Recorded agent messages"
+            aria-label={
+              liveChat ? "Live agent messages" : "Recorded agent messages"
+            }
             aria-live="off"
           >
-            {visible.events.map((event) => (
-              <li
-                key={`${event.step}:${event.event_type ?? "shared"}:${event.sender_id}:${event.opening_id}`}
-              >
+            {visible.messages.map((summary) => (
+              <li key={`${summary.key}:${summary.event.step}`}>
                 <time>
-                  {communicationTime(event.step * result.time_step_seconds)}
+                  {communicationTime(summary.event.step * timeStep)}
+                  {summary.last_step > summary.event.step &&
+                    `–${communicationTime(summary.last_step * timeStep)}`}
                 </time>
-                <p>{communicationMessage(event, building)}</p>
+                <p>{chatSummaryMessage(summary, building)}</p>
+                {chatSummaryNote(summary) && (
+                  <p className="chat-message-note">
+                    {chatSummaryNote(summary)}
+                  </p>
+                )}
               </li>
             ))}
           </ol>

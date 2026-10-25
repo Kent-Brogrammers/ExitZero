@@ -1,5 +1,5 @@
 import type { BuildingScenario, WindowOpening } from "../types/simulation";
-import { suggestedWindowExterior } from "./openings";
+import { configureWindowEscape, suggestedWindowExterior } from "./openings";
 
 /** Explicit scenario assumptions; changing these never renames or replaces an opening. */
 export function WindowProperties({
@@ -27,20 +27,7 @@ export function WindowProperties({
   const update = (
     patch: Partial<NonNullable<WindowOpening["emergency_escape"]>>,
   ) => {
-    const next = structuredClone(building);
-    next.windows!.find((w) => w.id === pane.id)!.emergency_escape = {
-      enabled: false,
-      preparation: "open",
-      clear_width_metres: pane.width,
-      clear_height_metres: 1.2,
-      preparation_seconds: 5,
-      traversal_seconds: 3,
-      exterior_side: suggestedSide ?? 1,
-      exterior_available: false,
-      ...escape,
-      ...patch,
-    };
-    onChange(next);
+    onChange(configureWindowEscape(building, pane, patch));
   };
   const context = building.window_escape_context;
   return (

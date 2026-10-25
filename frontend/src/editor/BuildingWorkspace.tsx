@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import type {
   BuildingScenario,
   LiveSimulation,
+  LiveSpeedControl,
   SimulationResult,
 } from "../types/simulation";
 import { SimulationView } from "../simulation/SimulationView";
@@ -22,6 +23,8 @@ interface BuildingWorkspaceProps {
   active?: boolean;
   allowSyntheticPreview?: boolean;
   onOpenAnalytics?: () => void;
+  onLiveSpeedChange?: (speed: LiveSpeedControl["speed"]) => void;
+  onCancelLive?: () => void;
 }
 
 export function BuildingWorkspace({
@@ -35,6 +38,8 @@ export function BuildingWorkspace({
   allowSyntheticPreview = true,
   onOpenAnalytics,
   replayTarget,
+  onLiveSpeedChange,
+  onCancelLive,
 }: BuildingWorkspaceProps) {
   const [localMode, setMode] = useState<Mode>(() =>
     typeof window !== "undefined" && window.location.hash === "#simulation"
@@ -85,6 +90,8 @@ export function BuildingWorkspace({
           building={building}
           result={result}
           live={live}
+          onLiveSpeedChange={onLiveSpeedChange}
+          onCancelLive={onCancelLive}
           replayTarget={replayTarget}
           allowSyntheticPreview={allowSyntheticPreview}
           active={active && mode === "simulation"}

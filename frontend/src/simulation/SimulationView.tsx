@@ -9,6 +9,7 @@ import {
 import type {
   BuildingScenario,
   LiveSimulation,
+  LiveSpeedControl,
   SimulationResult,
 } from "../types/simulation";
 import { LiveSimulationView } from "./LiveSimulationView";
@@ -36,6 +37,8 @@ interface SimulationViewProps {
   active?: boolean;
   allowSyntheticPreview?: boolean;
   onOpenAnalytics?: () => void;
+  onLiveSpeedChange?: (speed: LiveSpeedControl["speed"]) => void;
+  onCancelLive?: () => void;
 }
 
 interface PlaybackProps extends SimulationViewProps {
@@ -493,6 +496,8 @@ export function SimulationView({
   active = true,
   allowSyntheticPreview = true,
   onOpenAnalytics,
+  onLiveSpeedChange,
+  onCancelLive,
 }: SimulationViewProps) {
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
   const [showAgentNumbers, setShowAgentNumbers] = useState(false);
@@ -525,7 +530,11 @@ export function SimulationView({
         <div>
           <p className="eyebrow">02 / Simulation</p>
           <h2 id="simulation-title">
-            {live ? "Live evacuation" : "Evacuation playback"}
+            {live?.status === "cancelled"
+              ? "Cancelled evacuation"
+              : live
+                ? "Live evacuation"
+                : "Evacuation playback"}
           </h2>
         </div>
       </div>
@@ -541,13 +550,15 @@ export function SimulationView({
             Use synthetic playback preview
           </label>
           <span className={`badge${preview ? " mock" : ""}`}>
-            {live
-              ? "LIVE · RECORDING"
-              : preview
-                ? "SYNTHETIC PREVIEW"
-                : result
-                  ? "API recording"
-                  : "Awaiting simulation"}
+            {live?.status === "cancelled"
+              ? "CANCELLED"
+              : live
+                ? "LIVE · RECORDING"
+                : preview
+                  ? "SYNTHETIC PREVIEW"
+                  : result
+                    ? "API recording"
+                    : "Awaiting simulation"}
           </span>
           <label className="playback-preview-toggle">
             <input
@@ -557,22 +568,18 @@ export function SimulationView({
             />
             Show Agent Numbers
           </label>
-          <label
-            className="playback-preview-toggle"
-            title={
-              running ? "Available after the recording finishes" : undefined
-            }
-          >
-            <input
-              ref={chatToggle}
-              type="checkbox"
-              checked={showAgentChat}
-              disabled={running}
-              aria-controls="agent-chat"
-              onChange={(event) => setShowAgentChat(event.target.checked)}
-            />
-            Show Agent Chat
-          </label>
+          {!running && (
+            <label className="playback-preview-toggle">
+              <input
+                ref={chatToggle}
+                type="checkbox"
+                checked={showAgentChat}
+                aria-controls="agent-chat"
+                onChange={(event) => setShowAgentChat(event.target.checked)}
+              />
+              Show Agent Chat
+            </label>
+          )}
         </div>
         <button
           ref={analyticsButton}
@@ -596,8 +603,12 @@ export function SimulationView({
         <LiveSimulationView
           building={building}
           live={live}
+          onSpeedChange={onLiveSpeedChange}
+          onCancel={onCancelLive}
           active={active}
           showAgentNumbers={showAgentNumbers}
+          showAgentChat={showAgentChat}
+          onChatOpenChange={setShowAgentChat}
         />
       ) : (
         <Playback
