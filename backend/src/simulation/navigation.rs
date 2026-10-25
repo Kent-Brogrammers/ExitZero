@@ -1,4 +1,4 @@
-use super::{geometry::Geometry, math};
+use super::{congestion::CrowdForecast, geometry::Geometry, math};
 use crate::models::{BuildingScenario, Point};
 use std::{cmp::Ordering, collections::BinaryHeap};
 
@@ -195,16 +195,31 @@ impl Navigation {
     /// route was found with these waypoints, not proof of physical entrapment.
     /// Use the same unchanged scenario for this graph and the supplied Geometry.
     pub(super) fn find_route(&self, from: Point, geometry: &Geometry<'_>) -> Option<Route> {
-        self.find_route_with_crowd(from, geometry, &[], 0.0)
+        self.find_route_with_forecast(from, geometry, &CrowdForecast::default(), 0.0)
     }
 
-    /// Congestion adds a routing cost, never permits crossing physical geometry.
-    /// Actual disc collision checks are still required at every movement tick.
+    #[cfg(test)]
     pub(super) fn find_route_with_crowd(
         &self,
         from: Point,
         geometry: &Geometry<'_>,
         occupants: &[Point],
+        radius: f64,
+    ) -> Option<Route> {
+        self.find_route_with_forecast(
+            from,
+            geometry,
+            &CrowdForecast::stationary(occupants),
+            radius,
+        )
+    }
+
+    /// Forecast congestion changes routing costs, never physical geometry.
+    pub(super) fn find_route_with_forecast(
+        &self,
+        from: Point,
+        geometry: &Geometry<'_>,
+        occupants: &CrowdForecast,
         radius: f64,
     ) -> Option<Route> {
         if !geometry.can_stand_at(from) {
@@ -218,8 +233,8 @@ impl Navigation {
         // visible waypoint. The shared graph itself stays unchanged.
         for (node, &point) in self.points.iter().enumerate() {
             if geometry.can_move(from, point) {
-                let distance = math::distance_to_point(from, point)
-                    + crowd_cost(from, point, occupants, radius);
+                let distance =
+                    math::distance_to_point(from, point) + occupants.cost(from, point, radius);
                 distances[node] = distance;
                 queue.push(SearchState { node, distance });
             }
@@ -234,7 +249,7 @@ impl Navigation {
                 if geometry.can_move(start, target) {
                     let cost = distance
                         + math::distance_to_point(start, target)
-                        + crowd_cost(start, target, occupants, radius);
+                        + occupants.cost(start, target, radius);
                     if best.as_ref().is_none_or(|&(current, ..)| cost < current) {
                         best = Some((cost, index, target, parent));
                     }
@@ -254,7 +269,7 @@ impl Navigation {
             for edge in &self.connections[node] {
                 let candidate = distance
                     + edge.distance
-                    + crowd_cost(self.points[node], self.points[edge.to], occupants, radius);
+                    + occupants.cost(self.points[node], self.points[edge.to], radius);
                 if candidate < distances[edge.to] {
                     distances[edge.to] = candidate;
                     previous[edge.to] = Some(node);
@@ -283,45 +298,22 @@ impl Navigation {
     }
 }
 
-/// Integrate local occupancy along a segment. Splitting an edge into waypoints
-/// must not change its penalty or create artificial shortcuts through a queue.
+#[cfg(test)]
 pub(super) fn crowd_cost(start: Point, end: Point, occupants: &[Point], radius: f64) -> f64 {
-    let length = math::distance_to_point(start, end);
-    if length <= math::EPSILON || radius <= 0.0 {
-        return 0.0;
-    }
-    let dx = (end.x - start.x) / length;
-    let dy = (end.y - start.y) / length;
-    let influence = 4.0 * radius;
-    occupants
-        .iter()
-        .map(|position| {
-            let x = position.x - start.x;
-            let y = position.y - start.y;
-            let along = x * dx + y * dy;
-            let across = x * dy - y * dx;
-            let half_squared = influence * influence - across * across;
-            if half_squared <= 0.0 {
-                return 0.0;
-            }
-            let half = half_squared.sqrt();
-            ((along + half).min(length) - (along - half).max(0.0)).max(0.0) * 2.0
-        })
-        .sum()
+    CrowdForecast::stationary(occupants).cost(start, end, radius)
 }
 
 pub(super) fn route_cost(
     from: Point,
     waypoints: &[Point],
-    occupants: &[Point],
+    occupants: &CrowdForecast,
     radius: f64,
 ) -> f64 {
     let mut start = from;
     waypoints
         .iter()
         .map(|&end| {
-            let cost =
-                math::distance_to_point(start, end) + crowd_cost(start, end, occupants, radius);
+            let cost = math::distance_to_point(start, end) + occupants.cost(start, end, radius);
             start = end;
             cost
         })
@@ -331,5 +323,5 @@ pub(super) fn route_cost(
 /// Require a material saving before changing guidance, to reduce oscillation
 /// as nearby people move. An unavailable alternative leaves the route intact.
 pub(super) fn materially_better(candidate: f64, current: f64, radius: f64) -> bool {
-    candidate + (current * 0.15).max(2.0 * radius) < current
+    candidate + (current * 0.12).max(2.0 * radius) < current
 }
