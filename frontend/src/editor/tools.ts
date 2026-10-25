@@ -8,6 +8,7 @@ export type EditorTool =
   | "wall-circle"
   | "door"
   | "exit"
+  | "window"
   | "spawn"
   | "stairs"
   | "object-square"

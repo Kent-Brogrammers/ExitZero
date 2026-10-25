@@ -47,7 +47,11 @@ export class ApiError extends Error {
 function checkMetrics(metrics: SimulationMetrics): void {
   if (
     metrics.evacuated + metrics.remaining !== metrics.total_population ||
-    metrics.trapped > metrics.remaining
+    metrics.trapped > metrics.remaining ||
+    (metrics.evacuated_by_route &&
+      metrics.evacuated_by_route.normal_exit +
+        metrics.evacuated_by_route.emergency_window !==
+        metrics.evacuated)
   ) {
     throw new ApiError(
       200,
@@ -57,8 +61,47 @@ function checkMetrics(metrics: SimulationMetrics): void {
   }
 }
 
-function checkSimulation(result: SimulationResult): SimulationResult {
+function checkSimulation(
+  result: SimulationResult,
+  building: BuildingScenario,
+): SimulationResult {
   checkMetrics(result);
+  if (
+    result.analytics?.agents.some((a) => {
+      const route = a.escape_route;
+      if (!route) return false;
+      return (
+        a.evacuation_step === null ||
+        (route.kind === "normal_exit"
+          ? a.exit_id !== route.opening_id ||
+            !building.exits.some((e) => e.id === route.opening_id)
+          : a.exit_id !== null ||
+            !building.windows?.some((w) => w.id === route.opening_id))
+      );
+    }) ||
+    result.frames.some((f) =>
+      f.window_states?.some(
+        (s) => !building.windows?.some((w) => w.id === s.window_id),
+      ),
+    )
+  )
+    throw new ApiError(
+      200,
+      "invalid_response",
+      "Backend returned invalid window or escape route references.",
+    );
+  if (
+    result.analytics &&
+    result.evacuated_by_route &&
+    result.analytics.agents.filter(
+      (a) => a.escape_route?.kind === "emergency_window",
+    ).length !== result.evacuated_by_route.emergency_window
+  )
+    throw new ApiError(
+      200,
+      "invalid_response",
+      "Backend returned inconsistent escape route outcomes.",
+    );
   if (
     result.traffic_samples.some(
       (sample) => sample.x > result.width || sample.y > result.height,
@@ -72,7 +115,9 @@ function checkSimulation(result: SimulationResult): SimulationResult {
         frame.agents.some(
           (agent) => agent.x > result.width || agent.y > result.height,
         ),
-    )
+      // Queue/service membership must reference occupants present at that timestamp.
+    ) ||
+    result.frames.some((frame) => !validWindowStates(frame))
   )
     throw new ApiError(
       200,
@@ -80,6 +125,34 @@ function checkSimulation(result: SimulationResult): SimulationResult {
       "Backend returned invalid traffic or animation frames.",
     );
   return result;
+}
+
+function validWindowStates(frame: AnimationFrame): boolean {
+  const ids = new Set(frame.agents.map((a) => a.id)),
+    windows = new Set<string>(),
+    members = new Set<number>();
+  return (frame.window_states ?? []).every((s) => {
+    if (
+      windows.has(s.window_id) ||
+      (s.traversing_agent_id !== null) !==
+        (s.traversal_earliest_finish_step !== null) ||
+      (s.traversing_agent_id !== null &&
+        s.state !== "open" &&
+        s.state !== "broken") ||
+      ((s.state === "opening" || s.state === "breaking") &&
+        s.preparation_ready_step === null)
+    )
+      return false;
+    windows.add(s.window_id);
+    return [
+      ...s.queue_agent_ids,
+      ...(s.traversing_agent_id === null ? [] : [s.traversing_agent_id]),
+    ].every((id) => {
+      if (!ids.has(id) || members.has(id)) return false;
+      members.add(id);
+      return true;
+    });
+  });
 }
 
 // Default uses Vite's /api proxy. A direct backend URL is also supported.
@@ -149,7 +222,7 @@ export function createApiClient(
       request("/health", validateHealth, undefined, signal),
     simulate: async (building: BuildingScenario): Promise<SimulationResult> => {
       const result = await request("/simulate", validateSimulation, building);
-      return checkSimulation(result);
+      return checkSimulation(result, building);
     },
     simulateLive: async (
       building: BuildingScenario,
@@ -228,7 +301,7 @@ export function createApiClient(
         if (event.type === "error")
           throw new ApiError(200, event.error.code, event.error.message);
         if (event.type === "complete") {
-          const result = checkSimulation(event.result);
+          const result = checkSimulation(event.result, building);
           if (
             lastStep < 0 ||
             result.width !== building.width ||
@@ -252,6 +325,11 @@ export function createApiClient(
           frame.step <= lastStep ||
           frame.step > building.max_steps ||
           ids.size !== frame.agents.length ||
+          !validWindowStates(frame) ||
+          (frame.window_states?.some(
+            (s) => !building.windows?.some((w) => w.id === s.window_id),
+          ) ??
+            false) ||
           frame.agents.some(
             (agent) =>
               agent.x > building.width ||

@@ -46,7 +46,31 @@ fn symmetric_occupants_clear_a_wide_exit_without_overlap_or_teleportation() {
                     .iter()
                     .find(|next| next.id == agent.id)
                     .map(|next| (next.x, next.y))
-                    .unwrap_or((5.0, 0.0));
+                    .unwrap_or_else(|| {
+                        // Main now evacuates across the usable exit span, not
+                        // only its centre. Check an actual recorded evacuation
+                        // and a reachable body-clear point on that span.
+                        let outcome = result
+                            .analytics
+                            .as_ref()
+                            .unwrap()
+                            .agents
+                            .iter()
+                            .find(|a| a.id == agent.id)
+                            .unwrap();
+                        assert_eq!(outcome.evacuation_step, Some(pair[1].step));
+                        assert_eq!(outcome.exit_id.as_deref(), Some("out"));
+                        let opening = &building.exits[0];
+                        let clearance =
+                            building.agent_radius + building.walls[0].thickness / 2.0 + 1e-6;
+                        (
+                            agent.x.clamp(
+                                opening.offset + clearance,
+                                opening.offset + opening.width - clearance,
+                            ),
+                            0.0,
+                        )
+                    });
                 assert!(
                     (end.0 - agent.x).hypot(end.1 - agent.y)
                         <= 1.3 * building.time_step_seconds + 1e-8

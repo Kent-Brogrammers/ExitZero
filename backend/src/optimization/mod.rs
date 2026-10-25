@@ -203,6 +203,7 @@ mod tests {
 
     fn completed(steps: u32) -> SimulationMetrics {
         SimulationMetrics {
+            evacuated_by_route: None,
             status: SimulationStatus::Completed,
             total_population: 4,
             evacuated: 4,
@@ -214,6 +215,7 @@ mod tests {
 
     fn unfinished(remaining: u32, trapped: u32) -> SimulationMetrics {
         SimulationMetrics {
+            evacuated_by_route: None,
             status: SimulationStatus::Incomplete,
             total_population: 4,
             evacuated: 4 - remaining,
@@ -227,6 +229,7 @@ mod tests {
         SimulationResult {
             metrics,
             frames: vec![AnimationFrame {
+                window_states: None,
                 blocked_opening_ids: None,
                 step: 0,
                 agents: (0..4)

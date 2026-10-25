@@ -42,6 +42,53 @@ const barrier: BuildingScenario = {
 };
 
 describe("visual-only frame interpolation", () => {
+  it("seeks actual window state and never blends through intact glazing", () => {
+    const building: BuildingScenario = {
+      ...barrier,
+      windows: [{ id: "pane", wall_id: "partition", offset: 1, width: 2 }],
+    };
+    const intact: AnimationFrame = {
+      step: 0,
+      agents: [{ id: 1, x: 1, y: 2 }],
+      window_states: [
+        {
+          window_id: "pane",
+          state: "intact",
+          preparation_ready_step: null,
+          queue_agent_ids: [],
+          traversing_agent_id: null,
+          traversal_earliest_finish_step: null,
+        },
+      ],
+    };
+    const opened: AnimationFrame = {
+      step: 10,
+      agents: [{ id: 1, x: 3, y: 2 }],
+      window_states: [
+        {
+          ...intact.window_states![0]!,
+          state: "open",
+          preparation_ready_step: 10,
+          traversing_agent_id: 1,
+          traversal_earliest_finish_step: 20,
+        },
+      ],
+    };
+    const sample = createFrameSampler(building, [intact, opened], 0.1);
+    expect(sample(0.5)?.agents[0]!.x).toBe(1);
+    expect(sample(0.5)?.window_states).toEqual(intact.window_states);
+    expect(sample(1)?.window_states).toEqual(opened.window_states);
+    expect(sample(0)?.window_states).toEqual(intact.window_states);
+    const across = createFrameSampler(
+      building,
+      [
+        { ...opened, step: 0, agents: intact.agents },
+        { ...opened, step: 10 },
+      ],
+      0.1,
+    );
+    expect(across(0.5)?.agents[0]!.x).toBe(2);
+  });
   it("respects rounded jamb clearance while interpolating through an opening", () => {
     const building = {
       ...empty,

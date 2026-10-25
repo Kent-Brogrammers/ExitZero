@@ -393,3 +393,16 @@
   max-width: 85ch;
   line-height: 1.5;
 }
+.window-readout {
+  margin-top: 8px;
+  font-size: var(--text-small);
+  color: var(--cad-muted);
+}
+.window-readout summary {
+  cursor: pointer;
+}
+.window-readout .playback-readout {
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin-top: 8px;
+}

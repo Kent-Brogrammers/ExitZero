@@ -10,6 +10,7 @@ export const elementKinds = [
   "walls",
   "doors",
   "exits",
+  "windows",
   "spawn_zones",
   "obstructions",
   "stair_areas",
@@ -124,6 +125,8 @@ export function removeSelection(
   const walls = new Set(next.walls.map((w) => w.id));
   next.doors = next.doors.filter((o) => walls.has(o.wall_id));
   next.exits = next.exits.filter((o) => walls.has(o.wall_id));
+  if (next.windows)
+    next.windows = next.windows.filter((o) => walls.has(o.wall_id));
   next.blocked_exit_ids = next.blocked_exit_ids.filter((id) =>
     next.exits.some((o) => o.id === id),
   );
@@ -210,13 +213,16 @@ export function resizeSelection(
       e.height *= sy;
     }
   }
-  for (const o of [...next.doors, ...next.exits])
+  for (const o of [...next.doors, ...next.exits, ...(next.windows ?? [])])
     if (walls.has(o.wall_id)) {
       const ratio =
         wallLength(next.walls.find((w) => w.id === o.wall_id)!) /
         wallLength(b.walls.find((w) => w.id === o.wall_id)!);
       o.offset *= ratio;
       o.width *= ratio;
+      const pane = next.windows?.find((w) => w.id === o.id);
+      if (pane?.emergency_escape)
+        pane.emergency_escape.clear_width_metres *= ratio;
     }
   return next;
 }

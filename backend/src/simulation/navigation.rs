@@ -70,6 +70,32 @@ impl Navigation {
             })
             .collect();
 
+        Self::with_targets(scenario, geometry, exits)
+    }
+
+    /// Reuse the same collision-checked visibility graph for an interior approach point.
+    pub(super) fn to_point(
+        scenario: &BuildingScenario,
+        geometry: &Geometry<'_>,
+        id: String,
+        position: Point,
+    ) -> Self {
+        Self::with_targets(
+            scenario,
+            geometry,
+            vec![ExitTarget {
+                id,
+                start: position,
+                end: position,
+            }],
+        )
+    }
+
+    fn with_targets(
+        scenario: &BuildingScenario,
+        geometry: &Geometry<'_>,
+        exits: Vec<ExitTarget>,
+    ) -> Self {
         let mut points = Vec::new();
         let mut add_point = |point: Point| {
             if geometry.can_stand_at(point)

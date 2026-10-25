@@ -219,6 +219,8 @@ mod tests {
                 awareness: Default::default(),
                 opening_events: vec![],
                 stair_areas: vec![],
+                windows: vec![],
+                window_escape_context: None,
                 width: 20.0,
                 height: 10.0,
                 walls: vec![Wall {
@@ -285,6 +287,7 @@ mod tests {
 
     fn completed(steps: u32) -> SimulationMetrics {
         SimulationMetrics {
+            evacuated_by_route: None,
             status: SimulationStatus::Completed,
             total_population: 4,
             evacuated: 4,
@@ -296,6 +299,7 @@ mod tests {
 
     fn unfinished(remaining: u32, trapped: u32, status: SimulationStatus) -> SimulationMetrics {
         SimulationMetrics {
+            evacuated_by_route: None,
             status,
             total_population: 4,
             evacuated: 4 - remaining,
@@ -309,6 +313,7 @@ mod tests {
         SimulationResult {
             metrics,
             frames: vec![AnimationFrame {
+                window_states: None,
                 blocked_opening_ids: None,
                 step: 0,
                 agents: (0..4)

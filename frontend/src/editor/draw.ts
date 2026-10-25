@@ -1,4 +1,8 @@
-import type { BuildingScenario, Point } from "../types/simulation";
+import type {
+  BuildingScenario,
+  Point,
+  WindowFrameState,
+} from "../types/simulation";
 import { canvasView, openingSegment, type Selection } from "./geometry";
 import { drawGrid } from "./drawGrid";
 import type { DraftingPreferences } from "./drafting";
@@ -26,6 +30,7 @@ export function drawLayout(
     furniture?: ReadonlyMap<string, FurnitureKind>;
     underlay?: (ctx: CanvasRenderingContext2D) => void;
     showDimensions?: boolean;
+    windowStates?: readonly WindowFrameState[];
   },
 ) {
   const ctx = canvas.getContext("2d");
@@ -148,7 +153,11 @@ export function drawLayout(
   }
   ctx.lineCap = "round";
   for (const wall of building.walls) {
-    for (const [start, end] of solidWallSegments(building, wall)) {
+    for (const [start, end] of solidWallSegments(
+      building,
+      wall,
+      options?.windowStates,
+    )) {
       ctx.beginPath();
       ctx.moveTo(start.x, start.y);
       ctx.lineTo(end.x, end.y);
@@ -205,17 +214,90 @@ export function drawLayout(
       ctx.lineCap = "round";
     }
   }
+  // Glazing has a double-line symbol; only recorded engine state reveals an aperture.
+  for (const pane of building.windows ?? []) {
+    const wall = building.walls.find((w) => w.id === pane.wall_id);
+    if (!wall) continue;
+    const [a, b] = openingSegment(pane, wall),
+      length = Math.hypot(b.x - a.x, b.y - a.y);
+    const normal = { x: -(b.y - a.y) / length, y: (b.x - a.x) / length };
+    const state =
+      options?.windowStates?.find((s) => s.window_id === pane.id)?.state ??
+      "intact";
+    const clear = state === "open" || state === "broken";
+    ctx.strokeStyle = selectedIds.has(pane.id)
+      ? palette.selection
+      : clear
+        ? state === "broken"
+          ? palette.danger
+          : palette.exit
+        : state === "intact"
+          ? palette.muted
+          : palette.door;
+    ctx.lineWidth = (selectedIds.has(pane.id) ? 2 : 1) * px;
+    ctx.lineCap = "butt";
+    ctx.beginPath();
+    for (const side of [-1, 1]) {
+      const inset = normal.x * side * Math.max(wall.thickness / 2, 3 * px),
+        dy = normal.y * side * Math.max(wall.thickness / 2, 3 * px);
+      ctx.moveTo(a.x + inset, a.y + dy);
+      ctx.lineTo(b.x + inset, b.y + dy);
+    }
+    if (!clear) {
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+    }
+    for (const p of [a, b]) {
+      ctx.moveTo(
+        p.x - normal.x * wall.thickness,
+        p.y - normal.y * wall.thickness,
+      );
+      ctx.lineTo(
+        p.x + normal.x * wall.thickness,
+        p.y + normal.y * wall.thickness,
+      );
+    }
+    ctx.stroke();
+    if (
+      single?.kind === "windows" &&
+      single.id === pane.id &&
+      pane.emergency_escape
+    ) {
+      const side = pane.emergency_escape.exterior_side,
+        direction = { x: normal.x * side, y: normal.y * side },
+        center = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+        tip = {
+          x: center.x + direction.x * 25 * px,
+          y: center.y + direction.y * 25 * px,
+        };
+      ctx.strokeStyle = palette.selection;
+      ctx.beginPath();
+      ctx.moveTo(center.x, center.y);
+      ctx.lineTo(tip.x, tip.y);
+      for (const sign of [-1, 1]) {
+        ctx.moveTo(tip.x, tip.y);
+        ctx.lineTo(
+          tip.x - direction.x * 7 * px + direction.y * sign * 4 * px,
+          tip.y - direction.y * 7 * px - direction.x * sign * 4 * px,
+        );
+      }
+      ctx.stroke();
+    }
+  }
   ctx.font = `${11 * px}px system-ui`;
   for (const label of openingLabels(
     building,
     px,
     (text) => ctx.measureText?.(text).width ?? text.length * 6 * px,
+    options?.windowStates,
   )) {
-    ctx.fillStyle = building.blocked_exit_ids.includes(label.id)
-      ? palette.danger
-      : building.exits.some((o) => o.id === label.id)
-        ? palette.exit
-        : palette.door;
+    ctx.fillStyle = building.windows?.some((w) => w.id === label.id)
+      ? palette.muted
+      : building.blocked_exit_ids.includes(label.id)
+        ? palette.danger
+        : building.exits.some((o) => o.id === label.id)
+          ? palette.exit
+          : palette.door;
     ctx.fillText(label.text, label.x, label.y);
   }
   if (single?.kind === "walls") {

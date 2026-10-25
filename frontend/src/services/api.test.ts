@@ -29,6 +29,46 @@ function respond(body: unknown, status = 200) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("API integration contract", () => {
+  it("accepts explicit window route counts and rejects inconsistent totals or queue IDs", async () => {
+    // Synthetic contract test data only; the API never manufactures these outcomes.
+    const result = {
+      ...mock,
+      evacuated_by_route: {
+        normal_exit: mock.evacuated - 1,
+        emergency_window: 1,
+      },
+    };
+    respond(result);
+    await expect(client.simulate(building)).resolves.toEqual(result);
+    respond({
+      ...result,
+      evacuated_by_route: { normal_exit: 0, emergency_window: 0 },
+    });
+    await expect(client.simulate(building)).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+    respond({
+      ...result,
+      frames: [
+        {
+          ...mock.frames[0],
+          window_states: [
+            {
+              window_id: "pane",
+              state: "opening",
+              preparation_ready_step: 10,
+              queue_agent_ids: [4294967295],
+              traversing_agent_id: null,
+              traversal_earliest_finish_step: null,
+            },
+          ],
+        },
+      ],
+    });
+    await expect(client.simulate(building)).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+  });
   it("reads health and normalizes the base URL", async () => {
     respond({ status: "ok", service: "exitzero" });
     await expect(client.health()).resolves.toEqual({

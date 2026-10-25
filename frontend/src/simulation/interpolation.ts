@@ -49,13 +49,18 @@ function segmentDistance(a: Point, b: Point, c: Point, d: Point) {
   );
 }
 
-function solidWalls(building: BuildingScenario): Segment[] {
+function solidWalls(
+  building: BuildingScenario,
+  frame: AnimationFrame,
+): Segment[] {
   return building.walls.flatMap((wall) =>
-    solidWallSegments(building, wall).map(([start, end]) => ({
-      start,
-      end,
-      padding: building.agent_radius + wall.thickness / 2,
-    })),
+    solidWallSegments(building, wall, frame.window_states).map(
+      ([start, end]) => ({
+        start,
+        end,
+        padding: building.agent_radius + wall.thickness / 2,
+      }),
+    ),
   );
 }
 
@@ -142,7 +147,7 @@ export function createFrameSampler(
     if (pair !== index) {
       pair = index;
       const layout = frameLayout(building, source);
-      const walls = solidWalls(layout);
+      const walls = solidWalls(layout, source);
       const targets = new Map(next.agents.map((agent) => [agent.id, agent]));
       entries = source.agents.map((agent) => {
         const target = targets.get(agent.id);
@@ -156,6 +161,7 @@ export function createFrameSampler(
       display = {
         step: source.step,
         blocked_opening_ids: source.blocked_opening_ids,
+        window_states: source.window_states,
         agents: entries.map((entry) => entry.display),
       };
     }

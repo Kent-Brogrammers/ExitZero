@@ -13,7 +13,7 @@ function fits(building: BuildingScenario, door: Opening): boolean {
     door.offset >= 0 &&
     door.width > 0 &&
     end(door) <= wallLength(wall) + EPSILON &&
-    [...building.doors, ...building.exits].every(
+    [...building.doors, ...building.exits, ...(building.windows ?? [])].every(
       (other) =>
         other.id === door.id ||
         other.wall_id !== door.wall_id ||

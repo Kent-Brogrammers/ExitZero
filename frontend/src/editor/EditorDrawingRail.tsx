@@ -132,6 +132,7 @@ export function EditorDrawingRail({
       </StudioPopover>
       {button("door", "Door", "door")}
       {button("exit", "Exit", "exit")}
+      {button("window", "Window", "window")}
       {button("spawn", "Spawn zone", "spawn")}
       <StudioPopover
         label="Object / Obstacle"

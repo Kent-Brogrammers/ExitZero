@@ -6,6 +6,7 @@ const prefixes: Record<Selection["kind"], string> = {
   walls: "Wall",
   doors: "Door",
   exits: "Exit",
+  windows: "Window",
   spawn_zones: "Spawn zone",
   obstructions: "Obstruction",
   stair_areas: "Stair area",
