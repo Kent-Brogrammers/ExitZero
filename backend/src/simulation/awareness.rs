@@ -981,7 +981,7 @@ mod tests {
         world.apply(60, &agents, &[false]);
         assert!(
             !world.states["left"].blocked,
-            "closure waits for the occupant to clear"
+            "gas must not create a physical closure"
         );
         let mut geometry = Geometry::with_blocked_openings(&b, &[], world.blocked());
         geometry.hazard_areas = world.disaster_state().unwrap().areas.clone();
@@ -995,7 +995,7 @@ mod tests {
                 .find_route(agents[0].position, map)
                 .unwrap()
                 .exit_id,
-            "right"
+            "left"
         );
     }
 

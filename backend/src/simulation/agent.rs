@@ -85,7 +85,7 @@ pub(super) fn spawn_agents(
 
             let position = accepted.ok_or_else(|| {
                 SimulationError::InvalidScenario(format!(
-                    "could not place occupant {} of {} in spawn zone '{}' after 1000 attempts; enlarge the zone or reduce its population",
+                    "could not place occupant {} of {} in spawn zone '{}' after 1000 attempts; enlarge the clear area, move obstacles, or reduce its population",
                     occupant + 1, zone.count, zone.id,
                 ))
             })?;

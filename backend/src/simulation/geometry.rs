@@ -396,9 +396,9 @@ impl<'a> Geometry<'a> {
         self.blocked_openings.contains(id)
     }
 
-    /// Sighted or reported danger rules out a destination even before its
-    /// closure is visible. Do not invent solid wall inside someone already in
-    /// the doorway: the actual opening state still controls collision geometry.
+    /// Sighted or reported danger marks a destination unsafe before a closure
+    /// is visible. Gas-covered destinations remain available as a last resort;
+    /// the actual opening state controls physical collision geometry.
     pub(super) fn opening_is_unsafe(&self, id: &str) -> bool {
         self.opening_is_blocked(id)
             || self.disaster.is_some()
@@ -619,7 +619,10 @@ impl<'a> Geometry<'a> {
     /// Usable centre positions on the exit plane, inset from rounded jambs.
     /// Other obstacles are still checked by can_move/can_stand_at.
     pub(super) fn exit_segment(&self, exit_id: &str) -> Option<(Point, Point)> {
-        if self.opening_is_unsafe(exit_id) {
+        let gas = self
+            .disaster
+            .is_some_and(|d| d.kind == crate::models::DisasterKind::GasLeak);
+        if self.opening_is_blocked(exit_id) || (!gas && self.opening_is_unsafe(exit_id)) {
             return None;
         }
         let exit = self.scenario.exits.iter().find(|exit| exit.id == exit_id)?;

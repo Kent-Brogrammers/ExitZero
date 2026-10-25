@@ -30,6 +30,18 @@ impl StressTestRequest {
             if !ids.insert(&candidate.id) {
                 return Err("obstruction candidate IDs must be unique".into());
             }
+            // Stress runs must retain the baseline placement. Existing furniture
+            // may lie inside a spawn zone, but a new blocker must not change it.
+            if self.building.spawn_zones.iter().any(|zone| {
+                candidate.x < zone.x + zone.width
+                    && zone.x < candidate.x + candidate.width
+                    && candidate.y < zone.y + zone.height
+                    && zone.y < candidate.y + candidate.height
+            }) {
+                return Err(
+                    "stress-test obstruction candidates must not overlap spawn zones".into(),
+                );
+            }
             let mut modified = self.building.clone();
             modified.obstructions.push(candidate.clone());
             modified.validate()?;

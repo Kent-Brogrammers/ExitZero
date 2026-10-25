@@ -1411,7 +1411,7 @@ export function BuildingEditor({
                                     ? (spawnProblem ??
                                       (spawnDraft
                                         ? `${formatDimensions(spawnDraft.spawn_zones.at(-1)!.width, spawnDraft.spawn_zones.at(-1)!.height, 2)} · ${spawnDraft.spawn_zones.at(-1)!.count} occupants · Release to place`
-                                        : "Drag a rectangular spawn area · Shift for square · Set occupants in Properties"))
+                                        : "Drag across rooms or furniture · Agents spawn in clear space · Shift for square · Set occupants in Properties"))
                                     : "Drag a rectangle · Shift for square · Edit dimensions in Properties"}
             </p>
             <div className="canvas-wrap editor-canvas-wrap">

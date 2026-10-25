@@ -112,7 +112,7 @@ describe("drawn rectangular spawn areas", () => {
   });
 
   it.each(["narrow", "wall", "obstruction", "spawn"])(
-    "reports an invalid %s footprint without modifying the original",
+    "validates a %s footprint without modifying the original",
     (kind) => {
       const original = draft();
       if (kind === "wall")
@@ -140,7 +140,9 @@ describe("drawn rectangular spawn areas", () => {
         false,
         "new",
       );
-      expect(buildingError(next, false)).not.toBeNull();
+      if (kind === "wall" || kind === "obstruction")
+        expect(buildingError(next, false)).toBeNull();
+      else expect(buildingError(next, false)).not.toBeNull();
       expect(original).toEqual(before);
     },
   );
@@ -378,7 +380,7 @@ describe("contract-compatible drawing shapes", () => {
     });
     expect(buildingError(b, false)).toBeNull();
   });
-  it("keeps the existing spawn-overlap validation for new objects and wall perimeters", () => {
+  it("allows spawn areas to cover objects and wall perimeters", () => {
     const b = draft();
     b.spawn_zones = [
       { id: "spawn", x: 5, y: 5, width: 2, height: 2, count: 1 },
@@ -388,7 +390,7 @@ describe("contract-compatible drawing shapes", () => {
         addObject(b, { x: 5, y: 5 }, { x: 6, y: 6 }, false, "object"),
         false,
       ),
-    ).toMatch(/Spawn zones/);
+    ).toBeNull();
     expect(
       buildingError(
         addWallShape(
@@ -400,6 +402,6 @@ describe("contract-compatible drawing shapes", () => {
         ),
         false,
       ),
-    ).toMatch(/Spawn zones/);
+    ).toBeNull();
   });
 });
