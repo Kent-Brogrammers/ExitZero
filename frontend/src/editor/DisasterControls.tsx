@@ -366,7 +366,9 @@ export function DisasterControls({
             <p className="note">
               {disaster.kind === "tornado"
                 ? "Drag a Tornado zone on the plan. The alarm sends occupants to shelter, rather than exits."
-                : "The alarm sends occupants to exits. Openings inside the hazard's exposure area close automatically."}{" "}
+                : disaster.kind === "gas_leak"
+                  ? "The alarm sends occupants to exits. Gas injures and slows people but leaves passages open; they risk exposure if no clear route or usable escape window remains."
+                  : "The alarm sends occupants to exits. Openings inside the hazard's exposure area close automatically."}{" "}
               Use Select / move to drag the hazard's centre marker, or enter its
               X/Y coordinates. Agents discover the location by sight, contact or
               nearby reports. Exposure accumulates injury and slows movement;

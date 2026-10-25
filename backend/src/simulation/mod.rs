@@ -397,9 +397,16 @@ fn run(
             control::checkpoint()?;
             if windows.controls(i) {
                 statistics[i].route_found = true;
-            } else if controlled[i] && !evacuated[i] {
+            } else if !evacuated[i]
+                && (controlled[i] || (window_fallback[i] && routes[i].is_none()))
+            {
+                // If no window can actually take control, do not strand an
+                // occupant simply because a hazardous normal exit is all that remains.
                 let (map, navigation) = beliefs.for_agent(&agents[i]);
-                routes[i] = if windows.has_eligible() {
+                let gas = scenario
+                    .disaster
+                    .is_some_and(|d| d.kind == crate::models::DisasterKind::GasLeak);
+                routes[i] = if windows.has_eligible() && !gas {
                     navigation.find_route_avoiding_danger(agents[i].position, map)
                 } else {
                     navigation.find_route(agents[i].position, map)
@@ -624,7 +631,7 @@ fn run(
                 let target = math::closest_point_on_segment(before[i], start, end);
                 let last = route.waypoints.last_mut().unwrap();
                 if map.can_move(before[i], target)
-                    && map.avoids_known_danger(before[i], target)
+                    && (route.risk_allowed || map.avoids_known_danger(before[i], target))
                     && navigation::route_cost(
                         before[i],
                         &[target],
@@ -643,7 +650,7 @@ fn run(
             for future in (next_waypoint[i] + 1..route.waypoints.len()).rev() {
                 let shortcut = [route.waypoints[future]];
                 if map.can_move(before[i], shortcut[0])
-                    && map.avoids_known_danger(before[i], shortcut[0])
+                    && (route.risk_allowed || map.avoids_known_danger(before[i], shortcut[0]))
                     && navigation::route_cost(
                         before[i],
                         &shortcut,
