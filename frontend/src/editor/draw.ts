@@ -146,6 +146,7 @@ export function drawLayout(
       Math.max(rectangle.width - 8 * px, px),
     );
   }
+  ctx.lineCap = "round";
   for (const wall of building.walls) {
     for (const [start, end] of solidWallSegments(building, wall)) {
       ctx.beginPath();

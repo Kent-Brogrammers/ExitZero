@@ -40,6 +40,7 @@ describe("read-only playback summary", () => {
     expect(html).toContain("Evacuated</dt><dd>3");
     expect(html).toContain("Remaining</dt><dd>4");
     expect(html).toContain("Trapped</dt><dd>2");
+    expect(html).not.toContain("unreachable");
     expect(html).toContain(
       "Counts describe the final outcome, not the playhead.",
     );

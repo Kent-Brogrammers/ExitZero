@@ -1,18 +1,13 @@
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-
 import type {
   BuildingScenario,
+  OptimizationCandidate,
   SimulationResult,
   StressTestResult,
 } from "../types/simulation";
+
+import { PopulationChart } from "./PopulationChart";
+import { OptimizationComparison } from "./OptimizationComparison";
+import type { OptimizationEvaluation } from "./optimization";
 
 import ScenarioComparison from "./ScenarioComparison";
 import TrafficHeatmap from "./TrafficHeatmap";
@@ -20,24 +15,23 @@ import CrowdingRanking from "./CrowdingRanking";
 import { outcomeExplanation } from "./presentation";
 
 interface AnalyticsDashboardProps {
-  building?: BuildingScenario;
   result: SimulationResult | null;
   stressResult: StressTestResult | null;
+  building?: BuildingScenario;
+  optimization?: OptimizationEvaluation | null;
+  onApply?: (candidate: OptimizationCandidate) => void;
+  disabled?: boolean;
 }
 
 export default function AnalyticsDashboard({
-  building,
   result,
   stressResult,
+  building,
+  optimization = null,
+  onApply,
+  disabled,
 }: AnalyticsDashboardProps) {
   const metrics = result ?? stressResult?.baseline ?? null;
-  const chart = metrics
-    ? [
-        { name: "Evacuated", occupants: metrics.evacuated },
-        { name: "Remaining", occupants: metrics.remaining },
-      ]
-    : [];
-
   return (
     <section className="analytics-grid" id="analytics" aria-label="Analytics">
       <div className="panel">
@@ -96,33 +90,7 @@ export default function AnalyticsDashboard({
                 </strong>
               </div>
             </div>
-            <div
-              className="chart"
-              role="img"
-              aria-label={`${metrics.evacuated} evacuated and ${metrics.remaining} remaining. Trapped occupants are included in remaining.`}
-            >
-              <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                <BarChart
-                  data={chart}
-                  margin={{ top: 12, right: 12, bottom: 0, left: -24 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="name" tickLine={false} axisLine={false} />
-                  <YAxis
-                    allowDecimals={false}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <Tooltip />
-                  <Bar
-                    dataKey="occupants"
-                    fill="#347d69"
-                    radius={[4, 4, 0, 0]}
-                    isAnimationActive={false}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+            <PopulationChart metrics={metrics} />
             <p className="note">
               Trapped occupants are included in remaining occupants. The engine
               only counts trapped occupants when every exit is explicitly
@@ -142,6 +110,14 @@ export default function AnalyticsDashboard({
         <h2>Vulnerability comparison</h2>
         <ScenarioComparison result={stressResult} />
       </div>
+      {onApply && (
+        <OptimizationComparison
+          evaluation={optimization}
+          onApply={onApply}
+          disabled={disabled}
+          rerun={result}
+        />
+      )}
     </section>
   );
 }

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { BuildingScenario, SimulationResult } from "../types/simulation";
 import { drawLayout } from "../editor/draw";
 import { canvasPalette } from "../styles/canvasPalette";
+import { useStudioTheme } from "../styles/appearance";
 import { trafficBins } from "./traffic";
 import { trafficField, fieldPixels } from "./trafficField";
 
@@ -13,6 +14,7 @@ export default function TrafficHeatmap({
   result: SimulationResult | null;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
+  const theme = useStudioTheme();
   const [visible, setVisible] = useState(true);
   const [smoothing, setSmoothing] = useState(0.6);
   const traffic = result
@@ -71,7 +73,7 @@ export default function TrafficHeatmap({
       observer.disconnect();
       window.removeEventListener("resize", redraw);
     };
-  }, [building, result, visible, matches, smoothing]);
+  }, [building, result, visible, matches, smoothing, theme]);
   return (
     <section
       className="panel traffic-panel"
