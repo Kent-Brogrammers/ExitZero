@@ -43,8 +43,28 @@
   scrollbar-color: var(--cad-border-strong) var(--cad-surface);
 }
 
-/* Canvas palettes never cascade into the Studio shell or analytics controls. */
-:root[data-canvas-theme="light"] canvas[data-world-canvas] {
+/* One appearance palette is shared by the canvas and the Studio shell. */
+:root[data-canvas-theme="light"] {
+  --cad-panel: #ffffff;
+  --cad-control: #edeaf2;
+  --cad-hover: #e4dfec;
+  --cad-border: #d8d2e2;
+  --cad-border-strong: #aaa0bb;
+  --cad-text: #282234;
+  --cad-subtle: #686074;
+  --cad-disabled: #7c7487;
+  --cad-accent-hover: #194e98;
+  --cad-selected: #dce9fb;
+  --cad-warning: #80521b;
+  --cad-warning-bg: #fff0d8;
+  --cad-warning-border: #c79b5d;
+  --cad-danger-bg: #fbe5e2;
+  --cad-danger-border: #cb9288;
+  --cad-header: #f9f7fc;
+  --cad-rail: #ffffffed;
+  --cad-inspector: #fffffff5;
+  --cad-rail-border: #2822341a;
+  color-scheme: light;
   --cad-bg: #f3f2f5;
   --cad-surface: #fcfbfe;
   --cad-muted: #5c546b;
@@ -64,7 +84,29 @@
   --canvas-blueprint: 0;
 }
 
-:root[data-canvas-theme="blueprint-dark"] canvas[data-world-canvas] {
+:root[data-canvas-theme="blueprint-dark"] {
+  --cad-panel: #142b45;
+  --cad-control: #193550;
+  --cad-hover: #214462;
+  --cad-border: #2a4866;
+  --cad-border-strong: #547798;
+  --cad-text: #e2effa;
+  --cad-subtle: #9ab4cd;
+  --cad-disabled: #839bb2;
+  --cad-accent-hover: #b1d9ff;
+  --cad-selected: #234964;
+  --cad-warning: #e4bd75;
+  --cad-warning-bg: #382f22;
+  --cad-warning-border: #806b42;
+  --cad-danger-bg: #402c32;
+  --cad-danger-border: #8b5960;
+  --cad-header: #0e2038;
+  --cad-rail: #142b45ed;
+  --cad-inspector: #142b45f5;
+  --cad-rail-border: #b9d9f21f;
+  --studio-primary: #6c64c9;
+  --studio-primary-hover: #8078dc;
+  color-scheme: dark;
   --cad-bg: #0c1830;
   --cad-surface: #102844;
   --cad-muted: #abc4db;
@@ -84,7 +126,29 @@
   --canvas-blueprint: 1;
 }
 
-:root[data-canvas-theme="blueprint-light"] canvas[data-world-canvas] {
+:root[data-canvas-theme="blueprint-light"] {
+  --cad-panel: #f7fbff;
+  --cad-control: #e0edf6;
+  --cad-hover: #d2e4f2;
+  --cad-border: #bacfe0;
+  --cad-border-strong: #7899b5;
+  --cad-text: #203e59;
+  --cad-subtle: #516c83;
+  --cad-disabled: #6d8194;
+  --cad-accent-hover: #174b83;
+  --cad-selected: #c9e1f4;
+  --cad-warning: #82541c;
+  --cad-warning-bg: #fff0d8;
+  --cad-warning-border: #bd995f;
+  --cad-danger-bg: #fce5e7;
+  --cad-danger-border: #c58a92;
+  --cad-header: #f1f7fc;
+  --cad-rail: #f7fbffed;
+  --cad-inspector: #f7fbfff5;
+  --cad-rail-border: #203e5924;
+  --studio-primary: #466fae;
+  --studio-primary-hover: #365c96;
+  color-scheme: light;
   --cad-bg: #e2ebf1;
   --cad-surface: #eff7fc;
   --cad-muted: #45637f;

@@ -17,7 +17,7 @@ import {
 export function StudioAppearance({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<StudioTheme>(initialTheme);
   useLayoutEffect(() => {
-    document.documentElement.dataset.studioTheme = "dark";
+    document.documentElement.dataset.studioTheme = theme;
     document.documentElement.dataset.canvasTheme = theme;
     try {
       window.localStorage.setItem(THEME_STORAGE_KEY, theme);
@@ -49,9 +49,9 @@ export function AppearanceSelector() {
   return (
     <div>
       <label className="appearance-setting">
-        Canvas appearance
+        Studio appearance
         <select
-          aria-label="Canvas appearance"
+          aria-label="Studio appearance"
           value={theme}
           onChange={(event) => setTheme(event.target.value as StudioTheme)}
         >
@@ -62,7 +62,9 @@ export function AppearanceSelector() {
           ))}
         </select>
       </label>
-      <p className="note">Canvas only. Studio controls stay dark.</p>
+      <p className="note">
+        Applies to the floor plan, Studio controls, and analytics.
+      </p>
       {theme.startsWith("blueprint") && (
         <p className="note">
           Blueprint symbols change appearance only. Walls keep their full
