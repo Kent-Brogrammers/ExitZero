@@ -1,8 +1,6 @@
-import { useEffect, useRef } from "react";
 import type { BuildingScenario } from "../types/simulation";
-import { drawLayout } from "../editor/draw";
-import { useStudioTheme } from "../styles/appearance";
 import { repositoryUrl } from "./credits";
+import { WelcomePreview } from "./WelcomePreview";
 import "./StudioWelcome.css";
 
 interface StudioWelcomeProps {
@@ -20,23 +18,6 @@ export function StudioWelcome({
   onOpenDemo,
   disabled = false,
 }: StudioWelcomeProps) {
-  const theme = useStudioTheme();
-  const canvas = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
-    const element = canvas.current;
-    if (!element) return;
-    const redraw = () =>
-      drawLayout(element, building, null, undefined, window.devicePixelRatio);
-    const observer = new ResizeObserver(redraw);
-    observer.observe(element);
-    window.addEventListener("resize", redraw);
-    redraw();
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", redraw);
-    };
-  }, [building, theme]);
-
   return (
     <section className="studio-welcome" aria-label="Welcome to ExitZero Studio">
       <header className="welcome-header">
@@ -76,27 +57,7 @@ export function StudioWelcome({
           </p>
         </div>
         <div className="welcome-drawing">
-          <div className="welcome-drawing-heading">
-            <span>
-              {onOpenDemo ? "OFFICE DEMO / 01" : "THE FLOOR PLAN / 01"}
-            </span>
-            <span>
-              {building.width} × {building.height} M
-            </span>
-          </div>
-          <canvas
-            data-world-canvas
-            ref={canvas}
-            width={900}
-            height={720}
-            role="img"
-            aria-label={
-              onOpenDemo
-                ? "Office demo floor plan with open workspace, meeting room, corridor, break room and two exits. No simulation is running."
-                : "Illustrative example building floor plan. No simulation is running."
-            }
-          />
-          <div className="welcome-scan" aria-hidden="true" />
+          <WelcomePreview building={building} officeDemo={!!onOpenDemo} />
           {onOpenDemo ? (
             <div className="welcome-demo-link">
               <p>56 occupants · 2 exits · Editable office plan</p>

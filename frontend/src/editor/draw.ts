@@ -25,6 +25,7 @@ export function drawLayout(
     grid?: DraftingPreferences;
     furniture?: ReadonlyMap<string, FurnitureKind>;
     underlay?: (ctx: CanvasRenderingContext2D) => void;
+    showDimensions?: boolean;
   },
 ) {
   const ctx = canvas.getContext("2d");
@@ -274,7 +275,9 @@ export function drawLayout(
     }
     ctx.setLineDash([]);
   }
-  ctx.fillStyle = palette.muted;
-  ctx.font = `${12 * px}px system-ui`;
-  ctx.fillText(`${building.width} × ${building.height} m`, 12 * px, 20 * px);
+  if (options?.showDimensions !== false) {
+    ctx.fillStyle = palette.muted;
+    ctx.font = `${12 * px}px system-ui`;
+    ctx.fillText(`${building.width} × ${building.height} m`, 12 * px, 20 * px);
+  }
 }
