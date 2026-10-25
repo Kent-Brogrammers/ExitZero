@@ -3,6 +3,7 @@ use exitzero::{
     simulation::simulate,
 };
 use serde_json::json;
+use std::collections::BTreeMap;
 
 fn symmetric_exit(width: f64, blocked: bool, seed: u64) -> BuildingScenario {
     serde_json::from_value(json!({
@@ -37,16 +38,38 @@ fn symmetric_occupants_clear_a_wide_exit_without_overlap_or_teleportation() {
         );
         assert_eq!(result.frames[0].step, 0);
         assert_eq!(result.frames[0].agents.len(), 2);
+        let mut recorded_distance: BTreeMap<u32, f64> = BTreeMap::new();
         for pair in result.frames.windows(2) {
             assert_eq!(pair[1].step, pair[0].step + 1);
             let mut moves = Vec::new();
             for agent in &pair[0].agents {
-                let end = pair[1]
-                    .agents
-                    .iter()
-                    .find(|next| next.id == agent.id)
-                    .map(|next| (next.x, next.y))
-                    .unwrap_or((5.0, 0.0));
+                let next = pair[1].agents.iter().find(|next| next.id == agent.id);
+                let Some(next) = next else {
+                    // Evacuees can arrive anywhere across the exit. Audit the
+                    // final leg using measured distance, without inventing a
+                    // movement to its centre. Unit tests also audit the actual
+                    // final endpoints inside the simulation tick.
+                    let stat = result
+                        .analytics
+                        .as_ref()
+                        .unwrap()
+                        .agents
+                        .iter()
+                        .find(|stat| stat.id == agent.id)
+                        .unwrap();
+                    assert_eq!(stat.evacuation_step, Some(pair[1].step));
+                    assert_eq!(stat.exit_id.as_deref(), Some("out"));
+                    let final_distance = stat.distance_metres
+                        - recorded_distance.get(&agent.id).copied().unwrap_or(0.0);
+                    assert!(final_distance >= -1e-8);
+                    assert!(final_distance <= 1.3 * building.time_step_seconds + 1e-8);
+                    let nearest_x = agent.x.clamp(3.300001, 6.699999);
+                    assert!((nearest_x - agent.x).hypot(agent.y) <= final_distance + 1e-8);
+                    continue;
+                };
+                let end = (next.x, next.y);
+                *recorded_distance.entry(agent.id).or_default() +=
+                    (end.0 - agent.x).hypot(end.1 - agent.y);
                 assert!(
                     (end.0 - agent.x).hypot(end.1 - agent.y)
                         <= 1.3 * building.time_step_seconds + 1e-8

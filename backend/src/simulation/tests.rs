@@ -149,6 +149,21 @@ fn mid_run_exit_closure_is_discovered_and_agents_use_another_exit() {
             .as_deref(),
         Some("south_exit")
     );
+    // Closure discovery must override commitment before its three-second hold
+    // expires, even though turning toward the south reverses the route.
+    let at_closure = &result
+        .frames
+        .iter()
+        .find(|frame| frame.step == 10)
+        .unwrap()
+        .agents[0];
+    let reacted = &result
+        .frames
+        .iter()
+        .find(|frame| frame.step == 30)
+        .unwrap()
+        .agents[0];
+    assert!(reacted.y > at_closure.y + 0.2);
     assert!(result.frames.iter().filter(|f| f.step >= 10).all(|f| {
         f.blocked_opening_ids
             .as_ref()
@@ -1110,7 +1125,7 @@ fn crowd_search_uses_an_alternate_exit_and_recovers_when_the_queue_clears() {
 }
 
 #[test]
-fn moving_agents_reroute_before_stalling_using_visible_congestion() {
+fn a_clearing_queue_does_not_divert_followers_to_a_distant_exit() {
     let mut scenario = two_exit_room();
     scenario.spawn_zones = vec![
         pinned_zone("observer", 5.0, 3.0),
@@ -1118,29 +1133,23 @@ fn moving_agents_reroute_before_stalling_using_visible_congestion() {
         pinned_zone("queue_b", 5.0, 2.0),
     ];
     scenario.awareness.communication_range_metres = 0.0;
-    scenario.max_steps = 1;
-    let visible = simulate(&scenario).unwrap();
-    let observer = visible.frames[0].agents[0].id;
-    let visible_position = visible.frames[1]
+    let result = simulate(&scenario).unwrap();
+    assert_eq!(result.metrics.status, SimulationStatus::Completed);
+    let observer = result.frames[0].agents[0].id;
+    let stat = result
+        .analytics
+        .as_ref()
+        .unwrap()
         .agents
         .iter()
-        .find(|agent| agent.id == observer)
+        .find(|stat| stat.id == observer)
         .unwrap();
+    assert_eq!(stat.exit_id.as_deref(), Some("north_exit"));
     assert!(
-        visible_position.x > 5.0,
-        "the moving agent should head toward the less crowded east exit"
+        stat.distance_metres < 4.0,
+        "follow the clearing queue instead of walking to the east exit"
     );
-    scenario.awareness.sight_range_metres = 0.0;
-    let unseen = simulate(&scenario).unwrap();
-    let unseen_position = unseen.frames[1]
-        .agents
-        .iter()
-        .find(|agent| agent.id == observer)
-        .unwrap();
-    assert!(
-        visible_position.x > unseen_position.x + 1e-4,
-        "visible congestion should change guidance beyond local collision avoidance"
-    );
+    assert_collision_free(&scenario, &result);
 }
 
 #[test]
@@ -1328,4 +1337,127 @@ fn a_wider_exit_increases_parallel_flow() {
         wide_result.metrics.clearance_steps.unwrap()
             < narrow_result.metrics.clearance_steps.unwrap()
     );
+}
+
+#[test]
+fn forecasting_a_clearing_exit_keeps_the_direct_route_but_a_stuck_queue_does_not() {
+    use super::congestion::CrowdMemory;
+    let scenario = two_exit_room();
+    let geometry = Geometry::new(&scenario);
+    let navigation = Navigation::new(&scenario, &geometry);
+    let from = Point { x: 5.0, y: 3.0 };
+    let queue = [Point { x: 5.0, y: 0.7 }, Point { x: 5.0, y: 1.7 }];
+    let mut moving_memory = CrowdMemory::default();
+    let mut stuck_memory = CrowdMemory::default();
+    for tick in 0..=20 {
+        let remaining = 2.0 - tick as f64 * 0.1;
+        let moving: Vec<_> = queue
+            .iter()
+            .enumerate()
+            .map(|(id, p)| {
+                (
+                    id,
+                    Point {
+                        x: p.x,
+                        y: p.y + remaining,
+                    },
+                )
+            })
+            .collect();
+        let stuck: Vec<_> = queue.iter().copied().enumerate().collect();
+        let flow = moving_memory.observe(&moving, tick, 0.1, &geometry);
+        let jam = stuck_memory.observe(&stuck, tick, 0.1, &geometry);
+        if tick == 20 {
+            assert_eq!(
+                navigation
+                    .find_route_with_forecast(from, &geometry, &flow, scenario.agent_radius)
+                    .unwrap()
+                    .exit_id,
+                "north_exit"
+            );
+            assert_eq!(
+                navigation
+                    .find_route_with_forecast(from, &geometry, &jam, scenario.agent_radius)
+                    .unwrap()
+                    .exit_id,
+                "east_exit"
+            );
+        }
+    }
+}
+
+#[test]
+fn crowd_forecasts_stop_at_walls_and_only_clear_through_available_exits() {
+    let scenario = room();
+    let open = Geometry::new(&scenario);
+    let from = Point { x: 5.0, y: 1.0 };
+    let velocity = Point { x: 0.0, y: -1.0 };
+    assert!(open.predict_occupant(from, velocity, 3.0).is_none());
+    let mut closed = scenario.clone();
+    closed.blocked_exit_ids.push("north_exit".into());
+    let closed = Geometry::new(&closed);
+    let stopped = closed.predict_occupant(from, velocity, 3.0).unwrap();
+    assert!(stopped.y >= 0.3);
+    assert!(closed.can_move(from, stopped));
+    let from = Point { x: 8.0, y: 5.0 };
+    let stopped = open
+        .predict_occupant(from, Point { x: 1.0, y: 0.0 }, 3.0)
+        .unwrap();
+    assert!(stopped.x <= 9.7);
+    assert!(open.can_move(from, stopped));
+}
+
+#[test]
+fn a_thirty_person_two_exit_crowd_clears_without_repeated_route_reversals() {
+    for seed in [3, 17, 42] {
+        let mut scenario = room();
+        scenario.seed = seed;
+        scenario.awareness.sight_range_metres = 30.0;
+        scenario.exits.push(Opening {
+            id: "south_exit".into(),
+            name: None,
+            wall_id: "south".into(),
+            offset: 3.0,
+            width: 4.0,
+        });
+        scenario.spawn_zones = vec![SpawnZone {
+            id: "crowd".into(),
+            name: None,
+            x: 3.5,
+            y: 3.0,
+            width: 3.0,
+            height: 4.0,
+            count: 30,
+        }];
+        let result = simulate(&scenario).unwrap();
+        assert_eq!(result.metrics.status, SimulationStatus::Completed);
+        assert_collision_free(&scenario, &result);
+        for person in &result.frames[0].agents {
+            let positions: Vec<_> = result
+                .frames
+                .iter()
+                .filter_map(|frame| frame.agents.iter().find(|agent| agent.id == person.id))
+                .collect();
+            let mut previous_direction = 0.0_f64;
+            let mut reversals = 0;
+            // Ignore small local avoidance corrections; count sustained travel
+            // of at least 0.4 m in successive one-second windows.
+            for window in positions.chunks(10) {
+                let travel = window.last().unwrap().y - window[0].y;
+                if travel.abs() < 0.4 {
+                    continue;
+                }
+                let direction = travel.signum();
+                if previous_direction != 0.0 && previous_direction != direction {
+                    reversals += 1;
+                }
+                previous_direction = direction;
+            }
+            assert!(
+                reversals <= 1,
+                "seed {seed}, agent {} reversed {reversals} times",
+                person.id
+            );
+        }
+    }
 }
