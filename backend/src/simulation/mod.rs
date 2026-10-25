@@ -38,7 +38,7 @@ impl fmt::Display for SimulationError {
 impl std::error::Error for SimulationError {}
 
 /// Continuous reactive crowd model. Agents walk at up to 1.3 m/s and evacuate
-/// upon reaching an available exit's centre; this does not certify outdoors.
+/// upon reaching the usable width of an available exit; this does not certify outdoors.
 pub fn simulate(scenario: &BuildingScenario) -> Result<SimulationResult, SimulationError> {
     simulate_with_emergencies(scenario, &[])
 }
@@ -192,32 +192,123 @@ fn run(
 
         let before: Vec<Point> = agents.iter().map(|agent| agent.position).collect();
         let previous_velocities: Vec<_> = motion.iter().map(motion::Motion::velocity).collect();
-        // Centre-arrival remains compatible with result consumers. The closest
-        // visible person gets approach priority; everybody still performs local
-        // avoidance. This does not model the full capacity of a wide opening.
-        let mut exit_leaders: BTreeMap<String, (usize, f64)> = BTreeMap::new();
-        for (i, route) in routes.iter().enumerate() {
+        // Reassess moving agents too, using only currently visible people.
+        // Stagger checks over a two-second interval and keep one snapshot for
+        // search, route comparison, and shortcut selection within this tick.
+        let mut occupants = vec![Vec::new(); agents.len()];
+        // Visibility is symmetric. Check each pair once, retaining agent order
+        // in each list so congestion sums remain deterministic.
+        for i in 0..agents.len() {
             if evacuated[i] {
                 continue;
             }
-            let Some(route) = route else { continue };
-            let Some(&target) = route.waypoints.last() else {
-                continue;
-            };
-            let distance = math::distance_to_point(before[i], target);
-            // Approach priority must use the person's beliefs too. Testing the
-            // actual closure here leaks unseen exit state into crowd steering.
-            let map = beliefs.geometry_for_agent(&agents[i]);
-            if !map.can_move(before[i], target) {
-                continue;
-            }
-            let leader = exit_leaders
-                .entry(route.exit_id.clone())
-                .or_insert((i, distance));
-            if distance < leader.1 || (distance == leader.1 && agents[i].id < agents[leader.0].id) {
-                *leader = (i, distance);
+            for j in i + 1..agents.len() {
+                if !evacuated[j]
+                    && math::distance_to_point(before[i], before[j])
+                        <= scenario.awareness.sight_range_metres
+                    && geometry.has_line_of_sight(before[i], before[j])
+                {
+                    occupants[i].push(before[j]);
+                    occupants[j].push(before[i]);
+                }
             }
         }
+        for i in 0..agents.len() {
+            if evacuated[i] {
+                continue;
+            }
+            let map = beliefs.geometry_for_agent(&agents[i]);
+            let lost_sight = routes[i]
+                .as_ref()
+                .is_some_and(|route| !map.can_move(before[i], route.waypoints[next_waypoint[i]]));
+            let stalled =
+                stalled_ticks[i] >= retry_ticks && stalled_ticks[i].is_multiple_of(retry_ticks);
+            let periodic = (u64::from(step) + i as u64).is_multiple_of(u64::from(retry_ticks));
+            if !lost_sight && !stalled && !periodic {
+                continue;
+            }
+            let current_cost = routes[i].as_ref().map(|route| {
+                navigation::route_cost(
+                    before[i],
+                    &route.waypoints[next_waypoint[i]..],
+                    &occupants[i],
+                    scenario.agent_radius,
+                )
+            });
+            let (map, navigation) = beliefs.for_agent(&agents[i]);
+            if let Some(route) = navigation.find_route_with_crowd(
+                before[i],
+                map,
+                &occupants[i],
+                scenario.agent_radius,
+            ) {
+                let cost = navigation::route_cost(
+                    before[i],
+                    &route.waypoints,
+                    &occupants[i],
+                    scenario.agent_radius,
+                );
+                if lost_sight
+                    || current_cost.is_none_or(|current| {
+                        navigation::materially_better(cost, current, scenario.agent_radius)
+                    })
+                {
+                    routes[i] = Some(route);
+                    next_waypoint[i] = 0;
+                    statistics[i].route_found = true;
+                }
+            }
+        }
+        // Priority is local to overlapping arrival lanes. A narrow opening
+        // still needs yielding, while separated lanes can arrive together.
+        // Use belief geometry here so unseen closures do not change guidance.
+        let arrival_targets: Vec<_> = routes
+            .iter()
+            .enumerate()
+            .map(|(i, route)| {
+                if evacuated[i] {
+                    return None;
+                }
+                let route = route.as_ref()?;
+                let map = beliefs.geometry_for_agent(&agents[i]);
+                let (start, end) = map.exit_segment(&route.exit_id)?;
+                let projected = math::closest_point_on_segment(before[i], start, end);
+                let target = if map.can_move(before[i], projected) {
+                    projected
+                } else {
+                    *route.waypoints.last()?
+                };
+                Some(target)
+            })
+            .collect();
+        let arrival_exit_ids: Vec<_> = routes
+            .iter()
+            .map(|route| route.as_ref().map(|route| route.exit_id.clone()))
+            .collect();
+        let same_lane = |i: usize, j: usize| {
+            arrival_exit_ids[i].is_some()
+                && arrival_exit_ids[i] == arrival_exit_ids[j]
+                && arrival_targets[i]
+                    .zip(arrival_targets[j])
+                    .is_some_and(|(a, b)| {
+                        math::distance_to_point(a, b) < 2.0 * scenario.agent_radius + 1e-4
+                    })
+        };
+        let arrival_priority: Vec<_> = (0..agents.len())
+            .map(|i| {
+                let Some(target) = arrival_targets[i] else {
+                    return false;
+                };
+                let distance = math::distance_to_point(before[i], target);
+                !(0..agents.len()).any(|j| {
+                    if i == j || !same_lane(i, j) {
+                        return false;
+                    }
+                    let other = math::distance_to_point(before[j], arrival_targets[j].unwrap());
+                    other < distance || (other == distance && agents[j].id < agents[i].id)
+                })
+            })
+            .collect();
         let mut proposed = before.clone();
         let active: Vec<_> = evacuated.iter().map(|gone| !gone).collect();
         let mut targets = vec![None; agents.len()];
@@ -229,36 +320,48 @@ fn run(
             if evacuated[i] {
                 continue;
             }
-            let map = beliefs.geometry_for_agent(&agents[i]);
-            let lost_sight = routes[i]
-                .as_ref()
-                .is_some_and(|route| !map.can_move(before[i], route.waypoints[next_waypoint[i]]));
-            if lost_sight
-                || (stalled_ticks[i] >= retry_ticks && stalled_ticks[i].is_multiple_of(retry_ticks))
-            {
-                let occupants: Vec<_> = before
-                    .iter()
-                    .enumerate()
-                    .filter(|(j, _)| *j != i && !evacuated[*j])
-                    .map(|(_, &position)| position)
-                    .collect();
-                let (map, navigation) = beliefs.for_agent(&agents[i]);
-                if let Some(route) = navigation.find_route_with_crowd(
-                    before[i],
-                    map,
-                    &occupants,
-                    scenario.agent_radius,
-                ) {
-                    routes[i] = Some(route);
-                    next_waypoint[i] = 0;
-                }
-            }
-            let Some(route) = &routes[i] else {
+            let Some(route) = &mut routes[i] else {
                 continue;
             };
             let map = beliefs.geometry_for_agent(&agents[i]);
+            // Let lateral avoidance choose a different arrival position rather
+            // than steering everybody back to an earlier fixed point.
+            if next_waypoint[i] + 1 == route.waypoints.len()
+                && let Some((start, end)) = map.exit_segment(&route.exit_id)
+            {
+                let target = math::closest_point_on_segment(before[i], start, end);
+                let last = route.waypoints.last_mut().unwrap();
+                if map.can_move(before[i], target)
+                    && navigation::route_cost(
+                        before[i],
+                        &[target],
+                        &occupants[i],
+                        scenario.agent_radius,
+                    ) <= navigation::route_cost(
+                        before[i],
+                        &[*last],
+                        &occupants[i],
+                        scenario.agent_radius,
+                    ) + math::EPSILON
+                {
+                    *last = target;
+                }
+            }
             for future in (next_waypoint[i] + 1..route.waypoints.len()).rev() {
-                if map.can_move(before[i], route.waypoints[future]) {
+                let shortcut = [route.waypoints[future]];
+                if map.can_move(before[i], shortcut[0])
+                    && navigation::route_cost(
+                        before[i],
+                        &shortcut,
+                        &occupants[i],
+                        scenario.agent_radius,
+                    ) <= navigation::route_cost(
+                        before[i],
+                        &route.waypoints[next_waypoint[i]..=future],
+                        &occupants[i],
+                        scenario.agent_radius,
+                    ) + math::EPSILON
+                {
                     next_waypoint[i] = future;
                     break;
                 }
@@ -266,26 +369,17 @@ fn run(
             let waypoint = route.waypoints[next_waypoint[i]];
             targets[i] = Some(waypoint);
             velocity_limits[i] = geometry.velocity_limits(before[i], scenario.time_step_seconds);
-            if next_waypoint[i] + 1 == route.waypoints.len()
-                && geometry.can_move(before[i], waypoint)
-            {
-                // Followers leave a body-sized arrival lane for the leader;
-                // otherwise they can crowd the plane and obstruct its centre.
-                velocity_limits[i].extend(
-                    geometry.exit_approach_limits(
-                        before[i],
-                        &route.exit_id,
-                        scenario.time_step_seconds,
-                        if exit_leaders
-                            .get(&route.exit_id)
-                            .is_some_and(|&(leader, _)| leader == i)
-                        {
-                            0.0
-                        } else {
-                            2.0 * scenario.agent_radius + 1e-4
-                        },
-                    ),
-                );
+            if geometry.can_move(before[i], *route.waypoints.last().unwrap()) {
+                velocity_limits[i].extend(geometry.exit_approach_limits(
+                    before[i],
+                    &route.exit_id,
+                    scenario.time_step_seconds,
+                    if arrival_priority[i] {
+                        0.0
+                    } else {
+                        2.0 * scenario.agent_radius + 1e-4
+                    },
+                ));
             }
         }
         let previous_neighbors = |i: usize| -> Vec<_> {
@@ -331,15 +425,10 @@ fn run(
                     velocity: intents[j],
                     responsibility: if routes[j].is_none() {
                         1.0
-                    } else if routes[j]
-                        .as_ref()
-                        .is_some_and(|other| other.exit_id == route.exit_id)
-                    {
-                        match exit_leaders.get(&route.exit_id).map(|&(index, _)| index) {
-                            Some(leader) if leader == i => 0.05,
-                            Some(leader) if leader == j => 0.95,
-                            _ => 0.5,
-                        }
+                    } else if same_lane(i, j) && arrival_priority[i] {
+                        0.05
+                    } else if same_lane(i, j) && arrival_priority[j] {
+                        0.95
                     } else {
                         0.5
                     },
@@ -365,9 +454,8 @@ fn run(
                 &neighbors,
                 velocity_limits[i].clone(),
             );
-            if exit_leaders
-                .get(&route.exit_id)
-                .is_some_and(|&(leader, _)| leader == i)
+            if arrival_priority[i]
+                && next_waypoint[i] + 1 == route.waypoints.len()
                 && math::distance_to_point(before[i], exit)
                     <= 2.0 * scenario.agent_radius + movement_budget
                 && geometry.can_move(before[i], exit)
@@ -392,11 +480,7 @@ fn run(
             .map(|i| {
                 if targets[i].is_none() {
                     0.0
-                } else if routes[i].as_ref().is_some_and(|route| {
-                    exit_leaders
-                        .get(&route.exit_id)
-                        .is_some_and(|&(leader, _)| leader == i)
-                }) {
+                } else if arrival_priority[i] {
                     if math::distance_to_point(
                         before[i],
                         *routes[i].as_ref().unwrap().waypoints.last().unwrap(),
@@ -428,6 +512,8 @@ fn run(
             }
         }
         motion::resolve_collisions(&before, &mut proposed, &active, scenario.agent_radius);
+        #[cfg(test)]
+        tests::assert_accepted_moves(scenario, &geometry, &before, &proposed, &active);
         let mut leaving = Vec::new();
         let mut progress = false;
         for i in 0..agents.len() {
@@ -452,14 +538,16 @@ fn run(
                 stalled_ticks[i] += 1;
             }
             progress |= travelled > math::EPSILON;
-            if math::distance_to_point(proposed[i], waypoint) <= math::EPSILON {
-                next_waypoint[i] += 1;
+            let route = routes[i].as_ref().unwrap();
+            if geometry.at_exit(proposed[i], &route.exit_id) {
+                leaving.push(i);
                 progress = true;
-                if next_waypoint[i] == routes[i].as_ref().unwrap().waypoints.len()
-                    && !world.states[&routes[i].as_ref().unwrap().exit_id].blocked
-                {
-                    leaving.push(i);
-                }
+            } else if math::distance_to_point(proposed[i], waypoint) <= math::EPSILON {
+                next_waypoint[i] += 1;
+                // A believed opening may be physically closed. Retry discovery
+                // rather than advancing beyond the final route waypoint.
+                next_waypoint[i] = next_waypoint[i].min(route.waypoints.len() - 1);
+                progress = true;
             }
         }
 

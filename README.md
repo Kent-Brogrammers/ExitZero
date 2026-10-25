@@ -12,7 +12,9 @@ To start both servers from the repository root:
 ./dev.sh
 ```
 
-The script installs frontend dependencies if `node_modules` is missing. Press Ctrl+C to stop both servers; if either server exits, the other stops too.
+The script installs frontend dependencies if `node_modules` is missing. Press Ctrl+C to stop both servers; if either server exits, the other stops too. The backend development profile optimizes the app crate while retaining debug symbols and incremental compilation; dependencies keep their usual development settings.
+
+To measure compute time independently of the live view's real-time pacing, run `cargo run --manifest-path backend/Cargo.toml --locked --example benchmark_simulation` from the repository root. This runs the checked-in example with 30 occupants three times. Pass an output JSON path after `--` to save the first result for before/after comparison.
 
 To run them separately, in one terminal:
 
@@ -38,6 +40,10 @@ Under **Settings → Agent awareness**, adjust sight range (default 8 m) and com
 Wall memory records only observed portions within sight range and clear sight lines. Seeing a sliver does not reveal the wall's hidden extent or endpoints, and separate visible patches do not fill an occluded gap. These fragments accumulate as people move; yelling shares the same observed fragments. Near occlusion boundaries, uncertain portions below a centimetre may be omitted rather than revealing hidden material. Route graphs use only remembered fragments and are rebuilt when new knowledge invalidates the current route or an opening changes.
 
 Rectangular obstructions and circular emergency zones also enter each person's route map only after discovery. Visibility uses the nearest surface of an obstruction or hazard, so a large hazard can be noticed without seeing its centre. Yelling requires both range and a clear path: walls, closed doors, and obstructions block reports. Reports travel one hop per physics tick, and newer opening-state reports supersede stale ones. Dijkstra searches each person's belief map again when new information changes it. Actual collision checks always enforce the real world, even for an unseen blockage.
+
+Agents reassess routes every two simulated seconds, with checks staggered across the crowd. They estimate congestion from people currently within sight and a clear line of sight, adding a soft travel cost around those positions. Route search can choose another known doorway or exit; it retains the current route unless the alternative saves more than 15% of its estimated cost and at least one agent diameter. Waypoint shortcuts use the same congestion cost so they preserve useful detours. Crowds never become impassable geometry, and this heuristic does not predict queue clearance times.
+
+Exit routes target the usable span of each opening, with agent-radius and wall-thickness clearance at the jambs. People can approach different positions across a wide exit and evacuate side by side. Arrival is counted when an agent's centre reaches that span; narrow exits still require people to yield through ordinary crowd avoidance and collision checks. The exit plane applies equally to openings in horizontal, vertical, and angled walls, approached from either side.
 
 The Rust `simulate_with_emergencies` entry point accepts static circular exclusion zones. This discovery model does not add a fire creation/spread system; future hazard logic can supply door/exit closures through the runtime changes below. Obstructions and circular hazard geometry currently remain fixed for each run.
 

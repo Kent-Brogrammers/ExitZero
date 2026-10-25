@@ -90,6 +90,28 @@ impl Occluder {
         }
     }
 
+    /// Cheap conservative rejection before ray and polygon intersection work.
+    fn overlaps_bounds(self, min: Point, max: Point) -> bool {
+        let (left, top, right, bottom) = match self {
+            Self::Capsule { start, end, radius } => (
+                start.x.min(end.x) - radius,
+                start.y.min(end.y) - radius,
+                start.x.max(end.x) + radius,
+                start.y.max(end.y) + radius,
+            ),
+            Self::Rectangle {
+                x,
+                y,
+                width,
+                height,
+            } => (x, y, x + width, y + height),
+        };
+        left <= max.x + math::EPSILON
+            && right >= min.x - math::EPSILON
+            && top <= max.y + math::EPSILON
+            && bottom >= min.y - math::EPSILON
+    }
+
     fn intersects_triangle(self, triangle: &[Point; 3]) -> bool {
         match self {
             Self::Capsule { start, end, radius } => {
@@ -157,9 +179,20 @@ pub(super) fn visible_intervals(
         let a = math::interpolate(start, end, left);
         let b = math::interpolate(start, end, right);
         let triangle = [from, a, b];
+        let min = Point {
+            x: from.x.min(a.x).min(b.x),
+            y: from.y.min(a.y).min(b.y),
+        };
+        let max = Point {
+            x: from.x.max(a.x).max(b.x),
+            y: from.y.max(a.y).max(b.y),
+        };
         let mut uncertain = false;
         let mut hidden = false;
         for &obstacle in occluders {
+            if !obstacle.overlaps_bounds(min, max) {
+                continue;
+            }
             // The shadow of a convex obstacle is convex. Both endpoints behind
             // the same obstacle imply that the whole interval is hidden.
             if obstacle.blocks_ray(from, a) && obstacle.blocks_ray(from, b) {
