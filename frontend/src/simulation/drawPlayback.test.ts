@@ -48,7 +48,11 @@ describe("playback Canvas", () => {
       const { context, element } = fixture(600, 400);
       const palette = { ...canvasPalette(element), blueprint };
       const frame = { step: 1, agents: [], blocked_opening_ids: ["door"] };
-      drawPlayback(element, syntheticBuilding, frame, 1, palette);
+      drawPlayback(element, syntheticBuilding, frame, 1, palette, false, {
+        hazardMode: "filled",
+        showBlockedLabels: true,
+        showTraffic: true,
+      });
       expect(
         context.fillText.mock.calls.some(([text]) =>
           String(text).startsWith("Closed door"),

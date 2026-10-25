@@ -380,15 +380,26 @@ export function translateElement(
   return next;
 }
 
+export type CanvasCamera = {
+  zoom: number;
+  pan: Point;
+  extent?: Pick<BuildingScenario, "width" | "height">;
+};
+
 export function canvasView(
   width: number,
   height: number,
   building: BuildingScenario,
+  camera?: CanvasCamera,
+  pixelRatio = 1,
 ) {
-  const scale = Math.min(width / building.width, height / building.height);
+  const extent = camera?.extent ?? building;
+  const scale =
+    Math.min(width / extent.width, height / extent.height) *
+    (camera?.zoom ?? 1);
   return {
     scale,
-    x: (width - building.width * scale) / 2,
-    y: (height - building.height * scale) / 2,
+    x: (width - extent.width * scale) / 2 + (camera?.pan.x ?? 0) * pixelRatio,
+    y: (height - extent.height * scale) / 2 + (camera?.pan.y ?? 0) * pixelRatio,
   };
 }

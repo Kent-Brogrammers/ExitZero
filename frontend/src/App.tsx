@@ -694,7 +694,16 @@ export default function App() {
       await api.cancelComputation(id);
       if (!background.current) {
         controller.abort();
-        setLive((previous) => previous ? { ...previous, status: "cancelled", speed_pending: false, control_error: undefined } : previous);
+        setLive((previous) =>
+          previous
+            ? {
+                ...previous,
+                status: "cancelled",
+                speed_pending: false,
+                control_error: undefined,
+              }
+            : previous,
+        );
       }
     } catch (error) {
       // Keep the request connected so a failed Stop cannot abandon batch work.

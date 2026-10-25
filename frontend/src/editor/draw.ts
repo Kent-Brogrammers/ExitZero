@@ -1,7 +1,12 @@
 import { formatDimensions } from "../utils/units";
 import { drawStalker } from "./drawPursuit";
 import type { Point, WindowFrameState } from "../types/simulation";
-import { canvasView, openingSegment, type Selection } from "./geometry";
+import {
+  canvasView,
+  openingSegment,
+  type Selection,
+  type CanvasCamera,
+} from "./geometry";
 import { drawGrid } from "./drawGrid";
 import type { DraftingPreferences } from "./drafting";
 import {
@@ -31,6 +36,7 @@ export function drawLayout(
   pixelRatio = 1,
   palette: CanvasPalette = canvasPalette(canvas),
   options?: {
+    camera?: CanvasCamera;
     grid?: DraftingPreferences;
     furniture?: ReadonlyMap<string, FurnitureKind>;
     underlay?: (ctx: CanvasRenderingContext2D) => void;
@@ -52,7 +58,13 @@ export function drawLayout(
   const height = Math.max(1, Math.round(display.height * ratio));
   if (canvas.width !== width) canvas.width = width;
   if (canvas.height !== height) canvas.height = height;
-  const { scale, x, y } = canvasView(canvas.width, canvas.height, building);
+  const { scale, x, y } = canvasView(
+    canvas.width,
+    canvas.height,
+    building,
+    options?.camera,
+    ratio,
+  );
   const px = ratio / scale;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -85,7 +97,15 @@ export function drawLayout(
     }
   }
   if (options?.grid)
-    drawGrid(ctx, building, { scale, x, y }, ratio, options.grid, palette);
+    drawGrid(
+      ctx,
+      building,
+      { scale, x, y },
+      ratio,
+      options.grid,
+      palette,
+      !!options.camera,
+    );
   if (building.disaster) {
     const kind = options?.disasterState?.kind ?? building.disaster.kind;
     const color =

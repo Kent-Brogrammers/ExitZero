@@ -131,6 +131,7 @@ pub(super) fn run(
     let mut gone = vec![false; people.len()];
     let mut routes: Vec<Option<Route>> = people.iter().map(|_| None).collect();
     let mut hunter_route = None;
+    let mut controllers: Vec<_> = people.iter().map(|_| motion::Motion::new()).collect();
     let mut caught = Vec::new();
     let mut escaped = 0;
     let mut frames = Vec::new();
@@ -217,23 +218,125 @@ pub(super) fn run(
         }
         control::checkpoint()?;
         let before: Vec<_> = people.iter().map(|a| a.position).collect();
-        let mut proposed: Vec<_> = before
-            .iter()
-            .enumerate()
-            .map(|(i, &position)| {
-                if gone[i] {
-                    position
-                } else {
-                    advance(
-                        position,
-                        &mut routes[i],
-                        config.survivor_speed * scenario.time_step_seconds,
-                        &geometry,
-                    )
+        // Use the ordinary reciprocal crowd controller, rather than proposing
+        // straight overlapping paths and repeatedly stopping everyone involved.
+        // Its velocity units use WALKING_SPEED; scaling the movement interval
+        // preserves the configured survivor speed through every correction.
+        let movement_dt =
+            scenario.time_step_seconds * config.survivor_speed / motion::WALKING_SPEED;
+        let budget = config.survivor_speed * scenario.time_step_seconds;
+        let active: Vec<_> = gone.iter().map(|g| !g).collect();
+        let mut targets = vec![None; people.len()];
+        let mut limits = vec![Vec::new(); people.len()];
+        for i in 0..people.len() {
+            if gone[i] {
+                continue;
+            }
+            if let Some(route) = &mut routes[i] {
+                // Lateral avoidance need not return to a waypoint it has passed.
+                while route.waypoints.len() > 1
+                    && math::distance_to_point(before[i], route.waypoints[0]) <= budget
+                    && geometry.can_move(before[i], route.waypoints[1])
+                {
+                    route.waypoints.remove(0);
                 }
+                if route.waypoints.len() == 1
+                    && let Some((start, end)) = geometry.exit_segment(&route.exit_id)
+                {
+                    let target = math::closest_point_on_segment(before[i], start, end);
+                    if geometry.can_move(before[i], target) {
+                        route.waypoints[0] = target;
+                    }
+                }
+                targets[i] = route.waypoints.first().copied();
+            }
+            limits[i] = geometry.velocity_limits(before[i], movement_dt);
+        }
+        let neighbors = |i: usize, velocities: &[Point]| -> Vec<_> {
+            before
+                .iter()
+                .enumerate()
+                .filter(|(j, _)| *j != i && !gone[*j])
+                .map(|(j, &position)| motion::Neighbor {
+                    position,
+                    velocity: velocities[j],
+                    responsibility: if targets[j].is_none() { 1.0 } else { 0.5 },
+                    horizon: routes[i]
+                        .as_ref()
+                        .zip(routes[j].as_ref())
+                        .filter(|(a, b)| a.exit_id == b.exit_id)
+                        .map_or(1.5, |(a, _)| {
+                            let exit = *a.waypoints.last().unwrap();
+                            (math::distance_to_point(before[i], exit)
+                                .min(math::distance_to_point(position, exit))
+                                / motion::WALKING_SPEED
+                                + movement_dt)
+                                .min(1.5)
+                        }),
+                })
+                .collect()
+        };
+        let previous: Vec<_> = controllers.iter().map(|m| m.velocity()).collect();
+        let intents: Vec<_> = (0..people.len())
+            .map(|i| {
+                targets[i].map_or(Point { x: 0.0, y: 0.0 }, |target| {
+                    controllers[i].preferred_velocity(
+                        before[i],
+                        target,
+                        movement_dt,
+                        scenario.agent_radius,
+                        &neighbors(i, &previous),
+                        &limits[i],
+                    )
+                })
             })
             .collect();
-        let active: Vec<_> = gone.iter().map(|g| !g).collect();
+        let mut proposed = before.clone();
+        for i in 0..people.len() {
+            let Some(target) = targets[i] else {
+                continue;
+            };
+            let mut candidate = controllers[i].propose(
+                before[i],
+                intents[i],
+                movement_dt,
+                scenario.agent_radius,
+                &neighbors(i, &intents),
+                limits[i].clone(),
+            );
+            // Finish the last short segment exactly instead of asymptotically
+            // stopping at the exit plane or a visibility-graph corner.
+            if math::distance_to_point(before[i], target) <= budget
+                && geometry.can_move(before[i], target)
+            {
+                candidate = target;
+            }
+            candidate.x = candidate.x.clamp(0.0, scenario.width);
+            candidate.y = candidate.y.clamp(0.0, scenario.height);
+            if geometry.can_move(before[i], candidate) {
+                proposed[i] = candidate;
+            }
+        }
+        let compliance: Vec<_> = targets
+            .iter()
+            .map(|t| if t.is_some() { 1.0 } else { 0.0 })
+            .collect();
+        motion::coordinate_moves(
+            &before,
+            &mut proposed,
+            &active,
+            &compliance,
+            scenario.agent_radius,
+            movement_dt,
+            &limits,
+        );
+        for i in 0..people.len() {
+            proposed[i].x = proposed[i].x.clamp(0.0, scenario.width);
+            proposed[i].y = proposed[i].y.clamp(0.0, scenario.height);
+            if !geometry.can_move(before[i], proposed[i]) {
+                proposed[i] = before[i];
+            }
+        }
         motion::resolve_collisions(&before, &mut proposed, &active, scenario.agent_radius);
         let hunter_before = stalker;
         stalker = advance(
@@ -251,6 +354,7 @@ pub(super) fn run(
             if !geometry.can_move(before[i], proposed[i]) {
                 proposed[i] = before[i];
             }
+            controllers[i].accepted(before[i], proposed[i], movement_dt);
             people[i].position = proposed[i];
             if contact(
                 before[i],

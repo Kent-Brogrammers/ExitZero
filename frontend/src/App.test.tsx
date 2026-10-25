@@ -343,7 +343,10 @@ describe("stopping live simulation", () => {
     const [, onFrame, signal] = vi.mocked(api.simulateLive).mock.calls[1]!;
     await click("Stop Simulation");
     expect(signal!.aborted).toBe(true);
-    expect(workspace()).toMatchObject({ result: null, live: { status: "cancelled" } });
+    expect(workspace()).toMatchObject({
+      result: null,
+      live: { status: "cancelled" },
+    });
     expect(button("Run Simulation").disabled).toBe(false);
     expect(document.body.textContent).toContain(
       "Simulation stopped. No recording was saved.",
@@ -352,7 +355,10 @@ describe("stopping live simulation", () => {
       "The operation was aborted",
     );
     await act(async () => onFrame(recording.frames[0]!));
-    expect(workspace().live).toMatchObject({ status: "cancelled", frame: recording.frames[0] });
+    expect(workspace().live).toMatchObject({
+      status: "cancelled",
+      frame: recording.frames[0],
+    });
     vi.mocked(api.simulateLive).mockResolvedValueOnce(recording);
     await click("Run Simulation");
     expect(workspace().result).toEqual(recording);
@@ -372,7 +378,10 @@ describe("stopping live simulation", () => {
     await click("Run Simulation");
     await click("Stop Simulation");
     await act(async () => finish(recording));
-    expect(workspace()).toMatchObject({ result: null, live: { status: "cancelled" } });
+    expect(workspace()).toMatchObject({
+      result: null,
+      live: { status: "cancelled" },
+    });
     expect(button("Run Simulation").disabled).toBe(false);
     expect(document.body.textContent).toContain("Simulation stopped.");
   });

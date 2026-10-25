@@ -175,7 +175,7 @@
 }
 .editor-panel .editor-canvas-wrap {
   position: absolute;
-  inset: 0 88px 62px;
+  inset: 0 0 62px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -509,4 +509,39 @@
 }
 .editor-panel .window-properties :is(.number-field, .block-toggle) {
   margin: 0;
+}
+
+.canvas-navigation {
+  position: absolute;
+  left: 50%;
+  bottom: 42px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--cad-rail-border);
+  border-radius: 7px;
+  background: var(--cad-rail);
+  color: var(--cad-text);
+  z-index: 5;
+  white-space: nowrap;
+}
+.canvas-navigation button {
+  padding: 5px 9px;
+}
+.canvas-navigation output {
+  min-width: 44px;
+  text-align: center;
+  font-size: 11px;
+}
+.canvas-navigation span {
+  font-size: 10px;
+  color: var(--cad-muted);
+  padding: 0 6px;
+}
+@media (max-width: 760px) {
+  .canvas-navigation span {
+    display: none;
+  }
 }
