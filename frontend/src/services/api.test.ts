@@ -29,6 +29,61 @@ function respond(body: unknown, status = 200) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("API integration contract", () => {
+  it("accepts optional communication events and rejects invented IDs, recipients or future times", async () => {
+    const event = {
+      step: 0,
+      sender_id: mock.frames[0]!.agents[0]!.id,
+      recipient_ids: [mock.frames[0]!.agents[1]!.id],
+      opening_id: building.exits[0]!.id,
+      blocked: true,
+    };
+    const result = { ...mock, communication_events: [event] };
+    respond(result);
+    await expect(client.simulate(building)).resolves.toEqual(result);
+    const discovery = { ...event, event_type: "discovery", recipient_ids: [] };
+    const typed = {
+      ...result,
+      communication_events: [discovery, { ...event, event_type: "shared" }],
+    };
+    respond(typed);
+    await expect(client.simulate(building)).resolves.toEqual(typed);
+    for (const bad of [
+      { ...event, event_type: "discovery" },
+      { ...event, event_type: "shared", recipient_ids: [] },
+      { ...event, event_type: "invented" },
+      { ...event, sender_id: 4294967295 },
+      { ...event, recipient_ids: [event.sender_id] },
+      { ...event, recipient_ids: [4294967295] },
+      { ...event, recipient_ids: [] },
+      {
+        ...event,
+        recipient_ids: [event.recipient_ids[0], event.recipient_ids[0]],
+      },
+      { ...event, opening_id: "missing-opening" },
+      { ...event, step: 100000 },
+    ]) {
+      respond({ ...result, communication_events: [bad] });
+      await expect(client.simulate(building)).rejects.toMatchObject({
+        code: "invalid_response",
+      });
+    }
+    respond({ ...result, communication_events: [event, event] });
+    await expect(client.simulate(building)).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+    respond({
+      ...result,
+      communication_events: [
+        { ...event, step: mock.frames.at(-1)!.step },
+        event,
+      ],
+    });
+    await expect(client.simulate(building)).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+    respond(mock);
+    await expect(client.simulate(building)).resolves.toEqual(mock);
+  });
   it("accepts explicit window route counts and rejects inconsistent totals or queue IDs", async () => {
     // Synthetic contract test data only; the API never manufactures these outcomes.
     const result = {

@@ -66,6 +66,42 @@ function checkSimulation(
   building: BuildingScenario,
 ): SimulationResult {
   checkMetrics(result);
+  if (result.communication_events) {
+    const ids = new Set([
+      ...(result.frames[0]?.agents.map((a) => a.id) ?? []),
+      ...(result.analytics?.agents.map((a) => a.id) ?? []),
+    ]);
+    const openings = new Set(
+      [...building.doors, ...building.exits].map((o) => o.id),
+    );
+    const lastStep = result.frames.at(-1)?.step ?? -1;
+    const seen = new Set<string>();
+    let previousStep = 0;
+    for (const event of result.communication_events) {
+      const key = JSON.stringify([
+        event.step,
+        event.event_type ?? "shared",
+        event.sender_id,
+        event.opening_id,
+      ]);
+      if (
+        event.step < previousStep ||
+        event.step > lastStep ||
+        seen.has(key) ||
+        !ids.has(event.sender_id) ||
+        !openings.has(event.opening_id) ||
+        event.recipient_ids.includes(event.sender_id) ||
+        event.recipient_ids.some((id) => !ids.has(id))
+      )
+        throw new ApiError(
+          200,
+          "invalid_response",
+          "Backend returned invalid communication event references or timing.",
+        );
+      seen.add(key);
+      previousStep = event.step;
+    }
+  }
   if (
     result.analytics?.agents.some((a) => {
       const route = a.escape_route;

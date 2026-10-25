@@ -150,6 +150,9 @@ pub struct SimulationResult {
     /// Optional for compatibility with older saved results and synthetic fixtures.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub analytics: Option<SimulationAnalytics>,
+    /// None for legacy recordings; Some([]) means no new opening information.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub communication_events: Option<Vec<super::CommunicationEvent>>,
 }
 
 impl SimulationResult {
@@ -299,6 +302,50 @@ impl SimulationResult {
                 {
                     return Err("invalid window state or queue membership in frame".into());
                 }
+            }
+        }
+        if let Some(events) = &self.communication_events {
+            let ids: std::collections::HashSet<_> = self
+                .frames
+                .first()
+                .into_iter()
+                .flat_map(|f| f.agents.iter().map(|a| a.id))
+                .chain(
+                    self.analytics
+                        .iter()
+                        .flat_map(|a| a.agents.iter().map(|a| a.id)),
+                )
+                .collect();
+            let last_step = self.frames.last().map(|f| f.step);
+            let mut seen = std::collections::HashSet::new();
+            let mut previous = 0;
+            for event in events {
+                let recipients: std::collections::HashSet<_> =
+                    event.recipient_ids.iter().copied().collect();
+                if event.step > 100_000
+                    || event.step < previous
+                    || last_step.is_none_or(|step| event.step > step)
+                    || !ids.contains(&event.sender_id)
+                    || event.opening_id.trim().is_empty()
+                    || event.opening_id.chars().count() > 64
+                    || match event.event_type {
+                        super::CommunicationEventType::Discovery => !recipients.is_empty(),
+                        super::CommunicationEventType::Shared => recipients.is_empty(),
+                    }
+                    || recipients.len() > 10000
+                    || recipients.len() != event.recipient_ids.len()
+                    || recipients.contains(&event.sender_id)
+                    || recipients.iter().any(|id| !ids.contains(id))
+                    || !seen.insert((
+                        event.step,
+                        event.event_type,
+                        event.sender_id,
+                        &event.opening_id,
+                    ))
+                {
+                    return Err("invalid communication event time, source or recipients".into());
+                }
+                previous = event.step;
             }
         }
         Ok(())

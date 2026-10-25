@@ -139,6 +139,7 @@ fn run(
     let mut evacuated_count = 0;
     let mut step = 0;
     let mut idle_steps = 0;
+    let mut communication_events = Vec::new();
     let movement_budget = motion::WALKING_SPEED * scenario.time_step_seconds;
 
     // Bound animation output by sampling ticks, retaining initial/final frames.
@@ -177,8 +178,22 @@ fn run(
             break SimulationStatus::Completed;
         }
         let now = f64::from(step) * scenario.time_step_seconds;
-        let (changed_beliefs, information_changed) =
-            awareness::update_knowledge(&mut agents, &evacuated, &world, &geometry);
+        let (changed_beliefs, information_changed) = awareness::update_knowledge(
+            &mut agents,
+            &evacuated,
+            &world,
+            &geometry,
+            |event_type, sender_id, opening_id, blocked, recipient_ids| {
+                communication_events.push(crate::models::CommunicationEvent {
+                    step,
+                    event_type,
+                    sender_id,
+                    opening_id: opening_id.to_owned(),
+                    blocked,
+                    recipient_ids,
+                });
+            },
+        );
         for i in 0..agents.len() {
             if evacuated[i] || windows.controls(i) || !changed_beliefs[i] {
                 continue;
@@ -825,6 +840,7 @@ fn run(
         height: scenario.height,
         time_step_seconds: scenario.time_step_seconds,
         analytics: Some(analytics),
+        communication_events: Some(communication_events),
     })
 }
 

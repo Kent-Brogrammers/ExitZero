@@ -278,6 +278,45 @@
         }
       }
     },
+    "CommunicationEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "step",
+        "sender_id",
+        "recipient_ids",
+        "opening_id",
+        "blocked"
+      ],
+      "properties": {
+        "step": { "type": "integer", "minimum": 0, "maximum": 100000 },
+        "event_type": { "enum": ["discovery", "shared"] },
+        "sender_id": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "recipient_ids": {
+          "type": "array",
+          "maxItems": 10000,
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
+        },
+        "opening_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "\\S"
+        },
+        "blocked": { "type": "boolean" }
+      },
+      "if": {
+        "required": ["event_type"],
+        "properties": { "event_type": { "const": "discovery" } }
+      },
+      "then": {
+        "properties": { "recipient_ids": { "type": "array", "maxItems": 0 } }
+      },
+      "else": {
+        "properties": { "recipient_ids": { "type": "array", "minItems": 1 } }
+      }
+    },
     "AnimationFrame": {
       "type": "object",
       "additionalProperties": false,
@@ -390,6 +429,10 @@
         },
         "analytics": {
           "$ref": "#/$defs/SimulationAnalytics"
+        },
+        "communication_events": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/CommunicationEvent" }
         },
         "evacuated_by_route": {
           "$ref": "#/$defs/EvacuatedByRoute"

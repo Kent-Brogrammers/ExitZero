@@ -15,6 +15,7 @@ function fixture(width: number, height: number) {
     clearRect: vi.fn(),
     fillRect: vi.fn(),
     fillText: vi.fn(),
+    measureText: vi.fn((text: string) => ({ width: text.length * 6 })),
     beginPath: vi.fn(),
     moveTo: vi.fn(),
     lineTo: vi.fn(),
@@ -41,6 +42,79 @@ function fixture(width: number, height: number) {
 }
 
 describe("playback Canvas", () => {
+  it("keeps numbered dots compact at small world scales and restores physical display radii when off", () => {
+    const { context, element } = fixture(600, 400);
+    const building = { ...syntheticBuilding, width: 1000, height: 1000 };
+    const frame = {
+      step: 0,
+      agents: [
+        { id: 0, x: 1, y: 1 },
+        { id: 9999, x: 500, y: 500 },
+      ],
+    };
+    drawPlayback(element, building, frame, 2, undefined, true);
+    expect(context.arc.mock.calls.map((args) => args[2])).toEqual([17, 28]);
+    expect(context.fillText.mock.calls.some(([text]) => text === "10000")).toBe(
+      true,
+    );
+    context.arc.mockClear();
+    drawPlayback(element, building, frame, 2);
+    expect(context.arc.mock.calls.every((args) => Number(args[2]) < 1)).toBe(
+      true,
+    );
+  });
+  it("numbers stable IDs starting at one, follows positions, and restores plain dots when toggled off", () => {
+    const main = fixture(600, 400),
+      cache = fixture(600, 400);
+    const render = createPlaybackRenderer(
+      main.element,
+      syntheticBuilding,
+      cache.element,
+    );
+    const frame = {
+      step: 0,
+      agents: [
+        { id: 0, x: 1, y: 1 },
+        { id: 7, x: 2, y: 2 },
+      ],
+    };
+    render(frame, 2);
+    expect(
+      main.context.fillText.mock.calls.filter(([text]) =>
+        /^\d+$/.test(String(text)),
+      ),
+    ).toEqual([]);
+    main.context.fillText.mockClear();
+    render(frame, 2, true);
+    const view = canvasView(
+      main.canvas.width,
+      main.canvas.height,
+      syntheticBuilding,
+    );
+    expect(main.context.fillText).toHaveBeenCalledWith(
+      "1",
+      worldToCanvas(frame.agents[0]!, view).x,
+      worldToCanvas(frame.agents[0]!, view).y,
+    );
+    expect(main.context.fillText).toHaveBeenCalledWith(
+      "8",
+      worldToCanvas(frame.agents[1]!, view).x,
+      worldToCanvas(frame.agents[1]!, view).y,
+    );
+    main.context.fillText.mockClear();
+    render({ step: 5, agents: [{ id: 7, x: 2.5, y: 1.5 }] }, 2, true);
+    const moved = worldToCanvas({ x: 2.5, y: 1.5 }, view);
+    expect(main.context.fillText).toHaveBeenCalledExactlyOnceWith(
+      "8",
+      moved.x,
+      moved.y,
+    );
+    main.context.fillText.mockClear();
+    render(frame, 2, false);
+    expect(main.context.fillText).not.toHaveBeenCalled();
+    expect(cache.context.drawImage).toHaveBeenCalledTimes(1);
+    expect(frame.agents.map((a) => a.id)).toEqual([0, 7]);
+  });
   it("allows the welcome preview to omit dimensions while editor/playback keep the default caption", () => {
     const normal = fixture(600, 400),
       welcome = fixture(600, 400);
