@@ -417,6 +417,7 @@ export function buildDxf(
     walls,
     doors: [],
     exits: [],
+    ...(base.windows ? { windows: [] } : {}),
     spawn_zones: [],
     blocked_exit_ids: [],
     opening_events: [],

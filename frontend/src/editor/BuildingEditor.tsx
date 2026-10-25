@@ -1,4 +1,3 @@
-import { blankManualLayout } from "./dxf/classify";
 import DxfImport from "./dxf/DxfImport";
 import {
   addFurniture,
@@ -118,6 +117,7 @@ export function BuildingEditor({
   const [drafting, setDrafting] = useDraftingPreferences();
   const canvas = useRef<HTMLCanvasElement>(null);
   const importInput = useRef<HTMLInputElement>(null);
+  const dxfDialog = useRef<HTMLDialogElement>(null);
   const propertiesButton = useRef<HTMLButtonElement>(null);
   const savedLayout = useRef(JSON.stringify(building));
   const [furnitureSymbols, setFurnitureSymbols] = useState(
@@ -872,10 +872,8 @@ export function BuildingEditor({
       <DxfImport
         base={building}
         disabled={disabled}
+        dialogRef={dxfDialog}
         onApply={(next) => replaceLayout(next, "the reviewed DXF layout")}
-        onDrawOwn={() =>
-          replaceLayout(blankManualLayout(building), "a blank manual layout")
-        }
       />
       <fieldset className="editor-controls" disabled={disabled}>
         <div className="editor-workspace">
@@ -918,6 +916,7 @@ export function BuildingEditor({
                 replaceLayout(structuredClone(preset.building), preset.label)
               }
               onImport={() => importInput.current?.click()}
+              onImportDxf={() => dxfDialog.current?.showModal()}
               onExport={exportLayout}
               onProperties={() => setPropertiesOpen(!propertiesOpen)}
               drafting={drafting}
