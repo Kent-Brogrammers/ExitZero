@@ -26,6 +26,12 @@ import { SimulationSummary } from "./SimulationSummary";
 import { frameLayout } from "./frameLayout";
 import { SimulationDetails } from "./SimulationDetails";
 import { AgentChat } from "./AgentChat";
+import { outcomeExplanation } from "../analytics/presentation";
+import { StudioPopover } from "../ui/StudioPopover";
+import {
+  defaultDisplayOptions,
+  type SimulationDisplayOptions,
+} from "./displayOptions";
 import "./SimulationView.css";
 
 interface SimulationViewProps {
@@ -39,6 +45,7 @@ interface SimulationViewProps {
 }
 
 interface PlaybackProps extends SimulationViewProps {
+  displayOptions: SimulationDisplayOptions;
   synthetic: boolean;
   analyticsOpen: boolean;
   onCloseAnalytics: () => void;
@@ -60,6 +67,7 @@ function Playback({
   showAgentNumbers,
   showAgentChat,
   onCloseChat,
+  displayOptions,
 }: PlaybackProps) {
   const theme = useStudioTheme();
 
@@ -86,6 +94,7 @@ function Playback({
     if (index < 0) return;
     player.pause();
     player.seek(index);
+    if (replayTarget.play) player.play();
     canvas.current?.focus({ preventScroll: true });
   }, [replayTarget, recording, player]);
   const frames = recording?.frames ?? [];
@@ -114,10 +123,18 @@ function Playback({
   }, [active, player]);
   useEffect(() => {
     const element = canvas.current;
-    if (!element) return;
-    const render = createPlaybackRenderer(element, building);
+    if (!active || !element) return;
+    const render = createPlaybackRenderer(
+      element,
+      building,
+      undefined,
+      displayOptions,
+    );
     const palette = canvasPalette(element);
-    const trailSampler = recording ? createRecordedTrails(recording) : null;
+    const trailSampler =
+      recording && displayOptions.showTraffic
+        ? createRecordedTrails(recording)
+        : null;
     const finalData =
       recording && trailSampler
         ? trailSampler(recording.frames.length - 1)
@@ -169,6 +186,7 @@ function Playback({
         {
           windowStates: agents?.window_states,
           disasterState: agents?.disaster_state,
+          ...displayOptions,
           underlay: (ctx) => {
             ctx.save();
             ctx.beginPath();
@@ -192,7 +210,16 @@ function Playback({
       observer.disconnect();
       window.removeEventListener("resize", redraw);
     };
-  }, [building, player, sample, theme, recording, showAgentNumbers]);
+  }, [
+    building,
+    player,
+    sample,
+    theme,
+    recording,
+    showAgentNumbers,
+    displayOptions,
+    active,
+  ]);
 
   const status = state.playing
     ? "Playing"
@@ -410,6 +437,17 @@ function Playback({
                   aria-label="Recording information"
                 >
                   <h4>Recording</h4>
+                  <p>
+                    {outcomeExplanation(
+                      recording,
+                      recording.termination_reason,
+                    )}
+                  </p>
+                  <p>
+                    Blocked openings at the playhead:{" "}
+                    {frame?.blocked_opening_ids?.join(", ") || "None recorded"}.
+                    Closure marks remain visible when labels are hidden.
+                  </p>
                   <dl className="playback-readout">
                     <div>
                       <dt>Simulation step</dt>
@@ -546,6 +584,7 @@ export function SimulationView({
 }: SimulationViewProps) {
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
   const [showAgentNumbers, setShowAgentNumbers] = useState(false);
+  const [displayOptions, setDisplayOptions] = useState(defaultDisplayOptions);
   const [showAgentChat, setShowAgentChat] = useState(false);
   const chatToggle = useRef<HTMLInputElement>(null);
   const analyticsButton = useRef<HTMLButtonElement>(null);
@@ -607,6 +646,61 @@ export function SimulationView({
             />
             Show Agent Numbers
           </label>
+          <StudioPopover label="Display">
+            {() => (
+              <fieldset>
+                <legend>Simulation display</legend>
+                <label>
+                  Hazard rendering{" "}
+                  <select
+                    aria-label="Hazard rendering"
+                    value={displayOptions.hazardMode}
+                    onChange={(event) =>
+                      setDisplayOptions({
+                        ...displayOptions,
+                        hazardMode: event.target
+                          .value as SimulationDisplayOptions["hazardMode"],
+                      })
+                    }
+                  >
+                    <option value="filled">Filled region</option>
+                    <option value="outline">Outline</option>
+                    <option value="both">Both</option>
+                  </select>
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={displayOptions.showBlockedLabels}
+                    onChange={(event) =>
+                      setDisplayOptions({
+                        ...displayOptions,
+                        showBlockedLabels: event.target.checked,
+                      })
+                    }
+                  />
+                  Show blocked-opening labels
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={displayOptions.showTraffic}
+                    onChange={(event) =>
+                      setDisplayOptions({
+                        ...displayOptions,
+                        showTraffic: event.target.checked,
+                      })
+                    }
+                  />
+                  Show traffic overlay
+                </label>
+                <p className="note">
+                  Closed openings retain their cross marks. Open Details for
+                  opening IDs. Display options do not change the simulation.
+                </p>
+              </fieldset>
+            )}
+          </StudioPopover>
           <label
             className="playback-preview-toggle"
             title={
@@ -648,10 +742,12 @@ export function SimulationView({
           live={live}
           active={active}
           showAgentNumbers={showAgentNumbers}
+          displayOptions={displayOptions}
         />
       ) : (
         <Playback
           synthetic={preview}
+          displayOptions={displayOptions}
           replayTarget={replayTarget}
           allowSyntheticPreview={allowSyntheticPreview}
           analyticsOpen={analyticsOpen}

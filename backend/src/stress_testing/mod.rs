@@ -3,7 +3,7 @@ use crate::{
         BuildingScenario, ScenarioModifications, Severity, SimulationMetrics, SimulationResult,
         StressScenarioResult, StressTestRequest, StressTestResult,
     },
-    simulation::SimulationError,
+    simulation::{SimulationError, control},
 };
 use std::{cmp::Ordering, collections::HashMap};
 
@@ -21,34 +21,28 @@ fn stress_test_with(
     request
         .validate()
         .map_err(SimulationError::InvalidScenario)?;
+    control::checkpoint()?;
+    let planned_scenarios = generate_scenarios(request);
+    control::plan(planned_scenarios.len() + 1);
     let (baseline, baseline_positions) = {
         let run = simulate(&request.building)?;
+        control::checkpoint()?;
+        control::evaluation_finished();
         validate_run(&run, &request.building)?;
         let positions = initial_positions(&run);
         (run.metrics, positions)
     }; // Release baseline playback/traffic data before running modified scenarios.
     let mut scenarios = Vec::new();
 
-    for planned in generate_scenarios(request) {
-        let mut building = request.building.clone();
-        building
-            .blocked_exit_ids
-            .extend(planned.modifications.blocked_exit_ids.iter().cloned());
-        // A forced closure lasts for the whole experiment, regardless of its schedule.
-        building.opening_events.retain(|event| {
-            event.blocked
-                || !planned
-                    .modifications
-                    .blocked_exit_ids
-                    .contains(&event.opening_id)
-        });
-        building
-            .obstructions
-            .extend(planned.modifications.added_obstructions.iter().cloned());
+    for planned in planned_scenarios {
+        control::checkpoint()?;
+        let building = apply_modifications(&request.building, &planned.modifications);
         building
             .validate()
             .map_err(SimulationError::InvalidScenario)?;
         let run = simulate(&building)?;
+        control::checkpoint()?;
+        control::evaluation_finished();
         validate_run(&run, &building)?;
         let positions = initial_positions(&run);
         let fairness = match (&baseline_positions, &positions) {
@@ -88,6 +82,52 @@ fn stress_test_with(
         baseline,
         scenarios,
     })
+}
+
+fn apply_modifications(
+    original: &BuildingScenario,
+    changes: &ScenarioModifications,
+) -> BuildingScenario {
+    let mut building = original.clone();
+    building
+        .blocked_exit_ids
+        .extend(changes.blocked_exit_ids.iter().cloned());
+    building
+        .opening_events
+        .retain(|event| event.blocked || !changes.blocked_exit_ids.contains(&event.opening_id));
+    building
+        .obstructions
+        .extend(changes.added_obstructions.iter().cloned());
+    building
+}
+
+/// Replay a tested scenario using exactly the same forced-closure rules.
+pub(crate) fn record_scenario(
+    request: &StressTestRequest,
+    id: &str,
+    expected: &SimulationMetrics,
+) -> Result<(BuildingScenario, SimulationResult), SimulationError> {
+    request
+        .validate()
+        .map_err(SimulationError::InvalidScenario)?;
+    control::checkpoint()?;
+    let planned = generate_scenarios(request)
+        .into_iter()
+        .find(|s| s.scenario_id == id)
+        .ok_or_else(|| {
+            SimulationError::InvalidScenario(
+                "This scenario was not tested by the source stress request.".into(),
+            )
+        })?;
+    let building = apply_modifications(&request.building, &planned.modifications);
+    let result = crate::simulation::simulate(&building)?;
+    validate_run(&result, &building)?;
+    if serde_json::to_string(&result.metrics).unwrap() != serde_json::to_string(expected).unwrap() {
+        return Err(SimulationError::InvalidScenario(
+            "Replay metrics do not match the tested scenario. Rerun stress testing.".into(),
+        ));
+    }
+    Ok((building, result))
 }
 
 struct PlannedScenario {
@@ -323,6 +363,7 @@ mod tests {
 
     fn synthetic_run(building: &BuildingScenario, metrics: SimulationMetrics) -> SimulationResult {
         SimulationResult {
+            termination_reason: None,
             metrics,
             frames: vec![AnimationFrame {
                 window_states: None,
@@ -1068,6 +1109,28 @@ pub(crate) mod real_integration {
     use super::*;
     use crate::models::{Point, SimulationStatus};
     use serde_json::{json, to_value};
+
+    #[test]
+    fn cancellation_interrupts_a_real_stress_evaluation_without_partial_success() {
+        let request = stress_request(room());
+        let control = std::sync::Arc::new(crate::simulation::ComputationControl::default());
+        let mut calls = 0;
+        let result = control.run(|| {
+            stress_test_with(&request, |building| {
+                calls += 1;
+                crate::simulation::simulate_live(building, &mut |frame| {
+                    if calls == 2 && frame.step > 0 {
+                        control.cancel();
+                    }
+                    true
+                })
+            })
+        });
+        assert!(matches!(result, Err(SimulationError::Cancelled)));
+        assert_eq!(calls, 2);
+        assert_eq!(control.progress().evaluations_completed, 1);
+        assert!(control.progress().step > 0);
+    }
 
     /// A closed 12 x 8 m room, two north-wall exits, and one fixed spawn point.
     /// Buildings are test inputs; all metrics/frames come from the actual simulator.

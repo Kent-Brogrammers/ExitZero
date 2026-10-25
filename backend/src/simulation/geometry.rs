@@ -285,6 +285,9 @@ impl<'a> Geometry<'a> {
     ) -> WallKnowledge {
         let mut observed = WallKnowledge::new();
         for (piece, &(start, end, half_thickness, index)) in self.solid_walls.iter().enumerate() {
+            if super::control::cancelled() {
+                return observed;
+            }
             if math::distance_to_segment(from, start, end) - half_thickness > range {
                 continue;
             }
@@ -444,6 +447,9 @@ impl<'a> Geometry<'a> {
     }
 
     pub(super) fn layout_blocks_opening(scenario: &BuildingScenario, opening: &Opening) -> bool {
+        if super::control::cancelled() {
+            return false;
+        }
         if super::catastrophe::blocks_opening(scenario, opening) {
             return true;
         }

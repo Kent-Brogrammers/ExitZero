@@ -197,6 +197,8 @@ export interface SimulationAnalytics {
 }
 
 export interface SimulationResult extends SimulationMetrics {
+  termination_reason?:
+    "completed" | "step_limit" | "no_active_routes" | "movement_stagnation";
   /** Absent in older saved results and synthetic fixtures. */
   analytics?: SimulationAnalytics;
   /** Actual opening discoveries and accepted shares; absent in older recordings. */
@@ -290,4 +292,39 @@ export interface ApiErrorResponse {
 
 export interface TrafficSample extends Point {
   visits: number;
+}
+export interface ComputationCancellationResponse {
+  status: "cancelling";
+}
+
+export type JobRequest =
+  | { kind: "replay"; stress_job_id: string; scenario_id: string }
+  | { kind: "simulate"; building: BuildingScenario }
+  | { kind: "stress"; request: StressTestRequest }
+  | { kind: "optimize"; request: OptimizeRequest };
+export interface ScenarioReplay {
+  building: BuildingScenario;
+  result: SimulationResult;
+  stress_job_id: string;
+  scenario_id: string;
+}
+export interface JobSnapshot {
+  context?: string;
+  id: string;
+  server_id: string;
+  kind: JobRequest["kind"];
+  status:
+    "queued" | "running" | "cancelling" | "completed" | "failed" | "cancelled";
+  progress: {
+    evaluations_completed: number;
+    evaluations_total: number;
+    step: number;
+    step_limit: number;
+  };
+  cached: boolean;
+  error: string | null;
+}
+export interface JobList {
+  server_id: string;
+  jobs: JobSnapshot[];
 }

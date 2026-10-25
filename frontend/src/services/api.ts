@@ -2,6 +2,11 @@ import Ajv, { type ValidateFunction } from "ajv";
 import contracts from "../../../shared/schemas/contracts.schema.json";
 import type {
   ApiErrorResponse,
+  ComputationCancellationResponse,
+  JobRequest,
+  JobSnapshot,
+  JobList,
+  ScenarioReplay,
   AnimationFrame,
   BuildingScenario,
   HealthResponse,
@@ -32,6 +37,13 @@ const validateStress = validator<StressTestResult>("StressTestResult");
 const validateOptimization =
   validator<OptimizationResult>("OptimizationResult");
 const validateError = validator<ApiErrorResponse>("ApiErrorResponse");
+const validateCancellation = validator<ComputationCancellationResponse>(
+  "ComputationCancellationResponse",
+);
+const validateJob = validator<JobSnapshot>("JobSnapshot");
+const validateJobs = validator<JobList>("JobList");
+const validateJobRequest = validator<JobRequest>("JobRequest");
+const validateReplay = validator<ScenarioReplay>("ScenarioReplay");
 
 export class ApiError extends Error {
   constructor(
@@ -208,17 +220,20 @@ export function createApiClient(
     validate: ValidateFunction<T>,
     body?: unknown,
     signal?: AbortSignal,
+    computationId?: string,
+    keepalive = false,
   ): Promise<T> {
     let response: Response;
     try {
       response = await fetch(`${baseUrl.replace(/\/$/, "")}${path}`, {
         method: body === undefined ? "GET" : "POST",
-        headers:
-          body === undefined
-            ? undefined
-            : { "Content-Type": "application/json" },
+        headers: {
+          ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+          ...(computationId ? { "X-Computation-Id": computationId } : {}),
+        },
         body: body === undefined ? undefined : JSON.stringify(body),
         signal,
+        keepalive,
       });
     } catch (error) {
       if (signal?.aborted) throw error;
@@ -261,17 +276,154 @@ export function createApiClient(
     return data;
   }
 
+  async function runJob<T>(
+    input: JobRequest,
+    validate: ValidateFunction<T>,
+    signal: AbortSignal | undefined,
+    id: string,
+    onStatus: (job: JobSnapshot) => void,
+  ): Promise<T> {
+    let job = await request(
+      "/jobs",
+      validateJob,
+      { id, request: input },
+      signal,
+    );
+    const cached = job.cached;
+    for (;;) {
+      signal?.throwIfAborted();
+      onStatus({ ...job, cached });
+      if (job.status === "completed")
+        return request(
+          `/jobs/${encodeURIComponent(job.id)}/result`,
+          validate,
+          undefined,
+          signal,
+        );
+      if (job.status === "failed")
+        throw new ApiError(
+          422,
+          "job_failed",
+          job.error ?? "Computation failed.",
+        );
+      if (job.status === "cancelled")
+        throw new DOMException("Computation cancelled", "AbortError");
+      await new Promise<void>((resolve, reject) => {
+        const done = () => {
+          signal?.removeEventListener("abort", abort);
+          resolve();
+        };
+        const timer = setTimeout(done, 300);
+        const abort = () => {
+          clearTimeout(timer);
+          signal?.removeEventListener("abort", abort);
+          reject(signal?.reason);
+        };
+        signal?.addEventListener("abort", abort, { once: true });
+        if (signal?.aborted) abort();
+      });
+      job = await request(
+        `/jobs/${encodeURIComponent(job.id)}`,
+        validateJob,
+        undefined,
+        signal,
+      );
+    }
+  }
   return {
+    recordScenario: async (
+      stress_job_id: string,
+      scenario_id: string,
+      signal: AbortSignal,
+      id: string,
+      onStatus: (job: JobSnapshot) => void,
+    ) => {
+      const replay = await runJob(
+        { kind: "replay", stress_job_id, scenario_id },
+        validateReplay,
+        signal,
+        id,
+        onStatus,
+      );
+      checkSimulation(replay.result, replay.building);
+      return replay;
+    },
+    listJobs: (signal?: AbortSignal) =>
+      request("/jobs", validateJobs, undefined, signal),
+    jobRequest: (id: string, signal?: AbortSignal) =>
+      request(
+        `/jobs/${encodeURIComponent(id)}/request`,
+        validateJobRequest,
+        undefined,
+        signal,
+      ),
+    jobResult: async (id: string, input: JobRequest, signal?: AbortSignal) => {
+      const path = `/jobs/${encodeURIComponent(id)}/result`;
+      if (input.kind === "replay") {
+        const replay = await request(path, validateReplay, undefined, signal);
+        checkSimulation(replay.result, replay.building);
+        return replay;
+      }
+      if (input.kind === "simulate")
+        return checkSimulation(
+          await request(path, validateSimulation, undefined, signal),
+          input.building,
+        );
+      if (input.kind === "stress") {
+        const result = await request(path, validateStress, undefined, signal);
+        checkMetrics(result.baseline);
+        result.scenarios.forEach((s) => checkMetrics(s.metrics));
+        return result;
+      }
+      const result = await request(
+        path,
+        validateOptimization,
+        undefined,
+        signal,
+      );
+      checkMetrics(result.baseline);
+      result.candidates.forEach((s) => checkMetrics(s.metrics));
+      return result;
+    },
+    cancelComputation: (id: string) =>
+      request(
+        `/computations/${encodeURIComponent(id)}/cancel`,
+        validateCancellation,
+        {},
+        undefined,
+        undefined,
+        true,
+      ),
     health: (signal?: AbortSignal) =>
       request("/health", validateHealth, undefined, signal),
-    simulate: async (building: BuildingScenario): Promise<SimulationResult> => {
-      const result = await request("/simulate", validateSimulation, building);
+    simulate: async (
+      building: BuildingScenario,
+      signal?: AbortSignal,
+      computationId?: string,
+      onStatus?: (job: JobSnapshot) => void,
+    ): Promise<SimulationResult> => {
+      const result = onStatus
+        ? await runJob(
+            { kind: "simulate", building },
+            validateSimulation,
+            signal,
+            computationId ?? crypto.randomUUID(),
+            onStatus,
+          )
+        : await request(
+            "/simulate",
+            validateSimulation,
+            building,
+            signal,
+            computationId,
+          );
       return checkSimulation(result, building);
     },
     simulateLive: async (
       building: BuildingScenario,
       onFrame: (frame: AnimationFrame) => void,
       signal?: AbortSignal,
+      computationId?: string,
     ): Promise<SimulationResult> => {
       let response: Response;
       try {
@@ -280,6 +432,7 @@ export function createApiClient(
           headers: {
             "Content-Type": "application/json",
             Accept: "application/x-ndjson",
+            ...(computationId ? { "X-Computation-Id": computationId } : {}),
           },
           body: JSON.stringify(building),
           signal,
@@ -423,14 +576,50 @@ export function createApiClient(
     },
     stressTest: async (
       payload: StressTestRequest,
+      signal?: AbortSignal,
+      computationId?: string,
+      onStatus?: (job: JobSnapshot) => void,
     ): Promise<StressTestResult> => {
-      const result = await request("/stress-test", validateStress, payload);
+      const result = onStatus
+        ? await runJob(
+            { kind: "stress", request: payload },
+            validateStress,
+            signal,
+            computationId ?? crypto.randomUUID(),
+            onStatus,
+          )
+        : await request(
+            "/stress-test",
+            validateStress,
+            payload,
+            signal,
+            computationId,
+          );
       checkMetrics(result.baseline);
       result.scenarios.forEach((scenario) => checkMetrics(scenario.metrics));
       return result;
     },
-    optimize: async (payload: OptimizeRequest): Promise<OptimizationResult> => {
-      const result = await request("/optimize", validateOptimization, payload);
+    optimize: async (
+      payload: OptimizeRequest,
+      signal?: AbortSignal,
+      computationId?: string,
+      onStatus?: (job: JobSnapshot) => void,
+    ): Promise<OptimizationResult> => {
+      const result = onStatus
+        ? await runJob(
+            { kind: "optimize", request: payload },
+            validateOptimization,
+            signal,
+            computationId ?? crypto.randomUUID(),
+            onStatus,
+          )
+        : await request(
+            "/optimize",
+            validateOptimization,
+            payload,
+            signal,
+            computationId,
+          );
       checkMetrics(result.baseline);
       result.candidates.forEach((candidate) => checkMetrics(candidate.metrics));
       return result;

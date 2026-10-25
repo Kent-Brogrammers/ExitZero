@@ -13,6 +13,10 @@ vi.mock("./services/api", () => ({
     optimize: vi.fn(),
     stressTest: vi.fn(),
     simulateLive: vi.fn(),
+    cancelComputation: vi.fn(),
+    listJobs: vi.fn(),
+    simulate: vi.fn(),
+    recordScenario: vi.fn(),
   },
 }));
 vi.mock("./simulation/SimulationView", () => ({
@@ -78,6 +82,8 @@ beforeEach(() => {
     status: "ok",
     service: "exitzero",
   });
+  vi.mocked(api.cancelComputation).mockResolvedValue({ status: "cancelling" });
+  vi.mocked(api.listJobs).mockResolvedValue({ server_id: "test", jobs: [] });
 });
 afterEach(async () => {
   await act(async () => root.unmount());
@@ -85,6 +91,106 @@ afterEach(async () => {
 });
 
 describe("optimization editor history", () => {
+  it("preserves the original recording after applying a candidate and rerunning", async () => {
+    vi.mocked(api.simulateLive).mockResolvedValue(recording);
+    await mount();
+    await click("Run Simulation");
+    const original = structuredClone(workspace().building);
+    const improved = structuredClone(original);
+    improved.doors[0]!.width += 0.5;
+    vi.mocked(api.optimize).mockResolvedValue({
+      baseline: { ...recording, clearance_steps: 100 },
+      candidates: [
+        {
+          building: improved,
+          rank: 1,
+          metrics: { ...recording, clearance_steps: 90 },
+        },
+      ],
+    });
+    await click("Analytics");
+    await click("Optimize");
+    await act(async () => vi.dynamicImportSettled());
+    await click("Advanced");
+    await click("Apply candidate");
+    const rerun = { ...recording, clearance_steps: 2 };
+    vi.mocked(api.simulate).mockResolvedValue(rerun);
+    await click("Calculate Results");
+    expect(workspace().building).toEqual(improved);
+    expect(document.body.textContent).toContain(
+      "Actual original and modified outcomes",
+    );
+    await click("Watch original recording");
+    expect(workspace().building).toEqual(original);
+    expect(workspace().result).toEqual(recording);
+    await click("Return to comparison / baseline");
+    expect(workspace().building).toEqual(improved);
+    expect(workspace().result).toEqual(rerun);
+  });
+  it("watches the selected stress recording without replacing the editable layout or baseline", async () => {
+    vi.mocked(api.simulateLive).mockResolvedValue(recording);
+    await mount();
+    await click("Run Simulation");
+    const original = structuredClone(workspace().building);
+    const modified = { ...original, blocked_exit_ids: ["west"] };
+    vi.mocked(api.stressTest).mockImplementation(
+      async (_request, _signal, _id, onStatus) => {
+        onStatus!({
+          id: "stress-origin",
+          server_id: "test",
+          kind: "stress",
+          status: "completed",
+          cached: false,
+          error: null,
+          progress: {
+            evaluations_completed: 2,
+            evaluations_total: 2,
+            step: 1,
+            step_limit: 100,
+          },
+        });
+        return {
+          baseline: recording,
+          scenarios: [
+            {
+              scenario_id: "block-exit:west",
+              description: "West exit closed.",
+              modifications: {
+                blocked_exit_ids: ["west"],
+                added_obstructions: [],
+              },
+              metrics: recording,
+              rank: 1,
+              severity: "low",
+            },
+          ],
+        };
+      },
+    );
+    vi.mocked(api.recordScenario).mockResolvedValue({
+      stress_job_id: "stress-origin",
+      scenario_id: "block-exit:west",
+      building: modified,
+      result: { ...recording, clearance_steps: 2 },
+    });
+    await click("Analytics");
+    await click("Stress Test");
+    await act(async () => vi.dynamicImportSettled());
+    await click("Advanced");
+    await click("Watch Scenario");
+    expect(api.recordScenario).toHaveBeenCalledWith(
+      "stress-origin",
+      "block-exit:west",
+      expect.any(AbortSignal),
+      expect.any(String),
+      expect.any(Function),
+    );
+    expect(workspace().building).toEqual(modified);
+    expect(workspace().result?.clearance_steps).toBe(2);
+    await click("Return to comparison / baseline");
+    expect(workspace().building).toEqual(original);
+    expect(workspace().result).toEqual(recording);
+  });
   it("undoes and redoes application separately from the preceding Fire edit", async () => {
     await mount();
     const select = document.querySelector<HTMLSelectElement>(
@@ -111,6 +217,7 @@ describe("optimization editor history", () => {
     await click("Analytics");
     await click("Optimize");
     await act(async () => vi.dynamicImportSettled());
+    await click("Advanced");
     await click("Apply candidate");
     expect(workspace().building).toEqual(improved);
     await click("Undo");
@@ -187,5 +294,84 @@ describe("stopping live simulation", () => {
     expect(document.body.textContent).not.toContain("Simulation stopped.");
     expect(workspace()).toMatchObject({ result: null, live: null });
     expect(button("Run Simulation").disabled).toBe(false);
+  });
+});
+
+describe("stopping analysis computations", () => {
+  it.each(["Stress Test", "Optimize"])(
+    "cancels %s on the server, preserves the baseline, and rejects late results",
+    async (action) => {
+      vi.mocked(api.simulateLive).mockResolvedValue(recording);
+      await mount();
+      await click("Run Simulation");
+      await click("Analytics");
+      let finish!: () => void;
+      if (action === "Stress Test") {
+        vi.mocked(api.stressTest).mockImplementation(
+          () =>
+            new Promise((resolve) => {
+              finish = () => resolve({ baseline: recording, scenarios: [] });
+            }),
+        );
+      } else {
+        vi.mocked(api.optimize).mockImplementation(
+          () =>
+            new Promise((resolve) => {
+              finish = () => resolve({ baseline: recording, candidates: [] });
+            }),
+        );
+      }
+      await click(action);
+      const mock =
+        action === "Stress Test"
+          ? vi.mocked(api.stressTest)
+          : vi.mocked(api.optimize);
+      const [, signal, id] = mock.mock.calls[0]!;
+      expect(id).toBeTruthy();
+      await click(
+        action === "Optimize" ? "Stop Optimization" : "Stop Stress Test",
+      );
+      expect(api.cancelComputation).toHaveBeenCalledWith(id);
+      expect(signal!.aborted).toBe(false);
+      await act(async () => finish());
+      expect(signal!.aborted).toBe(true);
+      expect(workspace().result).toEqual(recording);
+      expect(button("Run Simulation").disabled).toBe(false);
+      expect(document.body.textContent).toContain(
+        "Previous results were preserved.",
+      );
+      expect(document.body.textContent).not.toContain("Stress test ready.");
+      expect(document.body.textContent).not.toContain(
+        "layout improvements found.",
+      );
+    },
+  );
+
+  it("keeps work connected when Stop fails and leaves background work reconnectable on page departure", async () => {
+    vi.mocked(api.stressTest).mockImplementation(
+      (_payload, signal) =>
+        new Promise((_resolve, reject) => {
+          signal!.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "AbortError")),
+          );
+        }),
+    );
+    await mount();
+    await click("Analytics");
+    await click("Stress Test");
+    const [, signal, id] = vi.mocked(api.stressTest).mock.calls[0]!;
+    vi.mocked(api.cancelComputation).mockRejectedValueOnce(
+      new Error("Network unavailable"),
+    );
+    await click("Stop Stress Test");
+    expect(signal!.aborted).toBe(false);
+    expect(document.body.textContent).toContain(
+      "Could not confirm cancellation",
+    );
+    expect(button("Stop Stress Test").disabled).toBe(false);
+    await act(async () => window.dispatchEvent(new Event("pagehide")));
+    expect(api.cancelComputation).toHaveBeenLastCalledWith(id);
+    expect(api.cancelComputation).toHaveBeenCalledTimes(1);
+    expect(signal!.aborted).toBe(true);
   });
 });

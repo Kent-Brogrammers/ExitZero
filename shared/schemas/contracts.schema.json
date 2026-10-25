@@ -4,6 +4,120 @@
   "title": "ExitZero API contracts",
   "$ref": "#/$defs/BuildingScenario",
   "$defs": {
+    "JobRequest": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "stress_job_id", "scenario_id"],
+          "properties": {
+            "kind": { "const": "replay" },
+            "stress_job_id": { "type": "string", "maxLength": 80 },
+            "scenario_id": { "type": "string", "maxLength": 128 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "building"],
+          "properties": {
+            "kind": { "const": "simulate" },
+            "building": { "$ref": "#/$defs/BuildingScenario" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "request"],
+          "properties": {
+            "kind": { "const": "stress" },
+            "request": { "$ref": "#/$defs/StressTestRequest" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "request"],
+          "properties": {
+            "kind": { "const": "optimize" },
+            "request": { "$ref": "#/$defs/OptimizeRequest" }
+          }
+        }
+      ]
+    },
+    "JobSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "server_id",
+        "kind",
+        "status",
+        "progress",
+        "cached",
+        "error"
+      ],
+      "properties": {
+        "context": { "type": "string" },
+        "id": { "type": "string" },
+        "server_id": { "type": "string" },
+        "kind": { "enum": ["simulate", "stress", "optimize", "replay"] },
+        "status": {
+          "enum": [
+            "queued",
+            "running",
+            "cancelling",
+            "completed",
+            "failed",
+            "cancelled"
+          ]
+        },
+        "cached": { "type": "boolean" },
+        "error": { "type": ["string", "null"] },
+        "progress": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "evaluations_completed",
+            "evaluations_total",
+            "step",
+            "step_limit"
+          ],
+          "properties": {
+            "evaluations_completed": { "type": "integer", "minimum": 0 },
+            "evaluations_total": { "type": "integer", "minimum": 0 },
+            "step": { "type": "integer", "minimum": 0 },
+            "step_limit": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "JobList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["server_id", "jobs"],
+      "properties": {
+        "server_id": { "type": "string" },
+        "jobs": { "type": "array", "items": { "$ref": "#/$defs/JobSnapshot" } }
+      }
+    },
+    "ScenarioReplay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["building", "result", "stress_job_id", "scenario_id"],
+      "properties": {
+        "building": { "$ref": "#/$defs/BuildingScenario" },
+        "result": { "$ref": "#/$defs/SimulationResult" },
+        "stress_job_id": { "type": "string" },
+        "scenario_id": { "type": "string" }
+      }
+    },
+    "ComputationCancellationResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": { "status": { "const": "cancelling" } }
+    },
     "SpawnZone": {
       "type": "object",
       "additionalProperties": false,
@@ -399,6 +513,14 @@
         "time_step_seconds"
       ],
       "properties": {
+        "termination_reason": {
+          "enum": [
+            "completed",
+            "step_limit",
+            "no_active_routes",
+            "movement_stagnation"
+          ]
+        },
         "status": {
           "enum": ["completed", "incomplete", "timeout"]
         },

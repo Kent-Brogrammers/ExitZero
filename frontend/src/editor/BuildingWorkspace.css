@@ -17,6 +17,19 @@
 .workspace-view > .panel > .panel-heading {
   display: none;
 }
+.scenario-replay-context {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  height: 42px;
+  padding: 0 16px;
+  font-size: 11px;
+  border-bottom: 1px solid var(--cad-border);
+}
+.workspace-view.has-scenario-replay > .panel {
+  height: calc(100% - 42px);
+}
 
 .disaster-controls {
   display: flex;

@@ -3,7 +3,7 @@ use crate::{
         BuildingScenario, OptimizationCandidate, OptimizationResult, OptimizeRequest,
         SimulationResult,
     },
-    simulation::SimulationError,
+    simulation::{SimulationError, control},
 };
 use std::{cmp::Ordering, collections::HashMap, collections::HashSet};
 
@@ -21,15 +21,23 @@ fn optimize_with(
     request
         .validate()
         .map_err(SimulationError::InvalidScenario)?;
+    control::checkpoint()?;
+    let planned = generate_candidates(request);
+    control::plan(planned.len() + 1);
     let (baseline, baseline_positions) = {
         let run = simulate(&request.building)?;
+        control::checkpoint()?;
+        control::evaluation_finished();
         validate_run(&run, &request.building)?;
         let positions = initial_positions(&run);
         (run.metrics, positions)
     }; // Discard playback and traffic data before evaluating candidates.
     let mut candidates = Vec::new();
-    for building in generate_candidates(request) {
+    for building in planned {
+        control::checkpoint()?;
         let run = simulate(&building)?;
+        control::checkpoint()?;
+        control::evaluation_finished();
         validate_run(&run, &building)?;
         let positions = initial_positions(&run);
         let (Some(original), Some(modified)) = (&baseline_positions, &positions) else {
@@ -172,6 +180,31 @@ mod tests {
     use crate::models::{AgentPosition, AnimationFrame, SimulationMetrics, SimulationStatus};
     use serde_json::{Value, json, to_value};
 
+    #[test]
+    fn cancellation_interrupts_a_real_candidate_without_returning_improvements() {
+        let request = OptimizeRequest {
+            building: crate::stress_testing::real_integration::room(),
+            max_candidates: 2,
+        };
+        let control = std::sync::Arc::new(crate::simulation::ComputationControl::default());
+        let mut calls = 0;
+        let result = control.run(|| {
+            optimize_with(&request, |building| {
+                calls += 1;
+                crate::simulation::simulate_live(building, &mut |frame| {
+                    if calls == 2 && frame.step > 0 {
+                        control.cancel();
+                    }
+                    true
+                })
+            })
+        });
+        assert!(matches!(result, Err(SimulationError::Cancelled)));
+        assert_eq!(calls, 2);
+        assert_eq!(control.progress().evaluations_completed, 1);
+        assert!(control.progress().step > 0);
+    }
+
     // All layouts, positions, and results here are explicitly synthetic unit-test data.
     // They test candidate evaluation, not real evacuation physics or passage capacity.
     fn request() -> OptimizeRequest {
@@ -229,6 +262,7 @@ mod tests {
 
     fn synthetic_run(building: &BuildingScenario, metrics: SimulationMetrics) -> SimulationResult {
         SimulationResult {
+            termination_reason: None,
             metrics,
             frames: vec![AnimationFrame {
                 window_states: None,
