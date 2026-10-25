@@ -747,11 +747,19 @@ export default function App() {
           onOpenDemo={() => void openOfficeDemo()}
           disabled={busy}
           onOpen={() =>
-            loadTemplate(
-              { ...example, walls: [], doors: [], exits: [], spawn_zones: [] },
-              "an empty layout",
-              "edit",
-            )
+            busy
+              ? navigate("simulation")
+              : loadTemplate(
+                  {
+                    ...example,
+                    walls: [],
+                    doors: [],
+                    exits: [],
+                    spawn_zones: [],
+                  },
+                  "an empty layout",
+                  "edit",
+                )
           }
           onTemplates={() => navigate("templates")}
           onOpenTemplate={loadTemplate}
