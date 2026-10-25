@@ -42,6 +42,41 @@ const barrier: BuildingScenario = {
 };
 
 describe("visual-only frame interpolation", () => {
+  it("respects rounded jamb clearance while interpolating through an opening", () => {
+    const building = {
+      ...empty,
+      agent_radius: 0.2,
+      walls: [
+        {
+          id: "wall",
+          start: { x: 0, y: 2 },
+          end: { x: 10, y: 2 },
+          thickness: 0.2,
+        },
+      ],
+      doors: [{ id: "door", wall_id: "wall", offset: 4.65, width: 0.7 }],
+    };
+    const passage = [
+      { step: 0, agents: [{ id: 1, x: 5, y: 1 }] },
+      { step: 10, agents: [{ id: 1, x: 5, y: 3 }] },
+    ];
+    expect(createFrameSampler(building, passage, 0.1)(0.5)?.agents[0]).toEqual({
+      id: 1,
+      x: 5,
+      y: 2,
+    });
+    const tooNarrow = {
+      ...building,
+      doors: [{ ...building.doors[0]!, offset: 4.75, width: 0.5 }],
+    };
+    expect(createFrameSampler(tooNarrow, passage, 0.1)(0.5)?.agents[0]).toEqual(
+      { id: 1, x: 5, y: 1 },
+    );
+    expect(
+      createFrameSampler({ ...building, doors: [] }, passage, 0.1)(0.5)
+        ?.agents[0],
+    ).toEqual({ id: 1, x: 5, y: 1 });
+  });
   it("matches stable IDs across reordered arrays and uses nonconsecutive step timestamps", () => {
     const sample = createFrameSampler(empty, frames, 0.2);
     expect(sample(2)?.agents).toEqual([

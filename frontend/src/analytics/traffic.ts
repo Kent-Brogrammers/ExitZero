@@ -36,3 +36,17 @@ export function trafficBins(
     max: Math.max(0, ...[...bins.values()].map((bin) => bin.visits)),
   };
 }
+
+/** Rectangular-bin adapter for the audit layout overlay and its regression tests. */
+export function trafficCells(
+  samples: TrafficSample[],
+  width: number,
+  height: number,
+) {
+  const { size, bins } = trafficBins(samples, width, height);
+  return bins.map((bin) => ({
+    ...bin,
+    width: Math.min(size, width - bin.x),
+    height: Math.min(size, height - bin.y),
+  }));
+}

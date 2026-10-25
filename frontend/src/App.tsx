@@ -14,11 +14,16 @@ import {
   type OfficeDemoSource,
 } from "./studio/OfficeDemoNotice";
 import { api } from "./services/api";
+import {
+  applyOptimizationCandidate,
+  type OptimizationEvaluation,
+} from "./analytics/optimization";
 import type {
   BuildingScenario,
   LiveSimulation,
   SimulationResult,
   StressTestResult,
+  OptimizationCandidate,
 } from "./types/simulation";
 
 const AnalyticsDashboard = lazy(() => import("./analytics/AnalyticsDashboard"));
@@ -65,6 +70,7 @@ export default function App() {
     if (namesOnly) return;
     setResult(null);
     setStressResult(null);
+    setOptimization(null);
     if (officeDemo) setOfficeDemo("edited");
     setMessage("");
   }
@@ -83,12 +89,39 @@ export default function App() {
   const [stressResult, setStressResult] = useState<StressTestResult | null>(
     null,
   );
+  const [optimization, setOptimization] =
+    useState<OptimizationEvaluation | null>(null);
+
+  function applyCandidate(candidate: OptimizationCandidate) {
+    if (!optimization || busy) return;
+    try {
+      const next = applyOptimizationCandidate(
+        building,
+        optimization.result.baseline,
+        candidate,
+      );
+      setBuilding(next);
+      setResult(null);
+      setStressResult(null);
+      setOptimization({ ...optimization, applied: candidate });
+      if (officeDemo) setOfficeDemo("edited");
+      setMessage(
+        "Candidate applied. Run simulation to measure the new layout.",
+      );
+      navigate("edit");
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Could not apply candidate.",
+      );
+    }
+  }
 
   const [officeDemo, setOfficeDemo] = useState<OfficeDemoSource | null>(null);
   const previousWorkspace = useRef<{
     building: BuildingScenario;
     result: SimulationResult | null;
     stressResult: StressTestResult | null;
+    optimization: OptimizationEvaluation | null;
   } | null>(null);
 
   async function openOfficeDemo() {
@@ -104,10 +137,16 @@ export default function App() {
     setBusy(true);
     try {
       const recording = await loadOfficeDemo();
-      previousWorkspace.current ??= { building, result, stressResult };
+      previousWorkspace.current ??= {
+        building,
+        result,
+        stressResult,
+        optimization,
+      };
       setBuilding(structuredClone(officeDemoBuilding));
       setResult(recording);
       setStressResult(null);
+      setOptimization(null);
       setOfficeDemo("recorded");
       setMessage("");
       navigate("simulation");
@@ -133,6 +172,7 @@ export default function App() {
     setBuilding(previous.building);
     setResult(previous.result);
     setStressResult(previous.stressResult);
+    setOptimization(previous.optimization);
     previousWorkspace.current = null;
     setOfficeDemo(null);
     setMessage("");
@@ -191,10 +231,13 @@ export default function App() {
         );
         setMessage("Stress test ready.");
       } else {
-        await api.optimize({ building, max_candidates: 10 });
-        setMessage(
-          "Optimization finished. Candidate visualization is not available yet.",
-        );
+        const optimized = await api.optimize({ building, max_candidates: 10 });
+        setOptimization({
+          source: structuredClone(building),
+          result: optimized,
+          applied: null,
+        });
+        setMessage(`${optimized.candidates.length} layout improvements found.`);
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Request failed.");
@@ -480,9 +523,12 @@ export default function App() {
                   }));
                   navigate("simulation");
                 }}
-                building={building}
                 result={result}
                 stressResult={stressResult}
+                building={building}
+                optimization={optimization}
+                onApply={applyCandidate}
+                disabled={busy}
               />
             </Suspense>
           </section>
