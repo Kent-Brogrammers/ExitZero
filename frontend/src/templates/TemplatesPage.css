@@ -1,0 +1,140 @@
+.templates-page {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  padding: 40px max(24px, calc((100% - 1240px) / 2));
+}
+.templates-heading {
+  margin-bottom: 32px;
+}
+.templates-heading h1 {
+  margin: 0 0 10px;
+  font-size: clamp(30px, 4vw, 44px);
+  font-weight: 400;
+  letter-spacing: -1px;
+}
+.templates-heading p,
+.templates-local-note {
+  color: var(--cad-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.templates-page section + section {
+  margin-top: 38px;
+}
+.templates-page h2 {
+  font-size: 15px;
+  font-weight: 500;
+  margin: 0 0 18px;
+}
+.template-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: 20px;
+  align-items: start;
+}
+.template-card {
+  position: relative;
+  isolation: isolate;
+  min-width: 0;
+  background: var(--cad-surface);
+  border: 1px solid var(--cad-border);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+.template-card:hover {
+  border-color: var(--cad-border-strong);
+}
+/* Extend the real Edit button across the card, retaining native keyboard and
+   disabled behavior. Explicit actions remain above it, without nested buttons. */
+.template-card-edit::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+.template-card button:not(.template-card-edit) {
+  position: relative;
+  z-index: 1;
+}
+.template-card:has(.template-card-edit:focus-visible) {
+  outline: 2px solid var(--cad-accent);
+  outline-offset: 3px;
+}
+.template-preview {
+  width: 100%;
+  height: 180px;
+}
+.template-card-content {
+  padding: 16px;
+}
+.template-card h3 {
+  font-size: 15px;
+  font-weight: 500;
+  margin: 0 0 10px;
+  overflow-wrap: anywhere;
+}
+.template-metadata {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--cad-muted);
+  font: 11px var(--font-mono);
+  margin: 0 0 16px;
+}
+.template-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.template-secondary-actions {
+  display: flex;
+  gap: 18px;
+}
+.template-secondary {
+  border: 0;
+  padding: 12px 0 0;
+  color: var(--cad-muted);
+  font-size: 11px;
+  text-align: left;
+}
+.template-secondary:hover:not(:disabled) {
+  background: transparent;
+  color: var(--cad-text);
+}
+.template-save-card {
+  width: 100%;
+  min-height: 300px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  border: 1px dashed var(--cad-border-strong);
+  border-radius: var(--radius-control);
+  padding: 24px;
+  background: transparent;
+  color: var(--cad-muted);
+}
+.template-save-card > span:first-child {
+  font-size: 28px;
+  color: var(--cad-shelter);
+}
+.template-save-card strong {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--cad-text);
+}
+.template-save-card > span:last-child {
+  font-size: 11px;
+}
+.templates-error {
+  color: var(--cad-warning);
+  font-size: 12px;
+  line-height: 1.6;
+}
+@media (max-width: 760px) {
+  .templates-page {
+    padding: 28px 20px;
+  }
+}

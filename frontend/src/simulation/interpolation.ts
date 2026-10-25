@@ -133,6 +133,7 @@ export function createFrameSampler(
   timeStep: number,
 ) {
   let pair = -1;
+  let pursuitCanBlend = false;
   let display: AnimationFrame | null = null;
   let entries: {
     source: AgentPosition;
@@ -155,6 +156,10 @@ export function createFrameSampler(
       pair = index;
       const layout = frameLayout(building, source);
       const walls = solidWalls(layout, source);
+      pursuitCanBlend =
+        !!source.pursuit &&
+        !!next.pursuit &&
+        canBlend(source.pursuit.stalker, next.pursuit.stalker, walls, layout);
       const targets = new Map(next.agents.map((agent) => [agent.id, agent]));
       entries = source.agents.map((agent) => {
         const target = targets.get(agent.id);
@@ -204,6 +209,9 @@ export function createFrameSampler(
         };
       });
       display = {
+        pursuit: source.pursuit
+          ? { ...source.pursuit, stalker: { ...source.pursuit.stalker } }
+          : undefined,
         step: source.step,
         sheltered: source.sheltered,
         disaster_state: source.disaster_state
@@ -242,6 +250,16 @@ export function createFrameSampler(
         entry.source.x + (entry.target.x - entry.source.x) * alpha;
       entry.display.y =
         entry.source.y + (entry.target.y - entry.source.y) * alpha;
+    }
+    if (display?.pursuit && source.pursuit) {
+      const target = next.pursuit?.stalker ?? source.pursuit.stalker;
+      const blend = pursuitCanBlend ? alpha : 0;
+      display.pursuit.stalker.x =
+        source.pursuit.stalker.x +
+        (target.x - source.pursuit.stalker.x) * blend;
+      display.pursuit.stalker.y =
+        source.pursuit.stalker.y +
+        (target.y - source.pursuit.stalker.y) * blend;
     }
     return display;
   };

@@ -41,7 +41,7 @@ describe("stress comparison", () => {
     );
     expect(html).toContain("No measured clearance");
     expect(html).toContain("12 more");
-    expect(html).toContain("both runs need measured clearance");
+    expect(html).toContain("both runs need complete clearance");
     expect(syntheticStressResult).toEqual(before);
   });
   it("handles missing results and a baseline without stress scenarios", () => {

@@ -1,5 +1,6 @@
 import type { BuildingScenario, Opening } from "../types/simulation";
 import { wallLength } from "./geometry";
+import { openingStartsBlocked } from "./openingState";
 
 const EPSILON = 1e-8; // Same metre tolerance as Rust opening validation.
 const end = (door: Opening) => door.offset + door.width;
@@ -64,12 +65,10 @@ function mergeKind(
     const flush = () => {
       if (group.length > 1 && group.some((d) => changed.has(d.id))) {
         if (
-          kind === "exits" &&
-          new Set(group.map((d) => candidate.blocked_exit_ids.includes(d.id)))
+          new Set(group.map((d) => openingStartsBlocked(candidate, d.id)))
             .size > 1
         ) {
-          error =
-            "Touching exits have different blocked states. Separate them or set matching blocked states before merging.";
+          error = `Touching ${kind} have different blocked states. Separate them or set matching blocked states before merging.`;
           group = [];
           return;
         }
@@ -143,13 +142,14 @@ export function mergeEditedDoors(
   return mergeKind(before, candidate, "doors", preferredId);
 }
 
-/** One atomic edit; mixed blocked-state exit contacts reject the whole transaction. */
+/** One atomic edit; mixed blocked-state opening contacts reject the whole transaction. */
 export function mergeEditedOpenings(
   before: BuildingScenario,
   candidate: BuildingScenario,
   preferredId?: string,
 ) {
   const doors = mergeKind(before, candidate, "doors", preferredId);
+  if (doors.error) return { ...doors, building: candidate };
   const exits = mergeKind(before, doors.building, "exits", preferredId);
   if (exits.error) return { ...exits, building: candidate };
   return {
@@ -174,9 +174,8 @@ export function snapOpeningToNeighbor(
       (d) =>
         d.id !== id &&
         d.wall_id === door.wall_id &&
-        (kind === "doors" ||
-          building.blocked_exit_ids.includes(d.id) ===
-            building.blocked_exit_ids.includes(id)),
+        openingStartsBlocked(building, d.id) ===
+          openingStartsBlocked(building, id),
     )
     .flatMap((other) => [
       { offset: end(other), target: other.id },
@@ -195,8 +194,8 @@ export function snapOpeningToNeighbor(
       ...building,
       [kind]: building[kind].map((d) => (d.id === id ? snapped : d)),
     };
-    // A bridge may touch a third exit with incompatible state; don't offer that snap.
-    if (kind === "exits" && mergeKind(building, next, kind, id).error) continue;
+    // A bridge may touch a third opening with incompatible state; don't offer that snap.
+    if (mergeKind(building, next, kind, id).error) continue;
     return { building: next, snapped: true };
   }
   return { building, snapped: false };

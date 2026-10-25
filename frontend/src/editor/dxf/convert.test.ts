@@ -34,7 +34,126 @@ const drawing: DxfDrawing = {
   ],
 };
 const options = { layers: ["WALLS"], scale: 0.001, thickness: 0.2, maxGap: 3 };
+function rectangleDxf(width: number, height: number) {
+  return [
+    0,
+    "SECTION",
+    2,
+    "ENTITIES",
+    0,
+    "LWPOLYLINE",
+    8,
+    "WALLS",
+    90,
+    4,
+    70,
+    1,
+    10,
+    0,
+    20,
+    0,
+    10,
+    width,
+    20,
+    0,
+    10,
+    width,
+    20,
+    height,
+    10,
+    0,
+    20,
+    height,
+    0,
+    "ENDSEC",
+    0,
+    "EOF",
+  ].join("\n");
+}
 describe("assisted DXF import", () => {
+  it.each([1, 0.001])(
+    "converts explicitly selected wall solids at scale %s",
+    (scale) => {
+      const parsed = parseDxf(rectangleDxf(4 / scale, 0.2 / scale));
+      const { building } = buildDxf(
+        parsed,
+        { ...options, scale, closedRectanglesAreWalls: true },
+        example,
+      );
+      expect(building.walls).toHaveLength(1);
+      expect(building.walls[0]!.thickness).toBeCloseTo(0.2);
+      expect(
+        Math.hypot(
+          building.walls[0]!.end.x - building.walls[0]!.start.x,
+          building.walls[0]!.end.y - building.walls[0]!.start.y,
+        ),
+      ).toBeCloseTo(4);
+      expect(building.width).toBeCloseTo(6);
+      expect(building.height).toBeCloseTo(2.2);
+      expect(buildingError(building, false)).toBeNull();
+    },
+  );
+  it("rejects oversized wall solids and never reconstructs cropped-out rectangle edges", () => {
+    expect(() =>
+      buildDxf(
+        parseDxf(rectangleDxf(10, 6)),
+        { ...options, scale: 1, closedRectanglesAreWalls: true },
+        example,
+      ),
+    ).toThrow("thickness exceeds 6.56 ft");
+    const { building } = buildDxf(
+      parseDxf(rectangleDxf(4, 0.2)),
+      {
+        ...options,
+        scale: 1,
+        closedRectanglesAreWalls: true,
+        crop: { minX: -0.1, maxX: 2, minY: -0.1, maxY: 0.3 },
+      },
+      example,
+    );
+    expect(building.walls).toHaveLength(1);
+    expect(building.walls[0]!.start.x).toBe(building.walls[0]!.end.x);
+    expect(buildingError(building, false)).toBeNull();
+  });
+  it.each([
+    [10, 6],
+    [8, 2],
+    [10, 0.5],
+  ])(
+    "preserves a %s by %s metre room outline and its scale",
+    (width, height) => {
+      for (const scale of [1, 0.001]) {
+        const parsed = parseDxf(rectangleDxf(width / scale, height / scale));
+        const { building } = buildDxf(parsed, { ...options, scale }, example);
+        expect(building.walls).toHaveLength(4);
+        expect(building.walls.every((wall) => wall.thickness === 0.2)).toBe(
+          true,
+        );
+        expect(building.width).toBeCloseTo(width + 2);
+        expect(building.height).toBeCloseTo(height + 2);
+        expect(buildingError(building, false)).toBeNull();
+      }
+    },
+  );
+  it("clears inherited hazards and shelters while preserving run settings and the original layout", () => {
+    const base = {
+      ...structuredClone(example),
+      disaster: { kind: "fire" as const, center: { x: 25, y: 15 }, radius: 1 },
+      tornado_zones: [{ id: "old-shelter", x: 20, y: 12, width: 3, height: 3 }],
+    };
+    const before = structuredClone(base);
+    const { building } = buildDxf(
+      parseDxf(rectangleDxf(5, 3)),
+      { ...options, scale: 1 },
+      base,
+    );
+    expect(building.disaster).toBeUndefined();
+    expect(building.tornado_zones).toEqual([]);
+    expect(building.seed).toBe(base.seed);
+    expect(building.time_step_seconds).toBe(base.time_step_seconds);
+    expect(buildingError(building, false)).toBeNull();
+    expect(base).toEqual(before);
+  });
   it("replaces wall-attached windows with the imported geometry and preserves the original for Undo", () => {
     const base = {
       ...structuredClone(example),
@@ -81,7 +200,7 @@ describe("assisted DXF import", () => {
       buildDxf(drawing, { ...options, maxGap: 0 }, example).openings,
     ).toHaveLength(0);
     expect(() => buildDxf(drawing, { ...options, scale: 1 }, example)).toThrow(
-      "1000 m",
+      "3280.8 ft",
     );
     expect(() =>
       buildDxf(drawing, { ...options, scale: NaN }, example),
@@ -141,10 +260,11 @@ describe("assisted DXF import", () => {
       "EOF",
     ].join("\n");
     const parsed = parseDxf(text);
-    expect(parsed.strokes).toHaveLength(1);
-    expect(parsed.strokes[0]!.thickness).toBe(200);
+    expect(parsed.strokes).toHaveLength(4);
+    expect(parsed.rectangles![0]!.centerline.thickness).toBe(200);
     expect(
-      buildDxf(parsed, options, example).building.walls[0]!.thickness,
+      buildDxf(parsed, { ...options, closedRectanglesAreWalls: true }, example)
+        .building.walls[0]!.thickness,
     ).toBeCloseTo(0.2);
   });
   it("reports unsupported entities, rejects binary and malformed content", () => {

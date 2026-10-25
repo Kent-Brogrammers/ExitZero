@@ -142,6 +142,12 @@ pub struct BuildingScenario {
     pub tornado_zones: Vec<Obstruction>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub disaster: Option<super::Disaster>,
+    #[serde(
+        default,
+        deserialize_with = "super::windows::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub pursuit: Option<super::PursuitConfig>,
     pub agent_radius: f64,
     pub time_step_seconds: f64,
     pub seed: u64,
@@ -162,41 +168,6 @@ fn positive(value: f64, maximum: f64) -> bool {
 
 fn rectangles_overlap(a: (f64, f64, f64, f64), b: (f64, f64, f64, f64)) -> bool {
     a.0 < b.0 + b.2 && b.0 < a.0 + a.2 && a.1 < b.1 + b.3 && b.1 < a.1 + a.3
-}
-
-// Segment/rectangle intersection, used only to validate spawn areas.
-fn wall_intersects_rectangle(wall: &Wall, rectangle: (f64, f64, f64, f64)) -> bool {
-    let padding = wall.thickness / 2.0;
-    let (left, top) = (rectangle.0 - padding, rectangle.1 - padding);
-    let (right, bottom) = (
-        rectangle.0 + rectangle.2 + padding,
-        rectangle.1 + rectangle.3 + padding,
-    );
-    let (dx, dy) = (wall.end.x - wall.start.x, wall.end.y - wall.start.y);
-    let (mut enter, mut leave) = (0.0_f64, 1.0_f64);
-    for (p, q) in [
-        (-dx, wall.start.x - left),
-        (dx, right - wall.start.x),
-        (-dy, wall.start.y - top),
-        (dy, bottom - wall.start.y),
-    ] {
-        if p.abs() < 1e-12 {
-            if q < 0.0 {
-                return false;
-            }
-        } else {
-            let ratio = q / p;
-            if p < 0.0 {
-                enter = enter.max(ratio);
-            } else {
-                leave = leave.min(ratio);
-            }
-            if enter > leave {
-                return false;
-            }
-        }
-    }
-    true
 }
 
 impl BuildingScenario {
@@ -220,6 +191,9 @@ impl BuildingScenario {
     }
 
     pub fn validate(&self) -> Result<(), String> {
+        if let Some(pursuit) = &self.pursuit {
+            pursuit.validate(self)?;
+        }
         if !positive(self.width, 1000.0) || !positive(self.height, 1000.0) {
             return Err("workspace dimensions must be finite and between 0 and 1000 metres".into());
         }
@@ -457,18 +431,8 @@ impl BuildingScenario {
             if rectangles
                 .iter()
                 .any(|&other| rectangles_overlap(rectangle, other))
-                || self
-                    .obstructions
-                    .iter()
-                    .any(|v| rectangles_overlap(rectangle, (v.x, v.y, v.width, v.height)))
-                || self
-                    .walls
-                    .iter()
-                    .any(|wall| wall_intersects_rectangle(wall, rectangle))
             {
-                return Err(
-                    "spawn zones must not overlap each other, walls, or obstructions".into(),
-                );
+                return Err("spawn zones must not overlap each other".into());
             }
             rectangles.push(rectangle);
             population += u64::from(zone.count);

@@ -66,5 +66,32 @@ it("shows authoritative rejection reasons and distinguishes people approaching f
   expect(html).toContain("0 waiting");
   expect(html).toContain("1 unavailable");
   expect(html).toContain("Check the exterior direction");
-  expect(html).toContain('open=""');
+  expect(html).not.toContain('open=""');
+});
+
+it("suppresses all window diagnostics for tornado response, including missing state", () => {
+  const building = {
+    ...syntheticBuilding,
+    disaster: { kind: "tornado" as const, center: { x: 0, y: 0 }, radius: 0.1 },
+    windows: [{ id: "pane", wall_id: "north", offset: 1, width: 1 }],
+  };
+  expect(renderToStaticMarkup(<WindowReadout building={building} />)).toBe("");
+  expect(
+    renderToStaticMarkup(
+      <WindowReadout
+        building={building}
+        states={[
+          {
+            window_id: "pane",
+            state: "intact",
+            preparation_ready_step: null,
+            queue_agent_ids: [],
+            traversing_agent_id: null,
+            traversal_earliest_finish_step: null,
+            unavailable_reason: "Tornado response uses shelter zones.",
+          },
+        ]}
+      />,
+    ),
+  ).toBe("");
 });

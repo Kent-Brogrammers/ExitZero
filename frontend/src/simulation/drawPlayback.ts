@@ -1,5 +1,10 @@
 import { drawLayout } from "../editor/draw";
+import { drawStalker } from "../editor/drawPursuit";
 import { frameLayout } from "./frameLayout";
+import {
+  defaultDisplayOptions,
+  type SimulationDisplayOptions,
+} from "./displayOptions";
 import { canvasPalette, type CanvasPalette } from "../styles/canvasPalette";
 import { canvasView } from "../editor/geometry";
 import type {
@@ -22,6 +27,7 @@ export function drawPlayback(
   pixelRatio: number,
   palette: CanvasPalette = canvasPalette(canvas),
   showAgentNumbers = false,
+  displayOptions: SimulationDisplayOptions = defaultDisplayOptions,
 ) {
   drawLayout(
     canvas,
@@ -33,6 +39,8 @@ export function drawPlayback(
     {
       windowStates: frame?.window_states,
       disasterState: frame?.disaster_state,
+      ...displayOptions,
+      showPursuitStart: false,
     },
   );
   drawAgents(canvas, building, frame, pixelRatio, palette, showAgentNumbers);
@@ -56,6 +64,12 @@ export function drawAgents(
   context.fillStyle = palette.selection;
   context.strokeStyle = palette.background;
   context.lineWidth = ratio;
+  if (frame.pursuit)
+    drawStalker(
+      context,
+      worldToCanvas(frame.pursuit.stalker, view),
+      Math.max(10 * ratio, building.agent_radius * view.scale),
+    );
   // A small screen-space minimum keeps labels readable without changing physics.
   const radiusFor = (id: number) =>
     Math.max(
@@ -134,6 +148,7 @@ export function createPlaybackRenderer(
   canvas: HTMLCanvasElement,
   building: BuildingScenario,
   layout = canvas.ownerDocument.createElement("canvas"),
+  displayOptions: SimulationDisplayOptions = defaultDisplayOptions,
 ) {
   const palette = canvasPalette(canvas);
   let openingState: string | undefined;
@@ -160,6 +175,7 @@ export function createPlaybackRenderer(
         nextRatio,
         palette,
         showAgentNumbers,
+        displayOptions,
       );
       return;
     }
@@ -185,6 +201,8 @@ export function createPlaybackRenderer(
         {
           windowStates: frame?.window_states,
           disasterState: frame?.disaster_state,
+          ...displayOptions,
+          showPursuitStart: false,
         },
       );
       width = canvas.width;

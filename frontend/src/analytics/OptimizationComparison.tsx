@@ -7,6 +7,7 @@ import { LayoutCanvas } from "./LayoutCanvas";
 import {
   clearanceLabel,
   openingChanges,
+  improvementLabel,
   type OptimizationEvaluation,
 } from "./optimization";
 
@@ -29,7 +30,9 @@ export function OptimizationComparison({
   const { result, source, applied } = evaluation;
   const candidates = [...result.candidates].sort((a, b) => a.rank - b.rank);
   const selected =
-    selection?.source === result ? selection.candidate : candidates[0];
+    selection?.source === result && candidates.includes(selection.candidate)
+      ? selection.candidate
+      : candidates[0];
   return (
     <section
       className="panel optimization-panel"
@@ -41,95 +44,206 @@ export function OptimizationComparison({
         Measured against the layout used for this optimization. Rank 1 is best;
         ties may share a rank. Previewing keeps your edited building unchanged.
       </p>
-      <div className="scenario-scroll">
-        <table className="scenario-table">
-          <caption>Baseline and computed improvements</caption>
-          <thead>
-            <tr>
-              {[
-                "Rank",
-                "Modification",
-                "Status",
-                "Evacuated",
-                "Remaining",
-                "Trapped",
-                "Clearance",
-                "Preview",
-              ].map((heading) => (
-                <th key={heading} scope="col">
-                  {heading}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            <tr className="baseline-row">
-              <td>—</td>
-              <th scope="row">Baseline</th>
-              <td>{result.baseline.status}</td>
-              <td>{result.baseline.evacuated}</td>
-              <td>{result.baseline.remaining}</td>
-              <td>{result.baseline.trapped}</td>
-              <td>{clearanceLabel(result.baseline.clearance_steps)}</td>
-              <td>—</td>
-            </tr>
-            {candidates.map((candidate, i) => (
-              <tr
-                key={i}
-                className={selected === candidate ? "selected-row" : undefined}
-              >
-                <td>{candidate.rank}</td>
-                <th scope="row">
-                  {openingChanges(source, candidate.building).join("; ") ||
-                    "Modified layout"}
-                </th>
-                <td>{candidate.metrics.status}</td>
-                <td>{candidate.metrics.evacuated}</td>
-                <td>{candidate.metrics.remaining}</td>
-                <td>{candidate.metrics.trapped}</td>
-                <td>{clearanceLabel(candidate.metrics.clearance_steps)}</td>
-                <td>
-                  <button
-                    type="button"
-                    aria-pressed={selected === candidate}
-                    onClick={() => setSelection({ source: result, candidate })}
-                  >
-                    Preview candidate {i + 1}
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="optimization-baseline">
+        <span>Original baseline</span>
+        <strong>
+          {clearanceLabel(result.baseline.clearance_steps)}
+          {result.baseline.clearance_steps !== null &&
+            ` / ${(result.baseline.clearance_steps * source.time_step_seconds).toFixed(2)} s`}
+        </strong>
+        <span>
+          {result.baseline.status} · {result.baseline.evacuated} /{" "}
+          {result.baseline.total_population} evacuated ·{" "}
+          {result.baseline.remaining} remaining · {result.baseline.trapped}{" "}
+          trapped
+        </span>
       </div>
-      {!candidates.length && (
-        <p>
+      {!candidates.length ? (
+        <p className="note optimization-empty">
           No strict improvement was found within the evaluation budget. Your
           layout is unchanged.
         </p>
-      )}
-      {selected && (
-        <div className="optimization-preview">
-          <h3>Candidate preview · rank {selected.rank}</h3>
-          <p className="note">
-            {openingChanges(source, selected.building).join("; ")}
-          </p>
-          <LayoutCanvas
-            building={selected.building}
-            label={`Candidate layout preview, rank ${selected.rank}`}
-          />
-          <button
-            type="button"
-            className="studio-control"
-            disabled={disabled || applied === selected}
-            onClick={() => onApply(selected)}
-          >
-            {applied === selected ? "Candidate applied" : "Apply candidate"}
-          </button>
-          <p className="note">
-            Apply replaces the current layout with this candidate. Then use Run
-            simulation to measure and play back the applied layout.
-          </p>
+      ) : (
+        <div className="optimization-split">
+          <div className="optimization-recommendations">
+            <h3>
+              Ranked recommendations <span>{candidates.length}</span>
+            </h3>
+            <p className="note">
+              Select a recommendation to inspect its geometry. Arrow keys move
+              through the list.
+            </p>
+            <div
+              className="optimization-candidates"
+              role="listbox"
+              aria-label="Optimization recommendations"
+              onKeyDown={(event) => {
+                if (
+                  !["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)
+                )
+                  return;
+                event.preventDefault();
+                const current = Math.max(0, candidates.indexOf(selected!));
+                const index =
+                  event.key === "Home"
+                    ? 0
+                    : event.key === "End"
+                      ? candidates.length - 1
+                      : Math.max(
+                          0,
+                          Math.min(
+                            candidates.length - 1,
+                            current + (event.key === "ArrowDown" ? 1 : -1),
+                          ),
+                        );
+                setSelection({ source: result, candidate: candidates[index]! });
+                const option =
+                  event.currentTarget.querySelectorAll<HTMLButtonElement>(
+                    '[role="option"]',
+                  )[index];
+                option?.focus({ preventScroll: true });
+                option?.scrollIntoView?.({ block: "nearest" });
+              }}
+            >
+              {candidates.map((candidate, index) => (
+                <button
+                  key={index}
+                  type="button"
+                  role="option"
+                  aria-selected={selected === candidate}
+                  aria-label={`Recommendation ${index + 1}, rank ${candidate.rank}: ${openingChanges(source, candidate.building).join("; ") || "Modified layout"}`}
+                  tabIndex={selected === candidate ? 0 : -1}
+                  className="optimization-candidate"
+                  onClick={() => setSelection({ source: result, candidate })}
+                >
+                  <span className="optimization-candidate-heading">
+                    <span className="optimization-rank">
+                      Rank {candidate.rank}
+                    </span>
+                    <strong>
+                      {clearanceLabel(candidate.metrics.clearance_steps)}
+                    </strong>
+                  </span>
+                  <span className="optimization-change">
+                    {openingChanges(source, candidate.building).join("; ") ||
+                      "Modified layout"}
+                  </span>
+                  <span className="optimization-improvement">
+                    {improvementLabel(
+                      result.baseline,
+                      candidate.metrics,
+                      source.time_step_seconds,
+                    )}
+                  </span>
+                  <span className="optimization-candidate-outcome">
+                    {candidate.metrics.status} · {candidate.metrics.evacuated} /{" "}
+                    {candidate.metrics.total_population} evacuated ·{" "}
+                    {candidate.metrics.remaining} remaining ·{" "}
+                    {candidate.metrics.trapped} trapped
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+          {selected && (
+            <div
+              className="optimization-preview"
+              aria-label="Selected recommendation"
+            >
+              <div className="optimization-preview-heading">
+                <div>
+                  <p className="eyebrow">SELECTED RECOMMENDATION</p>
+                  <h3>Candidate preview · rank {selected.rank}</h3>
+                </div>
+                <span className="badge">Editor unchanged</span>
+              </div>
+              <p className="note">
+                {openingChanges(source, selected.building).join("; ")}
+              </p>
+              <div className="optimization-geometry-legend">
+                <span className="proposed-opening">
+                  Solid: proposed opening
+                </span>
+                <span className="original-opening">
+                  Dashed: original opening
+                </span>
+              </div>
+              <LayoutCanvas
+                building={selected.building}
+                comparisonBuilding={source}
+                label={`Candidate layout preview, rank ${selected.rank}`}
+              />
+              <p className="optimization-preview-improvement">
+                {improvementLabel(
+                  result.baseline,
+                  selected.metrics,
+                  source.time_step_seconds,
+                )}
+              </p>
+              <div className="scenario-scroll optimization-metrics">
+                <table className="scenario-table">
+                  <caption>Original and selected candidate outcomes</caption>
+                  <thead>
+                    <tr>
+                      <th>Outcome</th>
+                      <th>Baseline</th>
+                      <th>Selected</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <th>Status</th>
+                      <td>{result.baseline.status}</td>
+                      <td>{selected.metrics.status}</td>
+                    </tr>
+                    <tr>
+                      <th>Evacuated</th>
+                      <td>{result.baseline.evacuated}</td>
+                      <td>{selected.metrics.evacuated}</td>
+                    </tr>
+                    <tr>
+                      <th>Remaining / trapped</th>
+                      <td>
+                        {result.baseline.remaining} / {result.baseline.trapped}
+                      </td>
+                      <td>
+                        {selected.metrics.remaining} /{" "}
+                        {selected.metrics.trapped}
+                      </td>
+                    </tr>
+                    {((result.baseline.sheltered ?? 0) > 0 ||
+                      (selected.metrics.sheltered ?? 0) > 0) && (
+                      <tr>
+                        <th>Sheltered</th>
+                        <td>{result.baseline.sheltered ?? 0}</td>
+                        <td>{selected.metrics.sheltered ?? 0}</td>
+                      </tr>
+                    )}
+                    <tr>
+                      <th>Clearance</th>
+                      <td>{clearanceLabel(result.baseline.clearance_steps)}</td>
+                      <td>
+                        {clearanceLabel(selected.metrics.clearance_steps)}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <button
+                type="button"
+                className="studio-control optimization-apply"
+                disabled={disabled || applied === selected}
+                onClick={() => onApply(selected)}
+              >
+                {applied === selected ? "Candidate applied" : "Apply candidate"}
+              </button>
+              <p className="note">
+                Only Apply changes the editor. Rerun the applied layout to
+                measure it; baseline improvements do not establish better
+                stress-test performance.
+              </p>
+            </div>
+          )}
         </div>
       )}
       {applied && (

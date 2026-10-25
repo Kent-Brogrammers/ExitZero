@@ -103,6 +103,8 @@ export interface ShelterArrival {
 }
 
 export interface BuildingScenario {
+  /** Optional fictional Halloween pursuit. Not combined with disasters. */
+  pursuit?: PursuitConfig;
   width: number;
   height: number;
   walls: Wall[];
@@ -156,6 +158,7 @@ export interface AgentPosition extends Point {
 }
 
 export interface AnimationFrame {
+  pursuit?: PursuitFrame;
   step: number;
   agents: AgentPosition[];
   /** Physical state at this time; absent in older recordings. */
@@ -163,6 +166,20 @@ export interface AnimationFrame {
   window_states?: WindowFrameState[];
   sheltered?: number;
   disaster_state?: DisasterState;
+}
+
+export interface PursuitConfig {
+  stalker_start: Point;
+  stalker_speed: number;
+  survivor_speed: number;
+  capture_radius: number;
+  avoidance_radius: number;
+}
+export interface PursuitFrame {
+  /** Separate actor, excluded from survivor population and stable survivor IDs. */
+  stalker: Point;
+  escaped: number;
+  caught: { agent_id: number; step: number }[];
 }
 
 export interface AgentStatistics {
@@ -197,6 +214,8 @@ export interface SimulationAnalytics {
 }
 
 export interface SimulationResult extends SimulationMetrics {
+  termination_reason?:
+    "completed" | "step_limit" | "no_active_routes" | "movement_stagnation";
   /** Absent in older saved results and synthetic fixtures. */
   analytics?: SimulationAnalytics;
   /** Actual opening discoveries and accepted shares; absent in older recordings. */
@@ -350,4 +369,39 @@ export interface ApiErrorResponse {
 
 export interface TrafficSample extends Point {
   visits: number;
+}
+export interface ComputationCancellationResponse {
+  status: "cancelling";
+}
+
+export type JobRequest =
+  | { kind: "replay"; stress_job_id: string; scenario_id: string }
+  | { kind: "simulate"; building: BuildingScenario }
+  | { kind: "stress"; request: StressTestRequest }
+  | { kind: "optimize"; request: OptimizeRequest };
+export interface ScenarioReplay {
+  building: BuildingScenario;
+  result: SimulationResult;
+  stress_job_id: string;
+  scenario_id: string;
+}
+export interface JobSnapshot {
+  context?: string;
+  id: string;
+  server_id: string;
+  kind: JobRequest["kind"];
+  status:
+    "queued" | "running" | "cancelling" | "completed" | "failed" | "cancelled";
+  progress: {
+    evaluations_completed: number;
+    evaluations_total: number;
+    step: number;
+    step_limit: number;
+  };
+  cached: boolean;
+  error: string | null;
+}
+export interface JobList {
+  server_id: string;
+  jobs: JobSnapshot[];
 }

@@ -1,3 +1,4 @@
+import { formatDimensions } from "../utils/units";
 import { snapshotFrameIndex, type ReplayTarget } from "./replayTarget";
 import {
   useEffect,
@@ -25,8 +26,16 @@ import { createPlayback, PLAYBACK_SPEEDS } from "./playback";
 import { syntheticBuilding, syntheticResult } from "./playback.fixture";
 import { SimulationSummary } from "./SimulationSummary";
 import { frameLayout } from "./frameLayout";
-import { WindowReadout } from "./WindowReadout";
+import { SimulationDetails } from "./SimulationDetails";
 import { AgentChat } from "./AgentChat";
+import { outcomeExplanation } from "../analytics/presentation";
+import { StudioPopover } from "../ui/StudioPopover";
+import {
+  defaultDisplayOptions,
+  type SimulationDisplayOptions,
+} from "./displayOptions";
+import { RecordingExport } from "./ExportRecording";
+import { PursuitMetrics } from "./PursuitMetrics";
 import "./SimulationView.css";
 
 interface SimulationViewProps {
@@ -42,6 +51,7 @@ interface SimulationViewProps {
 }
 
 interface PlaybackProps extends SimulationViewProps {
+  displayOptions: SimulationDisplayOptions;
   synthetic: boolean;
   analyticsOpen: boolean;
   onCloseAnalytics: () => void;
@@ -63,6 +73,7 @@ function Playback({
   showAgentNumbers,
   showAgentChat,
   onCloseChat,
+  displayOptions,
 }: PlaybackProps) {
   const theme = useStudioTheme();
 
@@ -89,9 +100,11 @@ function Playback({
     if (index < 0) return;
     player.pause();
     player.seek(index);
+    if (replayTarget.play) player.play();
     canvas.current?.focus({ preventScroll: true });
   }, [replayTarget, recording, player]);
   const frames = recording?.frames ?? [];
+  const finalFrame = frames.at(-1);
   const frame = frames[state.index] ?? null;
   const time = state.time;
   const firstTime = recording
@@ -117,10 +130,18 @@ function Playback({
   }, [active, player]);
   useEffect(() => {
     const element = canvas.current;
-    if (!element) return;
-    const render = createPlaybackRenderer(element, building);
+    if (!active || !element) return;
+    const render = createPlaybackRenderer(
+      element,
+      building,
+      undefined,
+      displayOptions,
+    );
     const palette = canvasPalette(element);
-    const trailSampler = recording ? createRecordedTrails(recording) : null;
+    const trailSampler =
+      recording && displayOptions.showTraffic
+        ? createRecordedTrails(recording)
+        : null;
     const finalData =
       recording && trailSampler
         ? trailSampler(recording.frames.length - 1)
@@ -171,6 +192,9 @@ function Playback({
         palette,
         {
           windowStates: agents?.window_states,
+          disasterState: agents?.disaster_state,
+          ...displayOptions,
+          showPursuitStart: false,
           underlay: (ctx) => {
             ctx.save();
             ctx.beginPath();
@@ -194,7 +218,16 @@ function Playback({
       observer.disconnect();
       window.removeEventListener("resize", redraw);
     };
-  }, [building, player, sample, theme, recording, showAgentNumbers]);
+  }, [
+    building,
+    player,
+    sample,
+    theme,
+    recording,
+    showAgentNumbers,
+    displayOptions,
+    active,
+  ]);
 
   const status = state.playing
     ? "Playing"
@@ -251,23 +284,12 @@ function Playback({
           />
           <div className="canvas-caption">
             <span>
-              {building.width} × {building.height} m ·{" "}
+              {formatDimensions(building.width, building.height)} ·{" "}
               {recording ? "Recording layout" : "Current layout"}
             </span>
             <span>{frames.length} recorded frames</span>
           </div>
         </div>
-        {recording && (
-          <details className="live-trails-note">
-            <summary>Recorded traffic trails</summary>
-            <p>
-              Accumulates sampled positions as playback advances. Pause freezes
-              trails; reset clears them; seeking rebuilds them. Colors use a
-              fixed scale for this recording. These observations are not the
-              backend's full accumulated traffic totals.
-            </p>
-          </details>
-        )}
         <div className="playback-dock">
           <div className="playback-transport">
             <div
@@ -337,9 +359,14 @@ function Playback({
                   ))}
                 </select>
               </label>
-              <span className="playback-status" role="status">
-                {frame ? status : "No frames"}
-              </span>
+              <RecordingExport
+                building={building}
+                result={recording}
+                synthetic={synthetic}
+                active={active}
+                showAgentNumbers={showAgentNumbers}
+                onOpen={player.pause}
+              />
             </div>
             <div className="playback-timeline">
               <label htmlFor="playback-seek">Recording timeline</label>
@@ -370,15 +397,7 @@ function Playback({
           <div className="playback-bottomline">
             <dl className="playback-readout">
               <div>
-                <dt>Simulation step</dt>
-                <dd>
-                  <output aria-label="Current simulation step" aria-live="off">
-                    {frame?.step ?? "—"}
-                  </output>
-                </dd>
-              </div>
-              <div>
-                <dt>Simulation time</dt>
+                <dt>Elapsed time</dt>
                 <dd>
                   <output aria-label="Elapsed simulation time" aria-live="off">
                     {frame ? `${time.toFixed(2)} s` : "—"}
@@ -386,71 +405,173 @@ function Playback({
                   {frame && (
                     <span className="playback-duration">
                       {" "}
-                      / {finalTime.toFixed(2)} s (end)
+                      / {finalTime.toFixed(2)} s
                     </span>
                   )}
                 </dd>
               </div>
-              <div>
-                <dt>Occupants (frame)</dt>
-                <dd>{frame?.agents.length ?? "—"}</dd>
-              </div>
-              <div>
-                <dt>Duration</dt>
-                <dd>
-                  <output aria-label="Recorded duration">
-                    {frame ? `${(finalTime - firstTime).toFixed(2)} s` : "—"}
-                  </output>
-                </dd>
-              </div>
+              {frame?.pursuit ? (
+                <PursuitMetrics frame={frame} final={atEnd} />
+              ) : (
+                <>
+                  <div>
+                    <dt>
+                      {building.disaster?.kind === "tornado"
+                        ? "Sheltered (final)"
+                        : "Evacuated (final)"}
+                    </dt>
+                    <dd>
+                      {building.disaster?.kind === "tornado"
+                        ? (recording?.sheltered ?? "—")
+                        : (recording?.evacuated ?? "—")}
+                      {building.disaster?.kind !== "tornado" &&
+                        (recording?.sheltered ?? 0) > 0 && (
+                          <> · {recording!.sheltered} sheltered</>
+                        )}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Remaining (final)</dt>
+                    <dd>{recording?.remaining ?? "—"}</dd>
+                  </div>
+                  <div>
+                    <dt>Status (final)</dt>
+                    <dd role="status">
+                      {recording
+                        ? recording.status === "completed"
+                          ? "Completed"
+                          : recording.status === "timeout"
+                            ? "Step limit reached"
+                            : "Incomplete"
+                        : "Awaiting simulation"}
+                    </dd>
+                  </div>
+                </>
+              )}
             </dl>
-            <details className="recording-details">
-              <summary className="studio-control">Recording details</summary>
-              <div className="recording-popover">
-                {frame && (
-                  <p className="note">
-                    Recording starts at {firstTime.toFixed(2)} s.
-                  </p>
-                )}
-                {recording && (
-                  <p className="note">
-                    Per-frame remaining and evacuated totals are not recorded.
-                    Agent disappearance alone does not establish evacuation.
-                  </p>
-                )}
-                {recording && (
-                  <p className="playback-outcome">
-                    Recorded outcome: <strong>{recording.status}</strong> ·{" "}
-                    {recording.evacuated} / {recording.total_population}{" "}
-                    evacuated · {recording.sheltered ?? 0} sheltered ·{" "}
-                    {recording.remaining} remaining ({recording.trapped}{" "}
-                    trapped).{" "}
-                    {recording.status !== "completed" &&
-                      "Recording ended before full evacuation."}
-                  </p>
-                )}
-                <a
-                  className="studio-control playback-analytics-link"
-                  href="#analytics"
-                  onClick={(event) => {
-                    if (onOpenAnalytics) {
-                      event.preventDefault();
-                      onOpenAnalytics();
-                    }
-                  }}
+            {recording && (
+              <SimulationDetails
+                building={building}
+                states={frame?.window_states}
+              >
+                <section
+                  className="simulation-detail-section"
+                  aria-label="Recording information"
                 >
-                  Open Analytics ↗
-                </a>
+                  <h4>Recording</h4>
+                  <p>
+                    {finalFrame?.pursuit
+                      ? finalFrame.agents.length
+                        ? "The pursuit reached its step limit with survivors still active."
+                        : "The pursuit finished: every survivor escaped or was caught."
+                      : outcomeExplanation(
+                          recording,
+                          recording.termination_reason,
+                        )}
+                  </p>
+                  <p>
+                    Blocked openings at the playhead:{" "}
+                    {frame?.blocked_opening_ids?.join(", ") || "None recorded"}.
+                    Closure marks remain visible when labels are hidden.
+                  </p>
+                  <dl className="playback-readout">
+                    <div>
+                      <dt>Simulation step</dt>
+                      <dd>
+                        <output
+                          aria-label="Current simulation step"
+                          aria-live="off"
+                        >
+                          {frame?.step ?? "—"}
+                        </output>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Recorded occupants</dt>
+                      <dd>{frame?.agents.length ?? "—"}</dd>
+                    </div>
+                    <div>
+                      <dt>Duration</dt>
+                      <dd>
+                        <output aria-label="Recorded duration">
+                          {frame
+                            ? `${(finalTime - firstTime).toFixed(2)} s`
+                            : "—"}
+                        </output>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Playback</dt>
+                      <dd>{frame ? status : "No frames"}</dd>
+                    </div>
+                  </dl>
+                  {frame && (
+                    <p className="note">
+                      Recording starts at {firstTime.toFixed(2)} s.
+                    </p>
+                  )}
+                  {recording && (
+                    <p className="note">
+                      Outcome counts and status describe the final result, not
+                      the playhead. Agent disappearance alone does not establish
+                      evacuation.
+                    </p>
+                  )}
+                  {recording && !finalFrame?.pursuit && (
+                    <p className="playback-outcome">
+                      Recorded outcome: <strong>{recording.status}</strong> ·{" "}
+                      {recording.evacuated} / {recording.total_population}{" "}
+                      evacuated · {recording.sheltered ?? 0} sheltered ·{" "}
+                      {recording.remaining} remaining ({recording.trapped}{" "}
+                      trapped).{" "}
+                      {recording.status !== "completed" &&
+                        "Recording ended before full evacuation."}
+                    </p>
+                  )}
+                  {finalFrame?.pursuit && (
+                    <dl className="playback-readout">
+                      <PursuitMetrics frame={finalFrame} final />
+                    </dl>
+                  )}
+                  <a
+                    className="studio-control playback-analytics-link"
+                    href="#analytics"
+                    onClick={(event) => {
+                      if (onOpenAnalytics) {
+                        event.preventDefault();
+                        onOpenAnalytics();
+                      }
+                    }}
+                  >
+                    Open Analytics ↗
+                  </a>
 
-                <p className="note">
-                  Motion between recorded samples is visual only. Segments
-                  crossing barriers hold until the next sample; sparse
-                  recordings may jump.
-                </p>
-              </div>
-            </details>
+                  <p className="note">
+                    Motion between recorded samples is visual only. Segments
+                    crossing barriers hold until the next sample; sparse
+                    recordings may jump.
+                  </p>
+                  <p className="note">
+                    Seek or step to pause · Space to play/pause · ←/→ to step
+                    with the Canvas focused
+                  </p>
+                </section>
+                <section
+                  className="simulation-detail-section"
+                  aria-label="Recorded traffic trails"
+                >
+                  <h4>Recorded traffic trails</h4>
+                  <p className="note">
+                    Accumulates sampled positions as playback advances. Pause
+                    freezes trails; reset clears them; seeking rebuilds them.
+                    Colors use a fixed scale for this recording. These
+                    observations are not the backend's full accumulated traffic
+                    totals.
+                  </p>
+                </section>
+              </SimulationDetails>
+            )}
           </div>
-          <WindowReadout building={building} states={frame?.window_states} />
           <div className="playback-help">
             {mismatch ? (
               <p className="playback-error" role="alert">
@@ -466,12 +587,7 @@ function Playback({
               <p className="note">
                 No recorded frames. Playback is unavailable.
               </p>
-            ) : (
-              <p className="note">
-                Seek or step to pause · Space to play/pause · ←/→ to step with
-                the Canvas focused
-              </p>
-            )}
+            ) : null}
           </div>
         </div>
       </div>
@@ -501,6 +617,7 @@ export function SimulationView({
 }: SimulationViewProps) {
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
   const [showAgentNumbers, setShowAgentNumbers] = useState(false);
+  const [displayOptions, setDisplayOptions] = useState(defaultDisplayOptions);
   const [showAgentChat, setShowAgentChat] = useState(false);
   const chatToggle = useRef<HTMLInputElement>(null);
   const analyticsButton = useRef<HTMLButtonElement>(null);
@@ -568,17 +685,81 @@ export function SimulationView({
             />
             Show Agent Numbers
           </label>
-          {!running && (
-            <label className="playback-preview-toggle">
-              <input
-                ref={chatToggle}
-                type="checkbox"
-                checked={showAgentChat}
-                aria-controls="agent-chat"
-                onChange={(event) => setShowAgentChat(event.target.checked)}
-              />
-              Show Agent Chat
-            </label>
+          <StudioPopover label="Display">
+            {() => (
+              <fieldset>
+                <legend>Simulation display</legend>
+                <label>
+                  Hazard rendering{" "}
+                  <select
+                    aria-label="Hazard rendering"
+                    value={displayOptions.hazardMode}
+                    onChange={(event) =>
+                      setDisplayOptions({
+                        ...displayOptions,
+                        hazardMode: event.target
+                          .value as SimulationDisplayOptions["hazardMode"],
+                      })
+                    }
+                  >
+                    <option value="filled">Filled region</option>
+                    <option value="outline">Outline</option>
+                    <option value="both">Both</option>
+                  </select>
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={displayOptions.showBlockedLabels}
+                    onChange={(event) =>
+                      setDisplayOptions({
+                        ...displayOptions,
+                        showBlockedLabels: event.target.checked,
+                      })
+                    }
+                  />
+                  Show blocked-opening labels
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={displayOptions.showTraffic}
+                    onChange={(event) =>
+                      setDisplayOptions({
+                        ...displayOptions,
+                        showTraffic: event.target.checked,
+                      })
+                    }
+                  />
+                  Show traffic overlay
+                </label>
+                <p className="note">
+                  Closed openings retain their cross marks. Open Details for
+                  opening IDs. Display options do not change the simulation.
+                </p>
+              </fieldset>
+            )}
+          </StudioPopover>
+          <label
+            className="playback-preview-toggle"
+            title={
+              running ? "Available after the recording finishes" : undefined
+            }
+          >
+            <input
+              ref={chatToggle}
+              type="checkbox"
+              checked={showAgentChat}
+              disabled={running}
+              aria-controls="agent-chat"
+              onChange={(event) => setShowAgentChat(event.target.checked)}
+            />
+            Show Agent Chat
+          </label>
+          {building.pursuit && !preview && (
+            <span className="pursuit-legend">
+              Halloween pursuit · Orange: survivors · Red mask: stalker
+            </span>
           )}
         </div>
         <button
@@ -595,8 +776,9 @@ export function SimulationView({
       </div>
       {preview && !live && (
         <p className="playback-synthetic-note" role="note">
-          Synthetic preview: two occupants in a separate 4 × 3 m layout. No
-          simulation was run for your building. Full Analytics uses API results.
+          Synthetic preview: two occupants in a separate{" "}
+          {formatDimensions(4, 3)} layout. No simulation was run for your
+          building. Full Analytics uses API results.
         </p>
       )}
       {live ? (
@@ -609,10 +791,12 @@ export function SimulationView({
           showAgentNumbers={showAgentNumbers}
           showAgentChat={showAgentChat}
           onChatOpenChange={setShowAgentChat}
+          displayOptions={displayOptions}
         />
       ) : (
         <Playback
           synthetic={preview}
+          displayOptions={displayOptions}
           replayTarget={replayTarget}
           allowSyntheticPreview={allowSyntheticPreview}
           analyticsOpen={analyticsOpen}

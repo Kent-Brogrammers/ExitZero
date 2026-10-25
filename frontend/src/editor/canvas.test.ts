@@ -3,9 +3,10 @@ import example from "../../../shared/examples/building.json";
 import { drawLayout } from "./draw";
 import { canvasPalette } from "../styles/canvasPalette";
 import { mergeEditedDoors } from "./doorEditing";
+import { setOpeningBlocked } from "./openingState";
 
 function canvasFixture(width: number, height = (width * 2) / 3) {
-  const strokes: { cap: string; width: number }[] = [];
+  const strokes: { cap: string; width: number; color: string }[] = [];
   const context = {
     setTransform: vi.fn(),
     save: vi.fn(),
@@ -16,8 +17,16 @@ function canvasFixture(width: number, height = (width * 2) / 3) {
     beginPath: vi.fn(),
     moveTo: vi.fn(),
     lineTo: vi.fn(),
-    stroke: vi.fn(function (this: { lineCap: string; lineWidth: number }) {
-      strokes.push({ cap: this.lineCap, width: this.lineWidth });
+    stroke: vi.fn(function (this: {
+      lineCap: string;
+      lineWidth: number;
+      strokeStyle: string;
+    }) {
+      strokes.push({
+        cap: this.lineCap,
+        width: this.lineWidth,
+        color: this.strokeStyle,
+      });
     }),
     strokeRect: vi.fn(),
     arc: vi.fn(),
@@ -174,6 +183,60 @@ describe("freeform Canvas drawing", () => {
   });
 });
 
+it.each(["doors", "exits"] as const)(
+  "marks blocked %s in red even with labels hidden and restores normal rendering when unblocked",
+  (kind) => {
+    const wall = {
+      id: "wall",
+      start: { x: 2, y: 2 },
+      end: { x: 20, y: 2 },
+      thickness: 0.2,
+    };
+    const b = {
+      ...example,
+      walls: [wall],
+      doors: [],
+      exits: [],
+      spawn_zones: [],
+      obstructions: [],
+      blocked_exit_ids: [],
+      [kind]: [{ id: "opening", wall_id: wall.id, offset: 2, width: 2 }],
+    };
+    const fixture = canvasFixture(600);
+    const palette = { ...canvasPalette(fixture.element), blueprint: "1" };
+    const closed = setOpeningBlocked(b, kind, "opening", true);
+    drawLayout(
+      fixture.element,
+      closed,
+      { kind, id: "opening" },
+      undefined,
+      2,
+      palette,
+      { showLabels: false, showDimensions: false },
+    );
+    expect(
+      fixture.strokes.filter((stroke) => stroke.color === palette.danger),
+    ).toHaveLength(2);
+    expect(fixture.context.fillText).not.toHaveBeenCalled();
+    expect(fixture.context.arc).not.toHaveBeenCalled();
+    const reopened = canvasFixture(600);
+    drawLayout(
+      reopened.element,
+      setOpeningBlocked(closed, kind, "opening", false),
+      null,
+      undefined,
+      2,
+      palette,
+    );
+    expect(
+      reopened.strokes.some((stroke) => stroke.color === palette.danger),
+    ).toBe(false);
+    expect(reopened.context.arc).toHaveBeenCalledTimes(
+      kind === "doors" ? 2 : 0,
+    );
+  },
+);
+
 it.each([false, true])(
   "keeps a merged blueprint double door open with one label (selected=%s)",
   (selected) => {
@@ -219,7 +282,7 @@ it.each([false, true])(
       String(text).startsWith("Door"),
     );
     expect(labels).toHaveLength(1);
-    expect(labels[0]![0]).toBe("Door · 2.0 m");
+    expect(labels[0]![0]).toBe("Door · 6.6 ft");
   },
 );
 

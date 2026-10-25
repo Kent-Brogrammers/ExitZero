@@ -8,6 +8,7 @@ export function WindowReadout({
   building: BuildingScenario;
   states?: readonly WindowFrameState[];
 }) {
+  if (building.disaster?.kind === "tornado") return null;
   if (!states?.length)
     return building.windows?.length ? (
       <p className="note">
@@ -18,12 +19,9 @@ export function WindowReadout({
     (s) => s.approaching_agent_ids !== undefined,
   );
   return (
-    <details
-      className="window-readout"
-      open={states.some((s) => !!s.unavailable_reason)}
-    >
-      <summary>
-        Window service ·{" "}
+    <section className="window-readout" aria-label="Window service">
+      <h4>Window service</h4>
+      <p className="note">
         {hasApproachCounts && (
           <>
             {states.reduce(
@@ -37,7 +35,7 @@ export function WindowReadout({
         {states.filter((s) => s.traversing_agent_id !== null).length} traversing
         {states.some((s) => !!s.unavailable_reason) &&
           ` · ${states.filter((s) => !!s.unavailable_reason).length} unavailable`}
-      </summary>
+      </p>
       <p className="note">
         Amber rings: recorded queue members. Green rings: the active traverser.
         This shows the current recorded sample.
@@ -64,6 +62,6 @@ export function WindowReadout({
           </div>
         ))}
       </dl>
-    </details>
+    </section>
   );
 }

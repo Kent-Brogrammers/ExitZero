@@ -13,6 +13,19 @@ export function frameLayout(
     closedDoorIds: building.doors
       .filter((door) => blocked.has(door.id))
       .map((door) => door.id),
+    // Keep symbols and IDs for closed doors. This display-only snapshot replaces
+    // initial events with the recorded state so a reopened door is never hidden
+    // by its original step-zero closure.
+    opening_events: [
+      ...building.doors
+        .filter((door) => blocked.has(door.id))
+        .map((door) => ({
+          step: 0,
+          opening_id: door.id,
+          blocked: true,
+        })),
+      ...(building.opening_events ?? []).filter((event) => event.step > 0),
+    ],
     blocked_exit_ids: building.exits
       .filter((exit) => blocked.has(exit.id))
       .map((exit) => exit.id),

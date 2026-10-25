@@ -12,6 +12,7 @@ import {
   compareMetrics,
   openingChanges,
   type OptimizationEvaluation,
+  improvementLabel,
 } from "./optimization";
 import { OptimizationComparison } from "./OptimizationComparison";
 
@@ -29,6 +30,21 @@ function candidate(steps = 120, rank = 1): OptimizationCandidate {
   return { building, rank, metrics: { ...baseline, clearance_steps: steps } };
 }
 describe("real-result optimization presentation and application", () => {
+  it("formats actual clearance improvements without inventing null or zero-baseline percentages", () => {
+    expect(
+      improvementLabel(baseline, { ...baseline, clearance_steps: 120 }, 0.1),
+    ).toBe("3 steps · 0.30 s · 2.4% faster");
+    expect(
+      improvementLabel({ ...baseline, clearance_steps: null }, baseline, 0.1),
+    ).toBe("Full clearance comparison unavailable");
+    expect(
+      improvementLabel(
+        { ...baseline, clearance_steps: 0 },
+        { ...baseline, clearance_steps: 0 },
+        0.1,
+      ),
+    ).not.toContain("%");
+  });
   it("ranks the supplied improvements and compares their measured metrics", () => {
     const first = candidate(120, 1),
       second = candidate(121, 2);
@@ -47,7 +63,7 @@ describe("real-result optimization presentation and application", () => {
     );
     expect(html.indexOf("120 steps")).toBeLessThan(html.indexOf("121 steps"));
     expect(html).toContain("123 steps");
-    expect(html).toContain("1.6 → 2.1 m");
+    expect(html).toContain("5.2 ft → 6.9 ft");
     expect(html).toContain("Candidate layout preview, rank 1");
     expect(html).toContain("Apply candidate");
     expect(evaluation).toEqual(before);
@@ -62,7 +78,7 @@ describe("real-result optimization presentation and application", () => {
     expect(next.exits[0]!.width).toBe(2.1);
     expect(next.exits[0]!.name).toBe("Main exit");
     expect(openingChanges(current, next)).toEqual([
-      "Exit Main exit: 1.6 → 2.1 m",
+      "Exit Main exit: 5.2 ft → 6.9 ft",
     ]);
     next.walls[0]!.start.x = 0.25;
     expect(current).toEqual(beforeCurrent);

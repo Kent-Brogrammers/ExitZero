@@ -29,6 +29,110 @@ function respond(body: unknown, status = 200) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("API integration contract", () => {
+  it("retrieves a reused job result without starting a legacy computation", async () => {
+    const {
+      status,
+      total_population,
+      evacuated,
+      remaining,
+      trapped,
+      clearance_steps,
+    } = mock;
+    const output = {
+      baseline: {
+        status,
+        total_population,
+        evacuated,
+        remaining,
+        trapped,
+        clearance_steps,
+      },
+      candidates: [],
+    };
+    const job = {
+      id: "cached-job",
+      server_id: "server",
+      kind: "optimize",
+      status: "completed",
+      cached: true,
+      error: null,
+      progress: {
+        evaluations_completed: 2,
+        evaluations_total: 2,
+        step: 1,
+        step_limit: 10,
+      },
+    };
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(job)))
+      .mockResolvedValueOnce(new Response(JSON.stringify(output)));
+    vi.stubGlobal("fetch", fetch);
+    const onStatus = vi.fn();
+    await expect(
+      client.optimize(
+        { building, max_candidates: 1 },
+        undefined,
+        "new-request",
+        onStatus,
+      ),
+    ).resolves.toEqual(output);
+    expect(onStatus).toHaveBeenCalledWith(job);
+    expect(fetch.mock.calls.map((call) => call[0])).toEqual([
+      "http://localhost:3001/api/jobs",
+      "http://localhost:3001/api/jobs/cached-job/result",
+    ]);
+    expect(JSON.parse(fetch.mock.calls[0]![1].body)).toMatchObject({
+      id: "new-request",
+      request: { kind: "optimize", request: { building, max_candidates: 1 } },
+    });
+  });
+  it("sends the same cancellation identity and signal for batch work and a keepalive Stop", async () => {
+    const controller = new AbortController();
+    const {
+      status,
+      total_population,
+      evacuated,
+      remaining,
+      trapped,
+      clearance_steps,
+    } = mock;
+    respond({
+      baseline: {
+        status,
+        total_population,
+        evacuated,
+        remaining,
+        trapped,
+        clearance_steps,
+      },
+      candidates: [],
+    });
+    await client.optimize(
+      { building, max_candidates: 1 },
+      controller.signal,
+      "run-123",
+    );
+    expect(globalThis.fetch).toHaveBeenLastCalledWith(
+      expect.stringContaining("/optimize"),
+      expect.objectContaining({
+        signal: controller.signal,
+        headers: expect.objectContaining({ "X-Computation-Id": "run-123" }),
+      }),
+    );
+    respond({ status: "cancelling" });
+    await expect(client.cancelComputation("run-123")).resolves.toEqual({
+      status: "cancelling",
+    });
+    expect(globalThis.fetch).toHaveBeenLastCalledWith(
+      expect.stringContaining("/computations/run-123/cancel"),
+      expect.objectContaining({ method: "POST", keepalive: true }),
+    );
+    respond({ status: "completed" });
+    await expect(client.cancelComputation("run-123")).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+  });
   it("accepts recorded window diagnostics and rejects approaching IDs duplicated in the queue", async () => {
     const withWindow = {
       ...building,

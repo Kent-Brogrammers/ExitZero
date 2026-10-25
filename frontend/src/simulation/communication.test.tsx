@@ -48,31 +48,31 @@ it("uses actual step times and removes future messages immediately when rewindin
   expect(communicationsAtTime(null, 5).events).toEqual([]);
 });
 
-it("uses stable ID numbers, groups recipients and names the actual opening", () => {
+it("uses stable ID numbers and names the actual opening in callouts", () => {
   expect(
     communicationMessage(
       { ...events[0]!, event_type: "discovery", recipient_ids: [] },
       building,
     ),
-  ).toBe("Agent 1 discovered that Exit west is blocked.");
+  ).toBe("Agent 1: “Don't head for Exit 1! It's blocked.”");
   expect(
     communicationMessage(
       { ...events[2]!, event_type: "discovery", recipient_ids: [] },
       building,
     ),
-  ).toBe("Agent 1 discovered that Exit west is open.");
+  ).toBe("Agent 1: “Exit 1 is open! Pass it on.”");
   expect(communicationMessage(events[0]!, building)).toBe(
-    "Agent 1 told Agents 2 and 3 that Exit west is blocked.",
+    "Agent 1: “Hey, Exit 1 is blocked! Pass it on.”",
   );
   expect(communicationMessage(events[1]!, building)).toBe(
-    "Agent 3 told Agent 6 that Exit west is blocked.",
+    "Agent 3: “Hey, Exit 1 is blocked! Pass it on.”",
   );
   expect(
     communicationMessage(events[2]!, {
       ...building,
       exits: building.exits.map((e) => ({ ...e, name: "West entrance" })),
     }),
-  ).toBe("Agent 1 told Agents 2 and 3 that West entrance is open.");
+  ).toBe("Agent 1: “West entrance is open! Pass it on.”");
   expect(communicationTime(65.25)).toBe("01:05.25");
   expect(communicationTime(4)).toBe("00:04");
 });
@@ -95,11 +95,12 @@ it("keeps legacy, empty and awaiting-message states honest", () => {
   expect(chat(result)).toContain("No messages at this point");
   const html = chat(result, 2);
   expect(html).toContain("00:00.50");
-  expect(html).toContain("Agent 3 told Agent 6");
+  expect(html).toContain("1 other person said the same");
+  expect(html).toContain("Heard by 3 people");
   expect(html).not.toContain("is open");
 });
 
-it("renders discovery and sharing at the same actual timestamp without losing either event on rewind", () => {
+it("groups discovery and sharing at the same actual timestamp and removes later recipients on rewind", () => {
   const discovery: CommunicationEvent = {
     ...events[0]!,
     event_type: "discovery",
@@ -123,11 +124,11 @@ it("renders discovery and sharing at the same actual timestamp without losing ei
       />,
     );
   expect(chat(0.49)).not.toContain("<li>");
-  expect(chat(0.5).match(/<li>/g)).toHaveLength(2);
-  expect(chat(0.5)).toContain("Agent 1 discovered");
-  expect(chat(0.5)).toContain("Agent 1 told Agents 2 and 3");
-  expect(chat(2).match(/<li>/g)).toHaveLength(3);
-  expect(chat(0.5)).not.toContain("Agent 3 told Agent 6");
+  expect(chat(0.5).match(/<li>/g)).toHaveLength(1);
+  expect(chat(0.5)).toContain("Heard by 2 people");
+  expect(chat(2).match(/<li>/g)).toHaveLength(1);
+  expect(chat(2)).toContain("Heard by 3 people");
+  expect(chat(0.5)).not.toContain("Heard by 3 people");
 });
 
 it("limits rendered history while retaining the complete recording and correct seek prefix", () => {

@@ -1,10 +1,13 @@
+import { formatDimensions, lengthInputValue } from "../utils/units";
 import { useEffect, useMemo, useRef } from "react";
 import type { BuildingScenario, SimulationResult } from "../types/simulation";
 import { drawLayout } from "../editor/draw";
 import { canvasPalette } from "../styles/canvasPalette";
 import { drawAgents } from "../simulation/drawPlayback";
+import { frameLayout } from "../simulation/frameLayout";
 import {
   CROWD_ZONE,
+  CROWDING_WARMUP_SECONDS,
   createCrowdingTracker,
   frameCrowding,
   type CrowdingSpot,
@@ -59,12 +62,16 @@ function Snapshot({
       const palette = canvasPalette(target);
       drawLayout(
         target,
-        building,
+        frameLayout(building, spot.frame),
         null,
         undefined,
         window.devicePixelRatio || 1,
         palette,
         {
+          hazardMode: "filled",
+          showBlockedLabels: false,
+          disasterState: spot.frame.disaster_state,
+          windowStates: spot.frame.window_states,
           underlay: (ctx) => {
             ctx.save();
             ctx.beginPath();
@@ -111,12 +118,15 @@ function Snapshot({
       <canvas
         ref={canvas}
         role="img"
-        aria-label={`Crowding heatmap snapshot ${rank}: ${spot.count} occupants in the highlighted zone at x ${spot.x}, y ${spot.y} metres, step ${spot.frame.step}.`}
+        aria-label={`Crowding heatmap snapshot ${rank}: ${spot.count} occupants in the highlighted zone at x ${lengthInputValue(spot.x, 2)}, y ${lengthInputValue(spot.y, 2)} feet, step ${spot.frame.step}.`}
       />
       <p>
-        Zone: ({spot.x}, {spot.y}) m ·{" "}
-        {Math.min(CROWD_ZONE, building.width - spot.x).toFixed(1)} ×{" "}
-        {Math.min(CROWD_ZONE, building.height - spot.y).toFixed(1)} m
+        Zone: ({lengthInputValue(spot.x, 2)}, {lengthInputValue(spot.y, 2)}) ft
+        ·{" "}
+        {formatDimensions(
+          Math.min(CROWD_ZONE, building.width - spot.x),
+          Math.min(CROWD_ZONE, building.height - spot.y),
+        )}
         {spot.frame.step === 0 ? " · Initial occupancy" : ""}
       </p>
       {onViewInSimulation && (
@@ -152,9 +162,10 @@ function Cards({
     >
       <h2>Peak crowding</h2>
       <p className="note">
-        Three busiest 2 × 2 m zones in recorded frames, including initial
-        occupancy. Ranked by occupant count, not density or proven congestion;
-        boundary zones may be smaller.
+        Three busiest {formatDimensions(CROWD_ZONE, CROWD_ZONE)} zones in
+        recorded frames after the first {CROWDING_WARMUP_SECONDS} seconds.
+        Initial spawn buildup is excluded. Ranked by occupant count, not density
+        or proven congestion; boundary zones may be smaller.
       </p>
       <div className="crowding-legend">
         <span>Fewer occupants</span>
@@ -162,14 +173,13 @@ function Cards({
         <span>More occupants</span>
         <span>Outlined zone = ranked spot</span>
       </div>
-      <details className="note">
-        <summary>How to read these snapshots</summary>
+      <div className="note crowding-explanation">
         <p>
           Each snapshot shows its zone's peak timestamp on a shared color scale.
           Smoothed colors may spread beyond zone edges. Occupant count
           determines rank.
         </p>
-      </details>
+      </div>
       {spots.length ? (
         <div className="crowding-cards">
           {spots.map((spot, i) => (
@@ -186,7 +196,8 @@ function Cards({
         </div>
       ) : (
         <p className="note">
-          Crowding snapshots will appear as occupant frames arrive.
+          No occupied zones were recorded after the first{" "}
+          {CROWDING_WARMUP_SECONDS} seconds.
         </p>
       )}
     </section>
@@ -203,7 +214,11 @@ export default function CrowdingRanking({
 }) {
   const spots = useMemo(() => {
     if (!result) return [];
-    const tracker = createCrowdingTracker(result.width, result.height);
+    const tracker = createCrowdingTracker(
+      result.width,
+      result.height,
+      result.time_step_seconds,
+    );
     for (const frame of result.frames) tracker.add(frame);
     return tracker.getSnapshot();
   }, [result]);

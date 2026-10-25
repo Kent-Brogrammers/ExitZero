@@ -3,7 +3,7 @@ use crate::{
         BuildingScenario, ScenarioModifications, Severity, SimulationMetrics, SimulationResult,
         StressScenarioResult, StressTestRequest, StressTestResult,
     },
-    simulation::SimulationError,
+    simulation::{SimulationError, control},
 };
 use std::{cmp::Ordering, collections::HashMap};
 
@@ -21,26 +21,28 @@ fn stress_test_with(
     request
         .validate()
         .map_err(SimulationError::InvalidScenario)?;
+    control::checkpoint()?;
+    let planned_scenarios = generate_scenarios(request);
+    control::plan(planned_scenarios.len() + 1);
     let (baseline, baseline_positions) = {
         let run = simulate(&request.building)?;
+        control::checkpoint()?;
+        control::evaluation_finished();
         validate_run(&run, &request.building)?;
         let positions = initial_positions(&run);
         (run.metrics, positions)
     }; // Release baseline playback/traffic data before running modified scenarios.
     let mut scenarios = Vec::new();
 
-    for planned in generate_scenarios(request) {
-        let mut building = request.building.clone();
-        building
-            .blocked_exit_ids
-            .extend(planned.modifications.blocked_exit_ids.iter().cloned());
-        building
-            .obstructions
-            .extend(planned.modifications.added_obstructions.iter().cloned());
+    for planned in planned_scenarios {
+        control::checkpoint()?;
+        let building = apply_modifications(&request.building, &planned.modifications);
         building
             .validate()
             .map_err(SimulationError::InvalidScenario)?;
         let run = simulate(&building)?;
+        control::checkpoint()?;
+        control::evaluation_finished();
         validate_run(&run, &building)?;
         let positions = initial_positions(&run);
         let fairness = match (&baseline_positions, &positions) {
@@ -80,6 +82,52 @@ fn stress_test_with(
         baseline,
         scenarios,
     })
+}
+
+fn apply_modifications(
+    original: &BuildingScenario,
+    changes: &ScenarioModifications,
+) -> BuildingScenario {
+    let mut building = original.clone();
+    building
+        .blocked_exit_ids
+        .extend(changes.blocked_exit_ids.iter().cloned());
+    building
+        .opening_events
+        .retain(|event| event.blocked || !changes.blocked_exit_ids.contains(&event.opening_id));
+    building
+        .obstructions
+        .extend(changes.added_obstructions.iter().cloned());
+    building
+}
+
+/// Replay a tested scenario using exactly the same forced-closure rules.
+pub(crate) fn record_scenario(
+    request: &StressTestRequest,
+    id: &str,
+    expected: &SimulationMetrics,
+) -> Result<(BuildingScenario, SimulationResult), SimulationError> {
+    request
+        .validate()
+        .map_err(SimulationError::InvalidScenario)?;
+    control::checkpoint()?;
+    let planned = generate_scenarios(request)
+        .into_iter()
+        .find(|s| s.scenario_id == id)
+        .ok_or_else(|| {
+            SimulationError::InvalidScenario(
+                "This scenario was not tested by the source stress request.".into(),
+            )
+        })?;
+    let building = apply_modifications(&request.building, &planned.modifications);
+    let result = crate::simulation::simulate(&building)?;
+    validate_run(&result, &building)?;
+    if serde_json::to_string(&result.metrics).unwrap() != serde_json::to_string(expected).unwrap() {
+        return Err(SimulationError::InvalidScenario(
+            "Replay metrics do not match the tested scenario. Rerun stress testing.".into(),
+        ));
+    }
+    Ok((building, result))
 }
 
 struct PlannedScenario {
@@ -216,6 +264,7 @@ mod tests {
     fn request() -> StressTestRequest {
         StressTestRequest {
             building: BuildingScenario {
+                pursuit: None,
                 tornado_zones: vec![],
                 disaster: None,
                 awareness: Default::default(),
@@ -315,8 +364,10 @@ mod tests {
 
     fn synthetic_run(building: &BuildingScenario, metrics: SimulationMetrics) -> SimulationResult {
         SimulationResult {
+            termination_reason: None,
             metrics,
             frames: vec![AnimationFrame {
+                pursuit: None,
                 window_states: None,
                 disaster_state: None,
                 sheltered: None,
@@ -470,6 +521,55 @@ mod tests {
         );
         assert!(calls[1].obstructions.is_empty());
         assert_eq!(calls[2].obstructions.len(), 1);
+    }
+
+    #[test]
+    fn forced_exit_closures_remove_only_conflicting_reopening_events() {
+        let mut request = request();
+        request.building.doors.push(Opening {
+            id: "door".into(),
+            name: None,
+            wall_id: "north".into(),
+            offset: 10.0,
+            width: 1.0,
+        });
+        request.building.opening_events = serde_json::from_value(serde_json::json!([
+            {"step": 0, "opening_id": "left", "blocked": false},
+            {"step": 1, "opening_id": "right", "blocked": false},
+            {"step": 2, "opening_id": "left", "blocked": true},
+            {"step": 3, "opening_id": "left", "blocked": false},
+            {"step": 4, "opening_id": "door", "blocked": false},
+            {"step": 5, "opening_id": "right", "blocked": true}
+        ]))
+        .unwrap();
+        let original = to_value(&request).unwrap();
+        let events = original["building"]["opening_events"].as_array().unwrap();
+        let mut calls = vec![];
+        stress_test_with(&request, |building| {
+            calls.push(building.clone());
+            Ok(synthetic_run(building, completed(100)))
+        })
+        .unwrap();
+
+        assert_eq!(calls.len(), 5);
+        assert_eq!(to_value(&calls[0]).unwrap(), original["building"]);
+        assert_eq!(calls[1].blocked_exit_ids, ["left"]);
+        assert_eq!(
+            to_value(&calls[1].opening_events).unwrap(),
+            to_value([&events[1], &events[2], &events[4], &events[5]]).unwrap()
+        );
+        assert_eq!(calls[2].blocked_exit_ids, ["right"]);
+        assert_eq!(
+            to_value(&calls[2].opening_events).unwrap(),
+            to_value([&events[0], &events[2], &events[3], &events[4], &events[5]]).unwrap()
+        );
+        for building in &calls[3..] {
+            assert_eq!(
+                to_value(&building.opening_events).unwrap(),
+                original["building"]["opening_events"]
+            );
+        }
+        assert_eq!(to_value(&request).unwrap(), original);
     }
 
     #[test]
@@ -1013,6 +1113,28 @@ pub(crate) mod real_integration {
     use crate::models::{Point, SimulationStatus};
     use serde_json::{json, to_value};
 
+    #[test]
+    fn cancellation_interrupts_a_real_stress_evaluation_without_partial_success() {
+        let request = stress_request(room());
+        let control = std::sync::Arc::new(crate::simulation::ComputationControl::default());
+        let mut calls = 0;
+        let result = control.run(|| {
+            stress_test_with(&request, |building| {
+                calls += 1;
+                crate::simulation::simulate_live(building, &mut |frame| {
+                    if calls == 2 && frame.step > 0 {
+                        control.cancel();
+                    }
+                    true
+                })
+            })
+        });
+        assert!(matches!(result, Err(SimulationError::Cancelled)));
+        assert_eq!(calls, 2);
+        assert_eq!(control.progress().evaluations_completed, 1);
+        assert!(control.progress().step > 0);
+    }
+
     /// A closed 12 x 8 m room, two north-wall exits, and one fixed spawn point.
     /// Buildings are test inputs; all metrics/frames come from the actual simulator.
     pub(crate) fn room() -> BuildingScenario {
@@ -1408,6 +1530,64 @@ pub(crate) mod real_integration {
             to_value(metrics).unwrap()["clearance_steps"],
             serde_json::Value::Null
         );
+    }
+
+    #[test]
+    fn real_forced_exit_closures_cannot_reopen_or_receive_false_low_severity() {
+        for reopen_step in [0, 10] {
+            let mut building = room();
+            building.exits.truncate(1);
+            building
+                .opening_events
+                .push(crate::models::OpeningStateChange {
+                    step: reopen_step,
+                    opening_id: "left".into(),
+                    blocked: false,
+                });
+            let request = stress_request(building);
+            let original = to_value(&request).unwrap();
+            let baseline = crate::simulation::simulate(&request.building).unwrap();
+            assert_eq!(baseline.metrics.status, SimulationStatus::Completed);
+            let mut calls = 0;
+            let result = stress_test_with(&request, |scenario| {
+                calls += 1;
+                let run = crate::simulation::simulate(scenario)?;
+                assert_eq!(initial_positions(&run), initial_positions(&baseline));
+                if !scenario.blocked_exit_ids.is_empty() {
+                    assert!(run.frames.iter().all(|frame| {
+                        frame
+                            .blocked_opening_ids
+                            .as_ref()
+                            .is_some_and(|ids| ids.iter().any(|id| id == "left"))
+                    }));
+                }
+                Ok(run)
+            })
+            .unwrap();
+            assert_eq!(calls, 2);
+            assert_eq!(
+                to_value(&result.baseline).unwrap(),
+                to_value(&baseline.metrics).unwrap()
+            );
+            let scenario = &result.scenarios[0];
+            assert_eq!(scenario.metrics.status, SimulationStatus::Incomplete);
+            assert_eq!(
+                (
+                    scenario.metrics.evacuated,
+                    scenario.metrics.remaining,
+                    scenario.metrics.trapped
+                ),
+                (0, 1, 1)
+            );
+            assert!(scenario.metrics.clearance_steps.is_none());
+            assert!(matches!(scenario.severity, Severity::Critical));
+            assert!(scenario.description.contains("fairness verified"));
+            assert_eq!(to_value(&request).unwrap(), original);
+            assert_eq!(
+                to_value(&result).unwrap(),
+                to_value(stress_test(&request).unwrap()).unwrap()
+            );
+        }
     }
 
     #[test]

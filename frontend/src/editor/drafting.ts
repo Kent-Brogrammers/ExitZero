@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import type { Point } from "../types/simulation";
-export const FOOT_METRES = 0.3048;
+import { FOOT_METRES, formatLength } from "../utils/units";
+export { FOOT_METRES } from "../utils/units";
 export const gridSpacings = {
   "1ft": { label: "1 foot", metres: FOOT_METRES },
   "2ft": { label: "2 feet", metres: 2 * FOOT_METRES },
   "5ft": { label: "5 feet", metres: 5 * FOOT_METRES },
-  "0.5m": { label: "0.5 metres", metres: 0.5 },
-  "1m": { label: "1 metre", metres: 1 },
+  "0.5m": { label: `${formatLength(0.5, 2)} (metric spacing)`, metres: 0.5 },
+  "1m": { label: `${formatLength(1, 2)} (metric spacing)`, metres: 1 },
 } as const;
 export interface DraftingPreferences {
   visible: boolean;

@@ -9,9 +9,30 @@
 }
 .welcome-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
   padding: 26px 5%;
+}
+.welcome-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+.welcome-templates-action {
+  min-height: 44px;
+  padding: 12px 16px;
+  gap: 16px;
+  border-color: var(--studio-primary);
+  background: var(--cad-control);
+  color: var(--cad-text);
+  font-size: var(--text-control);
+  font-weight: 500;
+}
+.welcome-templates-action:hover:not(:disabled) {
+  border-color: var(--cad-shelter);
+  background: var(--cad-hover);
 }
 .welcome-edition {
   font-size: 11px;
@@ -59,8 +80,63 @@
 .welcome-actions {
   display: flex;
   align-items: center;
-  gap: 24px;
+  gap: 12px;
   flex-wrap: wrap;
+}
+.welcome-actions > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+  gap: 16px;
+  padding: 12px 16px;
+  border-radius: var(--radius-control);
+  font-size: 12px;
+  font-weight: 500;
+}
+.welcome-action-secondary {
+  border: 1px solid var(--cad-border-strong);
+  background: var(--cad-control);
+  color: var(--cad-text);
+}
+.welcome-action-tertiary {
+  border: 1px solid var(--cad-border-strong);
+  color: var(--cad-muted);
+}
+.welcome-actions > button:not(.entry-action):hover:not(:disabled) {
+  border-color: var(--cad-shelter);
+  color: var(--cad-text);
+  background: var(--cad-hover);
+}
+.studio-welcome.has-templates .welcome-composition {
+  min-height: calc(100dvh - 176px);
+}
+.welcome-templates {
+  width: 90%;
+  max-width: 1240px;
+  margin: 0 auto 48px;
+  padding-top: 32px;
+  border-top: 1px solid var(--cad-border);
+}
+.welcome-templates-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.welcome-templates h2 {
+  margin: 0;
+  font-size: clamp(24px, 3vw, 34px);
+  font-weight: 400;
+  letter-spacing: -0.8px;
+  scroll-margin-top: 24px;
+}
+.welcome-templates-heading p {
+  color: var(--cad-muted);
+  font-size: 12px;
+  margin: 10px 0 0;
 }
 .welcome-example {
   border: 0;
@@ -132,6 +208,12 @@
     width: calc(100% - 48px);
     margin: 50px auto 20px;
     grid-template-columns: minmax(0, 1fr);
+  }
+  .welcome-actions > button {
+    width: 100%;
+  }
+  .welcome-templates {
+    width: calc(100% - 48px);
   }
   .welcome-copy h1 {
     font-size: clamp(45px, 10vw, 72px);

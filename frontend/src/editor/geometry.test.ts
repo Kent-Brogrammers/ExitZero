@@ -81,13 +81,13 @@ describe("freeform layout editing", () => {
     expect(removed.blocked_exit_ids).toEqual([]);
     expect(building.exits).toHaveLength(2);
   });
-  it("rejects overlapping openings, intersecting spawn areas, and impossible occupant area", () => {
+  it("rejects overlapping openings and impossible occupant area while allowing walls inside spawn areas", () => {
     const overlap = structuredClone(example);
     overlap.doors[1]!.offset = overlap.doors[0]!.offset;
     expect(buildingError(overlap)).toMatch(/overlap/);
     const wall = structuredClone(example);
     wall.spawn_zones[0]!.x = 14;
-    expect(buildingError(wall)).toMatch(/overlap/);
+    expect(buildingError(wall)).toBeNull();
     const crowded = structuredClone(example);
     crowded.spawn_zones[0]!.count = 1000;
     expect(buildingError(crowded)).toMatch(/area/);

@@ -1,3 +1,4 @@
+import { formatLength } from "../utils/units";
 import type {
   BuildingScenario,
   Point,
@@ -6,6 +7,7 @@ import type {
   WindowOpening,
 } from "../types/simulation";
 import { openingSegment, wallLength, project, distance } from "./geometry";
+import { openingStartsBlocked } from "./openingState";
 
 // Match Rust and the shared opening bounds/overlap tolerance, in metres.
 const OPENING_EPSILON = 1e-8;
@@ -122,10 +124,11 @@ export function solidWallSegments(
   windowStates: readonly WindowFrameState[] = [],
 ): [Point, Point][] {
   const openings = [
-    ...building.doors.filter(
-      (door) => !building.closedDoorIds?.includes(door.id),
+    ...[...building.doors, ...building.exits].filter(
+      (opening) =>
+        !openingStartsBlocked(building, opening.id) &&
+        !building.closedDoorIds?.includes(opening.id),
     ),
-    ...building.exits.filter((o) => !building.blocked_exit_ids.includes(o.id)),
     ...(building.windows ?? [])
       .filter((w) =>
         windowStates.some(
@@ -195,10 +198,10 @@ export function openingLabels(
           : undefined;
       const label = building.closedDoorIds?.includes(o.id)
         ? "Closed door"
-        : building.blocked_exit_ids.includes(o.id)
-          ? "Blocked exit"
+        : openingStartsBlocked(building, o.id)
+          ? `Blocked ${kind.toLowerCase()}`
           : kind;
-      const text = `${label} · ${o.width.toFixed(1)} m${state ? ` · ${state}` : ""}`;
+      const text = `${label} · ${formatLength(o.width)}${state ? ` · ${state}` : ""}`;
       const width = Math.min(measure(text), building.width),
         height = 13 * px;
       const x = Math.max(

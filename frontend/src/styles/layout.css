@@ -182,6 +182,9 @@ body,
   flex: 1;
   min-height: 0;
 }
+.layout-comparison {
+  margin-top: 24px;
+}
 .studio-viewport {
   position: absolute;
   inset: 0;
@@ -423,7 +426,7 @@ canvas {
   }
   .studio-nav {
     justify-content: center;
-    gap: 36px;
+    gap: clamp(16px, 5vw, 36px);
   }
   .studio-nav button {
     padding: 15px 0;

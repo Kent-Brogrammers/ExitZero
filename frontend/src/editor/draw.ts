@@ -1,5 +1,12 @@
+import { formatDimensions } from "../utils/units";
+import { drawStalker } from "./drawPursuit";
 import type { Point, WindowFrameState } from "../types/simulation";
-import { canvasView, openingSegment, type Selection } from "./geometry";
+import {
+  canvasView,
+  openingSegment,
+  type Selection,
+  type CanvasCamera,
+} from "./geometry";
 import { drawGrid } from "./drawGrid";
 import type { DraftingPreferences } from "./drafting";
 import {
@@ -7,6 +14,7 @@ import {
   openingLabels,
   type OpeningLayout,
 } from "./openings";
+import { openingStartsBlocked } from "./openingState";
 import { doorLeaves } from "./doorSymbols";
 import { drawFurniture, type FurnitureKind } from "./furniture";
 import { dragRectangle, wallShapePoints } from "./shapes";
@@ -28,13 +36,17 @@ export function drawLayout(
   pixelRatio = 1,
   palette: CanvasPalette = canvasPalette(canvas),
   options?: {
+    camera?: CanvasCamera;
     grid?: DraftingPreferences;
     furniture?: ReadonlyMap<string, FurnitureKind>;
     underlay?: (ctx: CanvasRenderingContext2D) => void;
     showDimensions?: boolean;
     showLabels?: boolean;
+    showPursuitStart?: boolean;
     windowStates?: readonly WindowFrameState[];
     disasterState?: import("../types/simulation").DisasterState;
+    hazardMode?: "filled" | "outline" | "both";
+    showBlockedLabels?: boolean;
   },
 ) {
   const ctx = canvas.getContext("2d");
@@ -46,7 +58,13 @@ export function drawLayout(
   const height = Math.max(1, Math.round(display.height * ratio));
   if (canvas.width !== width) canvas.width = width;
   if (canvas.height !== height) canvas.height = height;
-  const { scale, x, y } = canvasView(canvas.width, canvas.height, building);
+  const { scale, x, y } = canvasView(
+    canvas.width,
+    canvas.height,
+    building,
+    options?.camera,
+    ratio,
+  );
   const px = ratio / scale;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -62,8 +80,32 @@ export function drawLayout(
       ctx.fillRect(zone.x, zone.y, zone.width, zone.height);
   }
   options?.underlay?.(ctx);
+  if (building.pursuit && options?.showPursuitStart !== false) {
+    drawStalker(
+      ctx,
+      building.pursuit.stalker_start,
+      Math.max(building.agent_radius, 10 * px),
+    );
+    if (options?.showLabels !== false) {
+      ctx.fillStyle = palette.wall;
+      ctx.font = `${11 * px}px system-ui`;
+      ctx.fillText(
+        "Stalker start",
+        building.pursuit.stalker_start.x + 14 * px,
+        building.pursuit.stalker_start.y,
+      );
+    }
+  }
   if (options?.grid)
-    drawGrid(ctx, building, { scale, x, y }, ratio, options.grid, palette);
+    drawGrid(
+      ctx,
+      building,
+      { scale, x, y },
+      ratio,
+      options.grid,
+      palette,
+      !!options.camera,
+    );
   if (building.disaster) {
     const kind = options?.disasterState?.kind ?? building.disaster.kind;
     const color =
@@ -83,12 +125,13 @@ export function drawLayout(
       ctx.lineWidth = 2 * px;
       ctx.beginPath();
       ctx.arc(area.center.x, area.center.y, exposure, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
+      if (options?.hazardMode !== "outline") ctx.fill();
+      if (options?.hazardMode !== "filled") ctx.stroke();
       ctx.fillStyle = color + "60";
       ctx.beginPath();
       ctx.arc(area.center.x, area.center.y, area.radius, 0, Math.PI * 2);
-      ctx.fill();
+      if (options?.hazardMode !== "outline") ctx.fill();
+      else ctx.stroke();
       if (index === 0) {
         ctx.fillStyle = palette.wall;
         ctx.font = `${12 * px}px system-ui`;
@@ -245,22 +288,45 @@ export function drawLayout(
       const wall = building.walls.find((v) => v.id === opening.wall_id);
       if (!wall) continue;
       const [a, b] = openingSegment(opening, wall);
+      const blocked =
+        openingStartsBlocked(building, opening.id) ||
+        (building.closedDoorIds?.includes(opening.id) ?? false);
       const blueprintDoor =
-        palette.blueprint === "1" && openings === building.doors;
-      const closedDoor = building.closedDoorIds?.includes(opening.id) ?? false;
+        palette.blueprint === "1" && openings === building.doors && !blocked;
       ctx.lineCap = "butt";
       ctx.lineWidth = selectedIds.has(opening.id) ? 5 * px : 3 * px;
-      ctx.strokeStyle = closedDoor
-        ? palette.danger
-        : blueprintDoor && selectedIds.has(opening.id)
+      ctx.strokeStyle =
+        blueprintDoor && selectedIds.has(opening.id)
           ? palette.selection
-          : building.blocked_exit_ids.includes(opening.id)
+          : blocked
             ? palette.danger
             : color;
-      if (!blueprintDoor || closedDoor) {
+      if (!blueprintDoor) {
         ctx.beginPath();
         ctx.moveTo(a.x, a.y);
         ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+      if (blocked) {
+        // A persistent cross marks closure even when drafting labels are hidden.
+        const length = Math.hypot(b.x - a.x, b.y - a.y),
+          tx = (b.x - a.x) / length,
+          ty = (b.y - a.y) / length,
+          size = Math.min(opening.width / 4, 6 * px),
+          cx = (a.x + b.x) / 2,
+          cy = (a.y + b.y) / 2;
+        ctx.lineWidth = 2 * px;
+        ctx.beginPath();
+        for (const side of [-1, 1]) {
+          ctx.moveTo(
+            cx - tx * size - ty * size * side,
+            cy - ty * size + tx * size * side,
+          );
+          ctx.lineTo(
+            cx + tx * size + ty * size * side,
+            cy + ty * size - tx * size * side,
+          );
+        }
         ctx.stroke();
       }
       if (blueprintDoor) {
@@ -279,7 +345,7 @@ export function drawLayout(
           );
         }
         ctx.stroke();
-        for (const leaf of closedDoor ? [] : doorLeaves(opening, wall)) {
+        for (const leaf of doorLeaves(opening, wall)) {
           ctx.beginPath();
           ctx.moveTo(leaf.hinge.x, leaf.hinge.y);
           ctx.lineTo(leaf.tip.x, leaf.tip.y);
@@ -378,9 +444,15 @@ export function drawLayout(
         (text) => ctx.measureText?.(text).width ?? text.length * 6 * px,
         options?.windowStates,
       )) {
+    if (
+      options?.showBlockedLabels === false &&
+      openingStartsBlocked(building, label.id) &&
+      !selectedIds.has(label.id)
+    )
+      continue;
     ctx.fillStyle = building.windows?.some((w) => w.id === label.id)
       ? palette.muted
-      : building.blocked_exit_ids.includes(label.id) ||
+      : openingStartsBlocked(building, label.id) ||
           building.closedDoorIds?.includes(label.id)
         ? palette.danger
         : building.exits.some((o) => o.id === label.id)
@@ -475,6 +547,10 @@ export function drawLayout(
   if (options?.showDimensions !== false) {
     ctx.fillStyle = palette.muted;
     ctx.font = `${12 * px}px system-ui`;
-    ctx.fillText(`${building.width} × ${building.height} m`, 12 * px, 20 * px);
+    ctx.fillText(
+      formatDimensions(building.width, building.height),
+      12 * px,
+      20 * px,
+    );
   }
 }
