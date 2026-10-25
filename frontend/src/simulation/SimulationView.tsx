@@ -743,14 +743,16 @@ export function SimulationView({
           <label
             className="playback-preview-toggle"
             title={
-              running ? "Available after the recording finishes" : undefined
+              running && !building.pursuit
+                ? "Available after the recording finishes"
+                : undefined
             }
           >
             <input
               ref={chatToggle}
               type="checkbox"
               checked={showAgentChat}
-              disabled={running}
+              disabled={running && !building.pursuit}
               aria-controls="agent-chat"
               onChange={(event) => setShowAgentChat(event.target.checked)}
             />
@@ -758,7 +760,8 @@ export function SimulationView({
           </label>
           {building.pursuit && !preview && (
             <span className="pursuit-legend">
-              Halloween pursuit · Orange: survivors · Red mask: stalker
+              Halloween pursuit · Orange: survivors · Red mask: stalker · Red ×:
+              caught
             </span>
           )}
         </div>

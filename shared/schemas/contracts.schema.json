@@ -570,11 +570,43 @@
             "required": ["agent_id", "step"],
             "properties": {
               "agent_id": { "type": "integer", "minimum": 0, "maximum": 63 },
-              "step": { "type": "integer", "minimum": 0, "maximum": 100000 }
+              "step": { "type": "integer", "minimum": 0, "maximum": 100000 },
+              "position": { "$ref": "#/$defs/Point" }
             }
           }
+        },
+        "events": {
+          "type": "array",
+          "maxItems": 128,
+          "items": { "$ref": "#/$defs/PursuitEvent" }
         }
       }
+    },
+    "PursuitEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "step",
+        "event_type",
+        "sender_id",
+        "recipient_ids",
+        "position"
+      ],
+      "properties": {
+        "step": { "type": "integer", "minimum": 0, "maximum": 100000 },
+        "event_type": { "enum": ["sighting", "warning"] },
+        "sender_id": { "type": "integer", "minimum": 0, "maximum": 63 },
+        "recipient_ids": {
+          "type": "array",
+          "maxItems": 63,
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 0, "maximum": 63 }
+        },
+        "position": { "$ref": "#/$defs/Point" }
+      },
+      "if": { "properties": { "event_type": { "const": "sighting" } } },
+      "then": { "properties": { "recipient_ids": { "maxItems": 0 } } },
+      "else": { "properties": { "recipient_ids": { "minItems": 1 } } }
     },
     "SimulationResult": {
       "type": "object",

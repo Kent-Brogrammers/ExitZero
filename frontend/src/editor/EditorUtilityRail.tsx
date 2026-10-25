@@ -7,6 +7,7 @@ import type { LayoutSaveActions } from "../templates/layouts";
 
 interface EditorUtilityRailProps {
   saveActions?: LayoutSaveActions;
+  scenarioControls?: ReactNode;
   disabled: boolean;
   canUndo: boolean;
   canRedo: boolean;
@@ -58,6 +59,7 @@ export function EditorUtilityRail(props: EditorUtilityRailProps) {
         </button>
       </div>
       <span className="rail-separator" aria-hidden="true" />
+      {props.scenarioControls}
       <StudioPopover
         label="File"
         className="editor-file"

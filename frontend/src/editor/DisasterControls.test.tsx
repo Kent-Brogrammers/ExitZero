@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import example from "../../../shared/examples/building.json";
-import { DisasterControls } from "./DisasterControls";
+import { ScenarioFields as DisasterControls } from "./DisasterControls";
 import { buildingError } from "./geometry";
 import { moveSelection, removeSelection } from "./selection";
 import type { BuildingScenario } from "../types/simulation";
@@ -24,7 +24,7 @@ describe("catastrophe configuration and tornado zones", () => {
       "Fire",
       "Gas leak",
       "Tornado",
-      "Place hazard on plan",
+      "place hazard on plan",
       "Hazard radius",
     ])
       expect(html).toContain(label);

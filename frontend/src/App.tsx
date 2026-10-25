@@ -5,6 +5,7 @@ import type { ReplayTarget } from "./simulation/replayTarget";
 import { appendChat } from "./simulation/communication";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import example from "../../shared/examples/building.json";
+import defaultOffice from "./editor/presets/corporate-office.json";
 import { withoutObjectNames } from "./editor/names";
 import { buildingError } from "./editor/geometry";
 import { BuildingWorkspace } from "./editor/BuildingWorkspace";
@@ -78,7 +79,7 @@ export default function App() {
   }, []);
 
   const [building, setBuilding] = useState<BuildingScenario>(() =>
-    structuredClone(example),
+    structuredClone(defaultOffice as BuildingScenario),
   );
   const [halloweenMusic, setHalloweenMusic] = useState(false);
   const layoutProblem = buildingError(building);

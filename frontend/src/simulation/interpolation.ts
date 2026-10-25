@@ -161,6 +161,13 @@ export function createFrameSampler(
         !!next.pursuit &&
         canBlend(source.pursuit.stalker, next.pursuit.stalker, walls, layout);
       const targets = new Map(next.agents.map((agent) => [agent.id, agent]));
+      for (const caught of next.pursuit?.caught ?? []) {
+        if (caught.position)
+          targets.set(caught.agent_id, {
+            id: caught.agent_id,
+            ...caught.position,
+          });
+      }
       entries = source.agents.map((agent) => {
         const target = targets.get(agent.id);
         return {

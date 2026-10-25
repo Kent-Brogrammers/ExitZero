@@ -11,6 +11,7 @@ import {
   moveSelection,
   removeSelection,
   resizeSelection,
+  rotateObstruction,
 } from "./selection";
 function fixture(): BuildingScenario {
   return {
@@ -190,6 +191,41 @@ describe("marquee and batch editing", () => {
     b.stair_areas![0]!.x = 30;
     expect(buildingError(b, false)).not.toBeNull();
   });
+});
+
+it("rotates the actual object footprint around its centre with stable identity and valid JSON", () => {
+  const original = fixture();
+  original.obstructions[0]!.name = "Conference table";
+  const next = rotateObstruction(original, "object");
+  expect(next.obstructions[0]).toEqual({
+    id: "object",
+    name: "Conference table",
+    x: 12.5,
+    y: 9.5,
+    width: 1,
+    height: 2,
+  });
+  expect(buildingError(JSON.parse(JSON.stringify(next)))).toBeNull();
+  expect(rotateObstruction(next, "object")).toEqual(original);
+  expect(original.obstructions[0]).toMatchObject({
+    x: 12,
+    y: 10,
+    width: 2,
+    height: 1,
+  });
+  expect(next.walls).toBe(original.walls);
+  expect(next.spawn_zones).toBe(original.spawn_zones);
+});
+
+it("leaves square or missing objects unchanged and exposes invalid rotations to existing validation", () => {
+  const b = fixture();
+  expect(rotateObstruction(b, "missing")).toBe(b);
+  b.obstructions[0]!.height = 2;
+  expect(rotateObstruction(b, "object")).toBe(b);
+  Object.assign(b.obstructions[0]!, { x: 0, y: 10, width: 1, height: 4 });
+  expect(buildingError(b)).toBeNull();
+  expect(buildingError(rotateObstruction(b, "object"))).not.toBeNull();
+  expect(b.obstructions[0]!.x).toBe(0);
 });
 
 it("can marquee-select thick walls on the workspace edge using their visible footprint", () => {

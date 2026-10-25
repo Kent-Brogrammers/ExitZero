@@ -179,7 +179,16 @@ export interface PursuitFrame {
   /** Separate actor, excluded from survivor population and stable survivor IDs. */
   stalker: Point;
   escaped: number;
-  caught: { agent_id: number; step: number }[];
+  caught: { agent_id: number; step: number; position?: Point }[];
+  /** Cumulative real first sightings/warnings; absent in older recordings. */
+  events?: PursuitEvent[];
+}
+export interface PursuitEvent {
+  step: number;
+  event_type: "sighting" | "warning";
+  sender_id: number;
+  recipient_ids: number[];
+  position: Point;
 }
 
 export interface AgentStatistics {
@@ -289,7 +298,7 @@ export interface LiveSpeedControl {
   speed: 1 | 2 | 4 | 8;
 }
 
-export type ChatEvent = CommunicationEvent | AgentEvent;
+export type ChatEvent = CommunicationEvent | AgentEvent | PursuitEvent;
 
 /** Presentation summaries; the recording retains the original observations. */
 export interface ChatSummary {

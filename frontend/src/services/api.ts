@@ -11,6 +11,7 @@ import type {
   BuildingScenario,
   HealthResponse,
   OptimizationResult,
+  PursuitEvent,
   OptimizeRequest,
   SimulationMetrics,
   SimulationResult,
@@ -165,8 +166,12 @@ function checkSimulation(
   building: BuildingScenario,
 ): SimulationResult {
   checkMetrics(result);
-  let previousCaught = new Map<number, number>(),
+  let previousCaught = new Map<number, string>(),
     previousEscaped = 0;
+  let previousEvents: PursuitEvent[] | undefined;
+  let eventsRecorded: boolean | undefined;
+  const inBounds = (p: { x: number; y: number }) =>
+    p.x <= result.width && p.y <= result.height;
   if (building.pursuit && !result.frames.length)
     throw new ApiError(
       200,
@@ -182,13 +187,61 @@ function checkSimulation(
         "The backend recording does not match the requested pursuit mode.",
       );
     if (!p) continue;
-    const caught = new Map(p.caught.map((c) => [c.agent_id, c.step]));
+    const caught = new Map(
+      p.caught.map((c) => [c.agent_id, JSON.stringify(c)]),
+    );
+    const seen = new Set<number>(),
+      warned = new Set<number>();
+    if (
+      p.events &&
+      (p.events.some((e, i) => {
+        const identifiers =
+          e.event_type === "sighting" ? [e.sender_id] : e.recipient_ids;
+        const recipientsSeen = e.event_type === "sighting" ? seen : warned;
+        let repeated = false;
+        for (const id of identifiers) {
+          repeated ||= recipientsSeen.has(id);
+          recipientsSeen.add(id);
+        }
+        return (
+          repeated ||
+          e.step > frame.step ||
+          e.sender_id >= result.total_population ||
+          !inBounds(e.position) ||
+          (i > 0 && p.events![i - 1]!.step > e.step) ||
+          e.recipient_ids.includes(e.sender_id) ||
+          e.recipient_ids.some((id) => id >= result.total_population)
+        );
+      }) ||
+        (previousEvents ?? []).some(
+          (e, i) => JSON.stringify(e) !== JSON.stringify(p.events![i]),
+        ))
+    )
+      throw new ApiError(
+        200,
+        "invalid_response",
+        "Invalid or changing pursuit events.",
+      );
+    if (
+      eventsRecorded !== undefined &&
+      eventsRecorded !== (p.events !== undefined)
+    )
+      throw new ApiError(
+        200,
+        "invalid_response",
+        "Missing recorded pursuit events.",
+      );
+    previousEvents = p.events;
+    eventsRecorded = p.events !== undefined;
     if (
       p.stalker.x > result.width ||
       p.stalker.y > result.height ||
       caught.size !== p.caught.length ||
       p.caught.some(
-        (c) => c.agent_id >= result.total_population || c.step > frame.step,
+        (c) =>
+          c.agent_id >= result.total_population ||
+          c.step > frame.step ||
+          (c.position && !inBounds(c.position)),
       ) ||
       [...previousCaught].some(([id, step]) => caught.get(id) !== step) ||
       p.escaped < previousEscaped ||

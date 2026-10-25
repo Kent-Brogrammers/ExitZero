@@ -1,11 +1,13 @@
 import { useEffect, useRef } from "react";
 import type {
+  AnimationFrame,
   BuildingScenario,
   LiveSimulation,
   SimulationResult,
 } from "../types/simulation";
 import {
   chatAtTime,
+  appendChat,
   chatSummaryMessage,
   chatSummaryNote,
   CHAT_HISTORY_LIMIT,
@@ -17,16 +19,28 @@ export function AgentChat({
   result,
   time,
   liveChat,
+  liveFrame,
   onClose,
 }: {
   building: BuildingScenario;
   result: SimulationResult | null;
   time: number;
   liveChat?: LiveSimulation["chat"];
+  liveFrame?: AnimationFrame | null;
   onClose: () => void;
 }) {
-  const visible = liveChat ?? chatAtTime(result, time);
   const timeStep = result?.time_step_seconds ?? building.time_step_seconds;
+  const pursuitEvents =
+    liveFrame?.pursuit?.events ?? result?.frames.at(-1)?.pursuit?.events;
+  const visible =
+    liveChat ??
+    (liveFrame && pursuitEvents
+      ? appendChat(
+          undefined,
+          pursuitEvents.filter((e) => e.step * timeStep <= time + 1e-8),
+          timeStep,
+        )
+      : chatAtTime(result, time));
   const latest = visible.messages.at(-1);
   const list = useRef<HTMLOListElement>(null);
   useEffect(() => {
@@ -46,18 +60,25 @@ export function AgentChat({
           ×
         </button>
       </div>
-      {!liveChat && !result?.communication_events && !result?.agent_events ? (
+      {!liveChat &&
+      !pursuitEvents &&
+      !result?.communication_events &&
+      !result?.agent_events ? (
         <p className="note">
           Communications were not recorded for this simulation.
         </p>
       ) : !visible.total ? (
         <p className="note">
-          {liveChat
-            ? "Waiting for agent messages…"
-            : (result?.communication_events?.length ?? 0) +
-                (result?.agent_events?.length ?? 0)
+          {pursuitEvents
+            ? pursuitEvents.length
               ? "No messages at this point in the recording."
-              : "No agent activity was recorded."}
+              : "No killer sightings or warnings were recorded."
+            : liveChat
+              ? "Waiting for agent messages…"
+              : (result?.communication_events?.length ?? 0) +
+                  (result?.agent_events?.length ?? 0)
+                ? "No messages at this point in the recording."
+                : "No agent activity was recorded."}
         </p>
       ) : (
         <>

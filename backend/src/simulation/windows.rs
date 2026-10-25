@@ -221,6 +221,18 @@ impl<'a> Windows<'a> {
     pub(super) fn controls(&self, i: usize) -> bool {
         self.approaches[i].is_some()
     }
+    /// Pursuit can catch a survivor in a service queue or during traversal.
+    /// Release their slot without resetting preparation shared by other agents.
+    pub(super) fn cancel(&mut self, i: usize) {
+        self.approaches[i] = None;
+        for station in &mut self.stations {
+            station.queue.retain(|&member| member != i);
+            if station.traverser == Some(i) {
+                station.traverser = None;
+                station.snapshot.traversal_earliest_finish_step = None;
+            }
+        }
+    }
     pub(super) fn traversing(&self, i: usize) -> bool {
         self.stations.iter().any(|s| s.traverser == Some(i))
     }

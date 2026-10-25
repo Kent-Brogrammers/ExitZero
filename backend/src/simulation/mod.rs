@@ -21,6 +21,7 @@ mod motion;
 mod navigation;
 mod perception;
 mod pursuit;
+mod pursuit_awareness;
 mod windows;
 pub use emergency::Emergency;
 

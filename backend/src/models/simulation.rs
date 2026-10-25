@@ -316,11 +316,20 @@ impl SimulationResult {
         let pursuit_mode = self.frames.first().is_some_and(|f| f.pursuit.is_some());
         let mut previous_caught = std::collections::HashMap::new();
         let mut previous_escaped = 0;
+        let mut previous_pursuit = None;
         for frame in &self.frames {
             if frame.pursuit.is_some() != pursuit_mode {
                 return Err("pursuit state must be present consistently in the recording".into());
             }
             if let Some(pursuit) = &frame.pursuit {
+                pursuit.validate_recording(
+                    frame.step,
+                    self.metrics.total_population,
+                    self.width,
+                    self.height,
+                    previous_pursuit,
+                )?;
+                previous_pursuit = Some(pursuit);
                 let records: std::collections::HashMap<_, _> = pursuit
                     .caught
                     .iter()

@@ -137,6 +137,27 @@ export function removeSelection(
     );
   return next;
 }
+/** A clockwise quarter-turn of an axis-aligned blocker preserves its centre. */
+export function rotateObstruction(
+  b: BuildingScenario,
+  id: string,
+): BuildingScenario {
+  const object = b.obstructions.find((item) => item.id === id);
+  if (!object || object.width === object.height) return b;
+  const rotated = {
+    ...object,
+    x: object.x + (object.width - object.height) / 2,
+    y: object.y + (object.height - object.width) / 2,
+    width: object.height,
+    height: object.width,
+  };
+  return {
+    ...b,
+    obstructions: b.obstructions.map((item) =>
+      item.id === id ? rotated : item,
+    ),
+  };
+}
 /** Apply one vector atomically. Selected parent walls carry their openings exactly once. */
 export function moveSelection(
   b: BuildingScenario,

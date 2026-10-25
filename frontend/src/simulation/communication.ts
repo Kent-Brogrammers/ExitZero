@@ -1,6 +1,7 @@
 import type {
   BuildingScenario,
   SimulationResult,
+  PursuitEvent,
   AgentEvent,
   ChatEvent,
   ChatHistory,
@@ -13,6 +14,7 @@ const histories = new WeakMap<
   {
     shares: SimulationResult["communication_events"];
     activity: SimulationResult["agent_events"];
+    pursuit: PursuitEvent[] | undefined;
     events: ChatEvent[];
     summary?: { through: number; history: ChatHistory };
   }
@@ -22,29 +24,34 @@ const histories = new WeakMap<
 export function communicationsAtTime(
   result: SimulationResult | null,
   time: number,
+  pursuitEvents = result?.frames.at(-1)?.pursuit?.events,
+  timeStep = result?.time_step_seconds ?? 1,
 ) {
-  let events: ChatEvent[] = [];
+  let events: ChatEvent[];
   if (result) {
     let cached = histories.get(result);
     if (
       !cached ||
       cached.shares !== result.communication_events ||
-      cached.activity !== result.agent_events
+      cached.activity !== result.agent_events ||
+      cached.pursuit !== pursuitEvents
     ) {
       cached = {
         shares: result.communication_events,
         activity: result.agent_events,
+        pursuit: pursuitEvents,
         events: [
           ...(result.communication_events ?? []),
           ...(result.agent_events ?? []),
+          ...(pursuitEvents ?? []),
         ].sort((a, b) => a.step - b.step),
       };
       histories.set(result, cached);
     }
     events = cached.events;
-  }
+  } else events = pursuitEvents ?? [];
   const step =
-    result && Number.isFinite(time) ? time / result.time_step_seconds : -1;
+    (result || pursuitEvents) && Number.isFinite(time) ? time / timeStep : -1;
   let low = 0,
     high = events.length;
   while (low < high) {
@@ -80,6 +87,13 @@ export function chatAtTime(
 }
 
 function summaryKey(event: ChatEvent) {
+  if (!("kind" in event) && !("opening_id" in event))
+    return JSON.stringify([
+      "pursuit",
+      event.event_type,
+      event.sender_id,
+      event.step,
+    ]);
   return "kind" in event
     ? JSON.stringify([
         event.kind,
@@ -102,12 +116,12 @@ export function appendChat(
   let total = history?.total ?? 0;
   const active = new Map<string, number>();
   function resetConflictingOpening(event: ChatEvent) {
-    if (!("kind" in event)) {
+    if ("opening_id" in event) {
       // A reopening or new closure is always a fresh update.
       for (const [otherKey, index] of active) {
         const other = messages[index]!.event;
         if (
-          !("kind" in other) &&
+          "opening_id" in other &&
           other.opening_id === event.opening_id &&
           other.blocked !== event.blocked
         )
@@ -198,6 +212,16 @@ export function communicationMessage(
   event: ChatEvent,
   building: BuildingScenario,
 ) {
+  if ("event_type" in event && event.event_type === "sighting")
+    return `Agent ${event.sender_id + 1} spotted the killer.`;
+  if ("event_type" in event && event.event_type === "warning") {
+    const numbers = event.recipient_ids.map((id) => String(id + 1));
+    const recipients =
+      numbers.length === 1
+        ? `Agent ${numbers[0]}`
+        : `Agents ${numbers.slice(0, -1).join(", ")} and ${numbers.at(-1)}`;
+    return `Agent ${event.sender_id + 1} warned ${recipients} about the killer's last seen location.`;
+  }
   if ("kind" in event) {
     const label = targetLabel(event, building);
     const danger =
@@ -276,6 +300,7 @@ export function communicationMessage(
     const words = choices[(event.agent_id * 31 + event.step) % choices.length];
     return `Agent ${event.agent_id + 1}: “${words}”`;
   }
+  if (!("opening_id" in event)) return "";
   const kind = building.exits.some((opening) => opening.id === event.opening_id)
     ? "exits"
     : "doors";

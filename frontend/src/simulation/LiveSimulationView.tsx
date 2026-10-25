@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { SimulationDetails } from "./SimulationDetails";
 import { AgentChat } from "./AgentChat";
-import { chatSummaryMessage } from "./communication";
+import { appendChat, chatSummaryMessage } from "./communication";
 import { formatDimensions } from "../utils/units";
 import { PursuitMetrics } from "./PursuitMetrics";
 import type {
@@ -53,7 +53,13 @@ export function LiveSimulationView({
   const nextSpeed = speed === 1 ? 2 : speed === 2 ? 4 : speed === 4 ? 8 : 1;
   const [readThrough, setReadThrough] = useState(0);
   const chatButton = useRef<HTMLButtonElement>(null);
-  const chat = live.chat ?? { messages: [], total: 0 };
+  const chat = live.frame?.pursuit
+    ? appendChat(
+        undefined,
+        live.frame.pursuit.events ?? [],
+        building.time_step_seconds,
+      )
+    : (live.chat ?? { messages: [], total: 0 });
   const unread = showAgentChat ? 0 : Math.max(0, chat.total - readThrough);
   const lastMessage = chat.messages.at(-1);
   function closeChat() {
