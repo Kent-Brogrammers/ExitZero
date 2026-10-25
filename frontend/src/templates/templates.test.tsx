@@ -147,7 +147,7 @@ describe("Templates presentation", () => {
   };
   it("lists actual preset previews, dimensions, populations and explicit office recording access", () => {
     const html = renderToStaticMarkup(<TemplatesPage {...props} />);
-    expect(html.match(/role="img"/g)).toHaveLength(4);
+    expect(html.match(/role="img"/g)).toHaveLength(buildingPresets.length);
     for (const preset of buildingPresets) {
       expect(html).toContain(`${preset.label} floor plan preview`);
       expect(html).toContain(
@@ -157,7 +157,9 @@ describe("Templates presentation", () => {
         `${preset.building.spawn_zones.reduce((n, z) => n + z.count, 0)} occupants`,
       );
     }
-    expect(html.match(/>Run Simulation<\/button>/g)).toHaveLength(4);
+    expect(html.match(/>Run Simulation<\/button>/g)).toHaveLength(
+      buildingPresets.length,
+    );
     expect(html).toContain("View saved office recording");
     expect(html).toContain("My Templates");
     expect(html).toContain("Save Current Layout");
@@ -173,7 +175,9 @@ describe("Templates presentation", () => {
     expect(html).toContain("Rename");
     expect(html).toContain("Delete");
     expect(html).toContain("Backend offline");
-    expect(html.match(/>Edit<\/button>/g)).toHaveLength(5);
+    expect(html.match(/>Edit<\/button>/g)).toHaveLength(
+      buildingPresets.length + 1,
+    );
   });
   it("reports unreadable storage and disables saving to avoid destroying it", () => {
     vi.stubGlobal("window", { localStorage: { getItem: () => "corrupt" } });
@@ -229,7 +233,9 @@ describe("Templates presentation", () => {
     expect(html).toContain('id="welcome-templates-heading" tabindex="-1"');
     expect(html).toContain("Building templates");
     expect(html).toContain("Open Templates");
-    expect(html.match(/class="template-card"/g)).toHaveLength(4);
+    expect(html.match(/class="template-card"/g)).toHaveLength(
+      buildingPresets.length,
+    );
     expect(html).toContain('class="entry-action"');
     expect(html).toContain('class="welcome-action-secondary"');
     expect(html).toContain('class="welcome-action-tertiary"');
