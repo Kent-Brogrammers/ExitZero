@@ -216,6 +216,8 @@ mod tests {
     fn request() -> StressTestRequest {
         StressTestRequest {
             building: BuildingScenario {
+                tornado_zones: vec![],
+                disaster: None,
                 awareness: Default::default(),
                 opening_events: vec![],
                 stair_areas: vec![],
@@ -288,6 +290,7 @@ mod tests {
     fn completed(steps: u32) -> SimulationMetrics {
         SimulationMetrics {
             evacuated_by_route: None,
+            sheltered: 0,
             status: SimulationStatus::Completed,
             total_population: 4,
             evacuated: 4,
@@ -300,6 +303,7 @@ mod tests {
     fn unfinished(remaining: u32, trapped: u32, status: SimulationStatus) -> SimulationMetrics {
         SimulationMetrics {
             evacuated_by_route: None,
+            sheltered: 0,
             status,
             total_population: 4,
             evacuated: 4 - remaining,
@@ -314,10 +318,13 @@ mod tests {
             metrics,
             frames: vec![AnimationFrame {
                 window_states: None,
+                disaster_state: None,
+                sheltered: None,
                 blocked_opening_ids: None,
                 step: 0,
                 agents: (0..4)
                     .map(|id| AgentPosition {
+                        injury: None,
                         id,
                         x: 3.0 + f64::from(id),
                         y: 4.0,

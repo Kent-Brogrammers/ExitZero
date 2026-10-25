@@ -11,3 +11,6 @@ pub use building::*;
 pub use live::*;
 pub use simulation::*;
 pub use windows::*;
+
+mod disaster;
+pub use disaster::*;

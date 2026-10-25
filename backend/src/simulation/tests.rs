@@ -6,6 +6,8 @@ use std::collections::BTreeMap;
 
 fn room() -> BuildingScenario {
     BuildingScenario {
+        tornado_zones: vec![],
+        disaster: None,
         width: 10.0,
         height: 10.0,
         walls: [
@@ -49,6 +51,82 @@ fn room() -> BuildingScenario {
         seed: 42,
         max_steps: 1000,
     }
+}
+
+#[test]
+fn a_fire_warning_relays_between_groups_and_immediately_changes_their_destination() {
+    for kind in [
+        crate::models::DisasterKind::Fire,
+        crate::models::DisasterKind::GasLeak,
+    ] {
+        let mut scenario = room();
+        scenario.exits.push(Opening {
+            id: "south_exit".into(),
+            name: None,
+            wall_id: "south".into(),
+            offset: 3.0,
+            width: 4.0,
+        });
+        scenario.spawn_zones = vec![
+            pinned_zone("witness", 5.0, 0.9),
+            pinned_zone("hears_witness", 5.0, 2.9),
+            pinned_zone("hears_relay", 5.0, 4.9),
+        ];
+        scenario.awareness.sight_range_metres = 0.65;
+        scenario.awareness.communication_range_metres = 2.1;
+        scenario.disaster = Some(crate::models::Disaster {
+            kind,
+            center: Point { x: 5.0, y: 0.2 },
+            radius: 0.2,
+            dynamics: None,
+        });
+        let result = simulate(&scenario).unwrap();
+        result.validate().unwrap();
+        assert_eq!(
+            result.metrics.status,
+            SimulationStatus::Completed,
+            "{kind:?}"
+        );
+        let recipient = &result.frames[1].agents[1];
+        assert!(
+            recipient.y > 2.9,
+            "the first recipient should turn away before seeing the hazard"
+        );
+        assert!(
+            result.frames[1].agents[2].y < 4.9,
+            "reports must take a tick to relay"
+        );
+        assert!(
+            result
+                .analytics
+                .as_ref()
+                .unwrap()
+                .agents
+                .iter()
+                .all(|a| { a.exit_id.as_deref() == Some("south_exit") && a.injury == 0.0 })
+        );
+        assert_collision_free(&scenario, &result);
+        assert_eq!(
+            serde_json::to_value(&result).unwrap(),
+            serde_json::to_value(simulate(&scenario).unwrap()).unwrap()
+        );
+    }
+}
+
+#[test]
+fn danger_avoiding_routes_allow_outward_escape_but_reject_entry_and_inward_crossings() {
+    let mut scenario = room();
+    scenario.disaster = Some(crate::models::Disaster {
+        kind: crate::models::DisasterKind::GasLeak,
+        center: Point { x: 5.0, y: 5.0 },
+        radius: 1.0,
+        dynamics: None,
+    });
+    let geometry = Geometry::new(&scenario);
+    assert!(!geometry.avoids_known_danger(Point { x: 2.0, y: 5.0 }, Point { x: 8.0, y: 5.0 }));
+    assert!(!geometry.avoids_known_danger(Point { x: 5.5, y: 5.0 }, Point { x: 4.0, y: 5.0 }));
+    assert!(geometry.avoids_known_danger(Point { x: 5.0, y: 5.0 }, Point { x: 8.0, y: 5.0 }));
+    assert!(geometry.avoids_known_danger(Point { x: 5.5, y: 5.0 }, Point { x: 8.0, y: 5.0 }));
 }
 
 #[test]
@@ -1463,4 +1541,335 @@ fn a_thirty_person_two_exit_crowd_clears_without_repeated_route_reversals() {
             );
         }
     }
+}
+
+#[test]
+fn fire_and_gas_close_affected_exits_and_exposure_is_gradual() {
+    use crate::models::{Disaster, DisasterKind};
+    for kind in [DisasterKind::Fire, DisasterKind::GasLeak] {
+        let mut scenario = two_exit_room();
+        scenario.spawn_zones = vec![pinned_zone("exposed", 5.0, 1.0)];
+        scenario.disaster = Some(Disaster {
+            dynamics: None,
+            kind,
+            center: Point { x: 5.0, y: 0.5 },
+            radius: 1.0,
+        });
+        let result = simulate(&scenario).unwrap();
+        result.validate().unwrap();
+        assert!(
+            result.frames[0]
+                .blocked_opening_ids
+                .as_ref()
+                .unwrap()
+                .contains(&"north_exit".into())
+        );
+        assert!(
+            !result.frames[0]
+                .blocked_opening_ids
+                .as_ref()
+                .unwrap()
+                .contains(&"east_exit".into())
+        );
+        assert_eq!(result.metrics.status, SimulationStatus::Completed);
+        let stat = &result.analytics.as_ref().unwrap().agents[0];
+        assert_eq!(stat.exit_id.as_deref(), Some("east_exit"));
+        assert!(stat.exposure_seconds > 0.0);
+        assert!(
+            stat.injury > 0.0 && stat.injury < 0.5,
+            "injury accumulates rather than instant death"
+        );
+        assert!(result.frames.iter().any(|frame| {
+            frame
+                .agents
+                .iter()
+                .any(|agent| agent.injury.unwrap_or(0.0) > 0.0)
+        }));
+    }
+}
+
+#[test]
+fn tornado_response_reaches_shelter_instead_of_counting_an_exit_evacuation() {
+    use crate::models::{Disaster, DisasterKind, Obstruction};
+    let mut scenario = room();
+    scenario.spawn_zones = vec![pinned_zone("person", 5.0, 5.0)];
+    scenario.disaster = Some(Disaster {
+        dynamics: None,
+        kind: DisasterKind::Tornado,
+        center: Point { x: 9.0, y: 1.0 },
+        radius: 0.5,
+    });
+    assert!(
+        scenario.validate().is_err(),
+        "a tornado requires a shelter destination"
+    );
+    scenario.tornado_zones = vec![Obstruction {
+        id: "safe_zone".into(),
+        name: Some("Interior shelter".into()),
+        x: 1.0,
+        y: 7.0,
+        width: 2.0,
+        height: 2.0,
+    }];
+    let result = simulate(&scenario).unwrap();
+    result.validate().unwrap();
+    assert_eq!(result.metrics.status, SimulationStatus::Completed);
+    assert_eq!(result.metrics.evacuated, 0);
+    assert_eq!(result.metrics.sheltered, 1);
+    assert_eq!(result.metrics.remaining, 0);
+    assert_eq!(result.frames.last().unwrap().sheltered, Some(1));
+    let stat = &result.analytics.as_ref().unwrap().agents[0];
+    assert!(stat.exit_id.is_none() && stat.evacuation_step.is_none());
+    assert_eq!(stat.shelter.as_ref().unwrap().id, "safe_zone");
+    assert!(
+        result
+            .analytics
+            .as_ref()
+            .unwrap()
+            .median_evacuation_seconds
+            .is_none()
+    );
+}
+
+#[test]
+fn discovered_fire_is_avoided_without_trapping_an_occupant_inside_its_footprint() {
+    use crate::models::{Disaster, DisasterKind};
+    let mut scenario = room();
+    scenario.awareness.sight_range_metres = 30.0;
+    scenario.spawn_zones = vec![pinned_zone("person", 5.0, 8.0)];
+    scenario.disaster = Some(Disaster {
+        dynamics: None,
+        kind: DisasterKind::Fire,
+        center: Point { x: 5.0, y: 4.0 },
+        radius: 1.0,
+    });
+    let result = simulate(&scenario).unwrap();
+    result.validate().unwrap();
+    assert_eq!(result.metrics.status, SimulationStatus::Completed);
+    assert!(
+        result
+            .frames
+            .iter()
+            .flat_map(|frame| &frame.agents)
+            .any(|agent| (agent.x - 5.0).abs() > 1.8)
+    );
+    assert_eq!(
+        result.analytics.as_ref().unwrap().agents[0].exposure_seconds,
+        0.0
+    );
+    scenario.spawn_zones = vec![pinned_zone("inside", 5.0, 4.0)];
+    let escaped = simulate(&scenario).unwrap();
+    escaped.validate().unwrap();
+    assert_eq!(escaped.metrics.status, SimulationStatus::Completed);
+    assert!(escaped.analytics.as_ref().unwrap().agents[0].injury > 0.0);
+}
+
+#[test]
+fn an_alarm_does_not_reveal_the_location_of_an_unseen_disaster() {
+    use crate::models::{Disaster, DisasterKind};
+    let mut scenario = room();
+    scenario.spawn_zones = vec![pinned_zone("person", 5.0, 8.0)];
+    scenario.awareness.sight_range_metres = 0.0;
+    scenario.awareness.communication_range_metres = 0.0;
+    scenario.max_steps = 5;
+    scenario.disaster = Some(Disaster {
+        dynamics: Some(crate::models::DisasterDynamics {
+            growth_rate: 0.2,
+            spread_interval_seconds: 0.25,
+            max_patches: 3,
+            max_radius: 1.0,
+            ..Default::default()
+        }),
+        kind: DisasterKind::Fire,
+        center: Point { x: 2.0, y: 2.0 },
+        radius: 0.3,
+    });
+    let left = simulate(&scenario).unwrap();
+    scenario.disaster.as_mut().unwrap().center = Point { x: 8.0, y: 2.0 };
+    let right = simulate(&scenario).unwrap();
+    for (a, b) in left.frames.iter().zip(&right.frames) {
+        assert_eq!(
+            serde_json::to_value(&a.agents).unwrap(),
+            serde_json::to_value(&b.agents).unwrap()
+        );
+    }
+}
+
+#[test]
+fn gas_exposure_has_a_wider_footprint_and_injury_limits_speed() {
+    use crate::models::{Disaster, DisasterKind};
+    let mut scenario = room();
+    scenario.disaster = Some(Disaster {
+        dynamics: None,
+        kind: DisasterKind::Fire,
+        center: Point { x: 5.0, y: 5.0 },
+        radius: 1.0,
+    });
+    let point = Point { x: 6.9, y: 5.0 };
+    let mut fire = super::agent::Agent::new(0, point);
+    super::catastrophe::expose(&mut fire, point, point, &scenario);
+    assert_eq!(fire.injury, 0.0);
+    scenario.disaster.as_mut().unwrap().kind = DisasterKind::GasLeak;
+    super::catastrophe::expose(&mut fire, point, point, &scenario);
+    assert!(fire.injury > 0.0);
+    let mut controller = super::motion::Motion::new();
+    let target = Point { x: 8.0, y: 5.0 };
+    let mut from = point;
+    for _ in 0..20 {
+        let limits = super::motion::injury_speed_limits(0.8);
+        let intent = controller.preferred_velocity(from, target, 0.1, 0.2, &[], &limits);
+        let to = controller.propose(from, intent, 0.1, 0.2, &[], limits);
+        assert!(math::distance_to_point(from, to) <= 1.3 * (1.0 - 0.75 * 0.8) * 0.1 + 1e-9);
+        controller.accepted(from, to, 0.1);
+        from = to;
+    }
+}
+
+#[test]
+fn spreading_hazards_close_new_openings_and_record_the_changed_footprint() {
+    use crate::models::{Disaster, DisasterDynamics, DisasterKind};
+    let mut scenario = two_exit_room();
+    scenario.disaster = Some(Disaster {
+        kind: DisasterKind::Fire,
+        center: Point { x: 5.0, y: 3.0 },
+        radius: 0.2,
+        dynamics: Some(DisasterDynamics {
+            growth_rate: 1.0,
+            spread_interval_seconds: 1.0,
+            max_patches: 1,
+            max_radius: 4.0,
+            ..Default::default()
+        }),
+    });
+    scenario.spawn_zones = vec![pinned_zone("person", 5.0, 8.0)];
+    scenario.max_steps = 40;
+    let result = simulate(&scenario).unwrap();
+    result.validate().unwrap();
+    assert!(
+        !result.frames[0]
+            .blocked_opening_ids
+            .as_ref()
+            .unwrap()
+            .contains(&"north_exit".into())
+    );
+    assert!(result.frames.iter().any(|frame| {
+        frame
+            .blocked_opening_ids
+            .as_ref()
+            .unwrap()
+            .contains(&"north_exit".into())
+    }));
+    let first = result.frames[0].disaster_state.as_ref().unwrap().areas[0].radius;
+    let last = result
+        .frames
+        .last()
+        .unwrap()
+        .disaster_state
+        .as_ref()
+        .unwrap()
+        .areas[0]
+        .radius;
+    assert!(last > first);
+    assert_eq!(
+        serde_json::to_value(&result).unwrap(),
+        serde_json::to_value(simulate(&scenario).unwrap()).unwrap()
+    );
+}
+
+#[test]
+fn growing_hazard_memory_only_updates_visible_or_reported_patches() {
+    use super::{
+        agent::Agent,
+        awareness::{OpeningStates, update_knowledge},
+    };
+    use crate::models::{Disaster, DisasterDynamics, DisasterKind};
+    let mut scenario = room();
+    scenario.awareness.sight_range_metres = 1.0;
+    scenario.awareness.communication_range_metres = 0.0;
+    scenario.disaster = Some(Disaster {
+        kind: DisasterKind::Fire,
+        center: Point { x: 2.0, y: 2.0 },
+        radius: 0.5,
+        dynamics: Some(DisasterDynamics {
+            max_patches: 1,
+            growth_rate: 0.1,
+            max_radius: 2.0,
+            ..Default::default()
+        }),
+    });
+    let mut world = OpeningStates::new(&scenario);
+    let mut geometry = Geometry::new(&scenario);
+    let mut agents = vec![
+        Agent::new(0, Point { x: 2.0, y: 3.0 }),
+        Agent::new(1, Point { x: 8.0, y: 8.0 }),
+    ];
+    update_knowledge(
+        &mut agents,
+        &[false, false],
+        &world,
+        &geometry,
+        |_, _, _, _, _| {},
+    );
+    assert_eq!(agents[0].known_hazards.len(), 1);
+    assert!(agents[1].known_hazards.is_empty());
+    let revision = agents[0].known_hazards[&0].revision;
+    agents[0].position = Point { x: 7.0, y: 7.0 };
+    world.apply(10, &agents, &[false, false]);
+    geometry.hazard_areas = world.disaster_state().unwrap().areas.clone();
+    update_knowledge(
+        &mut agents,
+        &[false, false],
+        &world,
+        &geometry,
+        |_, _, _, _, _| {},
+    );
+    assert_eq!(
+        agents[0].known_hazards[&0].revision, revision,
+        "unseen spread must not refresh remembered geometry"
+    );
+    assert!(agents[1].known_hazards.is_empty());
+    agents[0].position = Point { x: 2.0, y: 3.0 };
+    update_knowledge(
+        &mut agents,
+        &[false, false],
+        &world,
+        &geometry,
+        |_, _, _, _, _| {},
+    );
+    assert!(agents[0].known_hazards[&0].revision > revision);
+}
+
+#[test]
+fn a_moving_tornado_injures_people_it_passes_between_tick_endpoints() {
+    use crate::models::{Disaster, DisasterKind, DisasterState, HazardArea};
+    let mut scenario = room();
+    scenario.disaster = Some(Disaster {
+        kind: DisasterKind::Tornado,
+        center: Point { x: 2.0, y: 5.0 },
+        radius: 0.5,
+        dynamics: None,
+    });
+    let start = DisasterState::initial(scenario.disaster.unwrap());
+    let end = DisasterState {
+        kind: DisasterKind::Tornado,
+        areas: vec![HazardArea {
+            id: 0,
+            revision: 1,
+            center: Point { x: 8.0, y: 5.0 },
+            radius: 0.5,
+        }],
+    };
+    let position = Point { x: 5.0, y: 5.0 };
+    let mut agent = super::agent::Agent::new(0, position);
+    super::catastrophe::expose_between(
+        &mut agent,
+        position,
+        position,
+        &scenario,
+        Some(&start),
+        Some(&end),
+    );
+    assert!(agent.injury > 0.0 && agent.injury < 0.1);
+    assert!(agent.exposure_seconds > 0.0 && agent.exposure_seconds < scenario.time_step_seconds);
+    assert_eq!(agent.known_hazards[&0].revision, 1);
 }

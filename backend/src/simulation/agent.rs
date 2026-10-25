@@ -12,6 +12,11 @@ pub(super) struct Agent {
     pub known_emergencies: BTreeSet<usize>,
     pub known_obstructions: BTreeSet<String>,
     pub known_walls: WallKnowledge,
+    pub knows_disaster: bool,
+    pub known_hazards: BTreeMap<u32, crate::models::HazardArea>,
+    pub injury: f64,
+    pub exposure_seconds: f64,
+    pub sheltered: bool,
 }
 
 impl Agent {
@@ -23,6 +28,11 @@ impl Agent {
             known_emergencies: BTreeSet::new(),
             known_obstructions: BTreeSet::new(),
             known_walls: WallKnowledge::new(),
+            knows_disaster: false,
+            known_hazards: BTreeMap::new(),
+            injury: 0.0,
+            exposure_seconds: 0.0,
+            sheltered: false,
         }
     }
 }

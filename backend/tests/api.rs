@@ -358,3 +358,32 @@ async fn ellipse_segment_door_rounding_does_not_create_phantom_collision_capsule
     assert_eq!(open["evacuated"], 1);
     assert_eq!(open["analytics"]["agents"][0]["route_found"], true);
 }
+
+#[tokio::test]
+async fn catastrophe_requests_return_real_injury_and_shelter_contracts() {
+    for kind in ["fire", "gas_leak", "tornado"] {
+        let mut payload = building();
+        payload["disaster"] =
+            json!({ "kind": kind, "center": {"x": 14.0, "y": 10.0}, "radius": 1.0 });
+        payload["tornado_zones"] =
+            json!([{ "id": "shelter", "x": 4.0, "y": 4.0, "width": 3.0, "height": 3.0 }]);
+        let (status, json) = request("/api/simulate", Some(payload)).await;
+        assert_eq!(status, StatusCode::OK, "{kind}: {json}");
+        let result: SimulationResult = serde_json::from_value(json).unwrap();
+        result.validate().unwrap();
+        assert_eq!(
+            result.metrics.evacuated + result.metrics.sheltered + result.metrics.remaining,
+            result.metrics.total_population
+        );
+        if kind == "tornado" {
+            assert_eq!(result.metrics.evacuated, 0);
+        }
+    }
+    let mut invalid = building();
+    invalid["disaster"] =
+        json!({ "kind": "tornado", "center": {"x": 5.0, "y": 5.0}, "radius": 1.0 });
+    assert_eq!(
+        request("/api/simulate", Some(invalid)).await.0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+}

@@ -409,3 +409,21 @@ pub(super) fn resolve_collisions(
         }
     }
 }
+
+/// An inscribed speed polygon keeps injury slowdown active through both local
+/// avoidance and joint collision corrections, not just desired movement.
+pub(super) fn injury_speed_limits(injury: f64) -> Vec<VelocityLimit> {
+    let speed = WALKING_SPEED * (1.0 - 0.75 * injury.clamp(0.0, 1.0));
+    (0..16)
+        .map(|i| {
+            let angle = std::f64::consts::TAU * i as f64 / 16.0;
+            VelocityLimit {
+                normal: Point {
+                    x: angle.cos(),
+                    y: angle.sin(),
+                },
+                offset: -speed * (std::f64::consts::PI / 16.0).cos(),
+            }
+        })
+        .collect()
+}

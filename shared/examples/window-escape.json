@@ -1,0 +1,192 @@
+{
+  "width": 30,
+  "height": 20,
+  "walls": [
+    {
+      "id": "north",
+      "start": {
+        "x": 2,
+        "y": 2
+      },
+      "end": {
+        "x": 28,
+        "y": 2
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "east_wall",
+      "start": {
+        "x": 28,
+        "y": 2
+      },
+      "end": {
+        "x": 28,
+        "y": 18
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "south",
+      "start": {
+        "x": 28,
+        "y": 18
+      },
+      "end": {
+        "x": 2,
+        "y": 18
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "west_wall",
+      "start": {
+        "x": 2,
+        "y": 18
+      },
+      "end": {
+        "x": 2,
+        "y": 2
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "partition",
+      "start": {
+        "x": 15,
+        "y": 2
+      },
+      "end": {
+        "x": 15,
+        "y": 18
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "angled",
+      "start": {
+        "x": 6.5,
+        "y": 11
+      },
+      "end": {
+        "x": 11,
+        "y": 15.5
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "wall_01af3a68-3fa4-40a7-ba86-a1a1baf50860",
+      "name": "Wall 7",
+      "start": {
+        "x": 2.4384,
+        "y": 12.192
+      },
+      "end": {
+        "x": 5.486400000000001,
+        "y": 16.4592
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "wall_47ae70cb-8bab-4efd-9ac6-7e4b44717973",
+      "name": "Wall 8",
+      "start": {
+        "x": 5.486400000000001,
+        "y": 16.4592
+      },
+      "end": {
+        "x": 4.8768,
+        "y": 18.288
+      },
+      "thickness": 0.2
+    }
+  ],
+  "doors": [
+    {
+      "id": "door_north",
+      "wall_id": "partition",
+      "offset": 3,
+      "width": 1.4
+    },
+    {
+      "id": "door_south",
+      "wall_id": "partition",
+      "offset": 11,
+      "width": 1.4
+    }
+  ],
+  "exits": [
+    {
+      "id": "opening_da8e037e-bf43-41cc-bcfe-a22697e452dd",
+      "name": "Exit 1",
+      "wall_id": "west_wall",
+      "offset": 3.2307380866125714,
+      "width": 1.2
+    }
+  ],
+  "spawn_zones": [
+    {
+      "id": "spawn_west",
+      "x": 5,
+      "y": 5,
+      "width": 5,
+      "height": 3,
+      "count": 18
+    },
+    {
+      "id": "spawn_east",
+      "x": 20,
+      "y": 12,
+      "width": 4,
+      "height": 3,
+      "count": 16
+    }
+  ],
+  "blocked_exit_ids": [],
+  "obstructions": [],
+  "agent_radius": 0.25,
+  "time_step_seconds": 0.1,
+  "seed": 42,
+  "max_steps": 1000,
+  "windows": [
+    {
+      "id": "door_32fa2fd9-e777-4134-8990-5e281d541dbe",
+      "name": "Window 1",
+      "wall_id": "east_wall",
+      "offset": 4.705600000000001,
+      "width": 1.2,
+      "emergency_escape": {
+        "enabled": true,
+        "preparation": "open",
+        "clear_width_metres": 1.2,
+        "clear_height_metres": 1.2,
+        "preparation_seconds": 5,
+        "traversal_seconds": 3,
+        "exterior_side": -1,
+        "exterior_available": true
+      }
+    },
+    {
+      "id": "opening_514fda1c-599d-4a8a-b0cd-f20627b00dda",
+      "name": "Window 2",
+      "wall_id": "west_wall",
+      "offset": 7.193376208243047,
+      "width": 1.2,
+      "emergency_escape": {
+        "enabled": true,
+        "preparation": "open",
+        "clear_width_metres": 1.2,
+        "clear_height_metres": 1.2,
+        "preparation_seconds": 5,
+        "traversal_seconds": 3,
+        "exterior_side": -1,
+        "exterior_available": true
+      }
+    }
+  ],
+  "window_escape_context": {
+    "floor_elevation_metres": 0,
+    "required_clear_height_metres": 1,
+    "all_agents_can_traverse": true
+  }
+}

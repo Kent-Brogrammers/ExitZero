@@ -29,6 +29,44 @@ function respond(body: unknown, status = 200) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("API integration contract", () => {
+  it("accepts recorded window diagnostics and rejects approaching IDs duplicated in the queue", async () => {
+    const withWindow = {
+      ...building,
+      windows: [
+        { id: "pane", wall_id: building.walls[0]!.id, offset: 0, width: 1 },
+      ],
+    };
+    const state = {
+      window_id: "pane",
+      state: "intact",
+      preparation_ready_step: null,
+      queue_agent_ids: [] as number[],
+      traversing_agent_id: null,
+      traversal_earliest_finish_step: null,
+      approaching_agent_ids: [mock.frames[0]!.agents[0]!.id],
+      unavailable_reason: "No route to the configured indoor approach.",
+    };
+    const response = (windowState: typeof state) => ({
+      ...mock,
+      frames: [
+        { ...mock.frames[0]!, window_states: [windowState] },
+        ...mock.frames.slice(1),
+      ],
+    });
+    const valid = response(state);
+    respond(valid);
+    await expect(client.simulate(withWindow)).resolves.toEqual(valid);
+    respond(
+      response({ ...state, queue_agent_ids: state.approaching_agent_ids }),
+    );
+    await expect(client.simulate(withWindow)).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+    respond(response({ ...state, approaching_agent_ids: [4294967295] }));
+    await expect(client.simulate(withWindow)).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+  });
   it("accepts optional communication events and rejects invented IDs, recipients or future times", async () => {
     const event = {
       step: 0,

@@ -5,10 +5,24 @@ use super::{
     agent::Agent,
     geometry::Geometry,
     math,
-    navigation::{Navigation, Route},
+    navigation::{self, Navigation, Route},
 };
 use crate::models::{BuildingScenario, Point, WindowFrameState, WindowPreparation, WindowState};
 use std::collections::BTreeSet;
+
+// Disaster footprints are soft routing costs for ordinary walking. Starting a
+// window crossing needs a clear landing and service lane, including that buffer.
+fn safe_crossing(scenario: &BuildingScenario, geometry: &Geometry<'_>, a: Point, b: Point) -> bool {
+    geometry.can_move(a, b)
+        && geometry.disaster.is_none_or(|disaster| {
+            geometry.hazard_areas.iter().all(|area| {
+                let mut footprint = disaster;
+                footprint.radius = area.radius;
+                math::distance_to_segment(area.center, a, b)
+                    > footprint.exposure_radius() + scenario.agent_radius
+            })
+        })
+}
 
 fn queue_point(s: &Station<'_>, rank: usize, radius: f64) -> Point {
     let distance = math::distance_to_point(s.approach, s.landing);
@@ -79,31 +93,76 @@ impl<'a> Windows<'a> {
                 x: center.x + side * clearance * normal.x,
                 y: center.y + side * clearance * normal.y,
             };
-            let crossing = if pane.emergency_escape.is_some() {
+            let mut crossing = if pane.emergency_escape.is_some() {
                 Geometry::with_window_aperture(scenario, emergencies, blocked.clone(), pane)
             } else {
                 Geometry::with_blocked_openings(scenario, emergencies, blocked.clone())
             };
+            crossing.hazard_areas = geometry.hazard_areas.clone();
             let in_workspace = |p: Point| {
                 p.x >= scenario.agent_radius
                     && p.y >= scenario.agent_radius
                     && p.x <= scenario.width - scenario.agent_radius
                     && p.y <= scenario.height - scenario.agent_radius
             };
-            let eligible = pane.emergency_escape.as_ref().is_some_and(|e| {
-                e.enabled
-                    && e.exterior_available
-                    && e.clear_width_metres >= 2.0 * scenario.agent_radius
-                    && scenario.window_escape_context.as_ref().is_some_and(|c| {
-                        c.floor_elevation_metres == 0.0
-                            && c.all_agents_can_traverse
-                            && e.clear_height_metres >= c.required_clear_height_metres
-                    })
-                    && in_workspace(approach)
-                    && in_workspace(landing)
-                    && geometry.can_stand_at(approach)
-                    && crossing.can_move(approach, landing)
-            });
+            let unavailable_reason = (|| {
+                if scenario
+                    .disaster
+                    .is_some_and(|d| d.kind == crate::models::DisasterKind::Tornado)
+                {
+                    return Some("Tornado response uses shelter zones.");
+                }
+                let Some(escape) = pane.emergency_escape.as_ref().filter(|e| e.enabled) else {
+                    return Some(
+                        "Last-resort escape is disabled. Enable it in this window's Properties.",
+                    );
+                };
+                let Some(context) = &scenario.window_escape_context else {
+                    return Some(
+                        "Ground-floor traversal is not configured. Set the ground-floor assumption in window Properties.",
+                    );
+                };
+                if context.floor_elevation_metres != 0.0 {
+                    return Some("Window escape supports ground-floor layouts only.");
+                }
+                if !context.all_agents_can_traverse {
+                    return Some("Occupant traversal capability is disabled in window Properties.");
+                }
+                if !escape.exterior_available {
+                    return Some("Exterior landing availability is disabled in window Properties.");
+                }
+                if escape.clear_width_metres < 2.0 * scenario.agent_radius {
+                    return Some("Usable window width is smaller than an occupant's diameter.");
+                }
+                if escape.clear_height_metres < context.required_clear_height_metres {
+                    return Some("Usable window height is below the configured required height.");
+                }
+                if !in_workspace(approach) {
+                    return Some(
+                        "The indoor approach does not fit in the workspace. Check the exterior side and leave drawing space around the wall.",
+                    );
+                }
+                if !in_workspace(landing) {
+                    return Some(
+                        "The exterior landing does not fit in the workspace. Leave drawing space outside the wall.",
+                    );
+                }
+                if !geometry.can_stand_at(approach) {
+                    return Some(
+                        "The indoor approach is blocked. Check furniture, walls, and the configured exterior side.",
+                    );
+                }
+                if !crossing.can_move(approach, landing) {
+                    return Some(
+                        "The window crossing is blocked. Check usable width, adjacent walls, and the exterior landing.",
+                    );
+                }
+                if !safe_crossing(scenario, &crossing, approach, landing) {
+                    return Some("Fire or gas covers the window crossing or exterior landing.");
+                }
+                None
+            })();
+            let eligible = unavailable_reason.is_none();
             stations.push(Station {
                 index,
                 approach,
@@ -119,6 +178,8 @@ impl<'a> Windows<'a> {
                     queue_agent_ids: vec![],
                     traversing_agent_id: None,
                     traversal_earliest_finish_step: None,
+                    unavailable_reason: unavailable_reason.map(str::to_owned),
+                    approaching_agent_ids: Some(vec![]),
                 },
                 queue: vec![],
                 traverser: None,
@@ -135,10 +196,23 @@ impl<'a> Windows<'a> {
         (!self.stations.is_empty()).then(|| {
             self.stations
                 .iter()
-                .map(|s| {
+                .enumerate()
+                .map(|(station, s)| {
                     let mut snapshot = s.snapshot.clone();
                     snapshot.queue_agent_ids = s.queue.iter().map(|&i| agents[i].id).collect();
                     snapshot.traversing_agent_id = s.traverser.map(|i| agents[i].id);
+                    snapshot.approaching_agent_ids = Some(
+                        self.approaches
+                            .iter()
+                            .enumerate()
+                            .filter(|(i, a)| {
+                                a.as_ref().is_some_and(|a| a.station == station)
+                                    && !s.queue.contains(i)
+                                    && s.traverser != Some(*i)
+                            })
+                            .map(|(i, _)| agents[i].id)
+                            .collect(),
+                    );
                     snapshot
                 })
                 .collect()
@@ -190,11 +264,17 @@ impl<'a> Windows<'a> {
             station.geometry = new.geometry;
             station.navigation = new.navigation;
             station.eligible = new.eligible;
+            station.snapshot.unavailable_reason = new.snapshot.unavailable_reason;
         }
         // Replan approach routes after physical opening events. Active service
         // and FIFO membership keep their stable window/agent references.
         for i in 0..self.approaches.len() {
-            if !self.traversing(i) && !self.stations.iter().any(|s| s.queue.contains(&i)) {
+            if !self.traversing(i)
+                && self.approaches[i].as_ref().is_some_and(|a| {
+                    !self.stations[a.station].eligible
+                        || !self.stations[a.station].queue.contains(&i)
+                })
+            {
                 self.approaches[i] = None;
             }
         }
@@ -205,10 +285,14 @@ impl<'a> Windows<'a> {
         step: u32,
         agents: &[Agent],
         evacuated: &[bool],
-        fallback: bool,
+        fallback: &[bool],
         geometry: &Geometry<'_>,
     ) {
+        let mut reachable = vec![false; self.stations.len()];
         for s in &mut self.stations {
+            if s.eligible {
+                s.snapshot.unavailable_reason = None;
+            }
             if s.snapshot
                 .preparation_ready_step
                 .is_some_and(|ready| step >= ready)
@@ -222,8 +306,8 @@ impl<'a> Windows<'a> {
         }
         // A reopened normal exit wins before traversal begins. An active crossing
         // finishes on its current side-to-side path; it is never teleported back.
-        for i in 0..agents.len() {
-            if !fallback && !self.traversing(i) {
+        for (i, &needs_window) in fallback.iter().enumerate() {
+            if !needs_window && !self.traversing(i) {
                 self.approaches[i] = None;
             }
         }
@@ -231,44 +315,49 @@ impl<'a> Windows<'a> {
             s.queue
                 .retain(|&i| !evacuated[i] && self.approaches[i].is_some());
         }
-        if fallback {
-            for i in 0..agents.len() {
-                if evacuated[i] || self.controls(i) {
-                    continue;
-                }
-                let mut best: Option<(f64, usize, Route)> = None;
-                for (station, s) in self.stations.iter().enumerate().filter(|(_, s)| s.eligible) {
-                    if let Some(route) = s
-                        .navigation
+        for approach in self.approaches.iter().flatten() {
+            reachable[approach.station] = true;
+        }
+        let mut attempted = false;
+        for i in 0..agents.len() {
+            if evacuated[i] || !fallback[i] || self.controls(i) {
+                continue;
+            }
+            attempted = true;
+            let mut best: Option<(f64, usize, Route)> = None;
+            for (station, s) in self.stations.iter().enumerate().filter(|(_, s)| s.eligible) {
+                if let Some(route) = s
+                    .navigation
+                    .as_ref()
+                    .unwrap()
+                    .find_route_avoiding_danger(agents[i].position, geometry)
+                {
+                    reachable[station] = true;
+                    let cost = navigation::route_cost(
+                        agents[i].position,
+                        &route.waypoints,
+                        &super::congestion::CrowdForecast::for_geometry(geometry),
+                        self.scenario.agent_radius,
+                    );
+                    if best
                         .as_ref()
-                        .unwrap()
-                        .find_route(agents[i].position, geometry)
+                        .is_none_or(|(distance, _, _)| cost < *distance)
                     {
-                        let mut from = agents[i].position;
-                        let length: f64 = route
-                            .waypoints
-                            .iter()
-                            .map(|&p| {
-                                let d = math::distance_to_point(from, p);
-                                from = p;
-                                d
-                            })
-                            .sum();
-                        if best
-                            .as_ref()
-                            .is_none_or(|(distance, _, _)| length < *distance)
-                        {
-                            best = Some((length, station, route));
-                        }
+                        best = Some((cost, station, route));
                     }
                 }
-                if let Some((_, station, route)) = best {
-                    self.approaches[i] = Some(Approach {
-                        station,
-                        route,
-                        cursor: 0,
-                    });
-                }
+            }
+            if let Some((_, station, route)) = best {
+                self.approaches[i] = Some(Approach {
+                    station,
+                    route,
+                    cursor: 0,
+                });
+            }
+        }
+        for (station, s) in self.stations.iter_mut().enumerate() {
+            if attempted && s.eligible && !reachable[station] {
+                s.snapshot.unavailable_reason = Some("No route to the configured indoor approach. Check the exterior direction and intervening barriers.".into());
             }
         }
         // Stable agent order breaks ties for arrivals on the same tick; existing
@@ -280,7 +369,9 @@ impl<'a> Windows<'a> {
         for i in arrivals {
             let a = self.approaches[i].as_mut().unwrap();
             for future in (a.cursor + 1..a.route.waypoints.len()).rev() {
-                if geometry.can_move(agents[i].position, a.route.waypoints[future]) {
+                if geometry.can_move(agents[i].position, a.route.waypoints[future])
+                    && geometry.avoids_known_danger(agents[i].position, a.route.waypoints[future])
+                {
                     a.cursor = future;
                     break;
                 }
@@ -305,7 +396,7 @@ impl<'a> Windows<'a> {
             }
         }
         for s in &mut self.stations {
-            if s.traverser.is_some() {
+            if s.traverser.is_some() || !s.eligible {
                 continue;
             }
             let Some(&head) = s.queue.first() else {
@@ -360,7 +451,8 @@ impl<'a> Windows<'a> {
         if rank > 0 && a.cursor + 1 == a.route.waypoints.len() {
             let target = queue_point(s, rank, self.scenario.agent_radius);
             return (math::distance_to_point(position, target) > 1e-6
-                && geometry.can_move(position, target))
+                && geometry.can_move(position, target)
+                && geometry.avoids_known_danger(position, target))
             .then_some(target);
         }
         let target = a.route.waypoints[a.cursor];
@@ -410,17 +502,16 @@ impl<'a> Windows<'a> {
     pub(super) fn finish(&mut self, step: u32, agents: &[Agent]) -> Vec<(usize, String)> {
         let mut leaving = Vec::new();
         for s in &mut self.stations {
-            if let Some(i) = s.traverser {
-                if s.snapshot
+            if let Some(i) = s.traverser
+                && s.snapshot
                     .traversal_earliest_finish_step
                     .is_some_and(|ready| step >= ready)
-                    && math::distance_to_point(agents[i].position, s.landing) <= 1e-6
-                {
-                    leaving.push((i, s.snapshot.window_id.clone()));
-                    self.approaches[i] = None;
-                    s.traverser = None;
-                    s.snapshot.traversal_earliest_finish_step = None;
-                }
+                && math::distance_to_point(agents[i].position, s.landing) <= 1e-6
+            {
+                leaving.push((i, s.snapshot.window_id.clone()));
+                self.approaches[i] = None;
+                s.traverser = None;
+                s.snapshot.traversal_earliest_finish_step = None;
             }
         }
         leaving

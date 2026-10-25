@@ -11,6 +11,8 @@ export type EditorTool =
   | "window"
   | "spawn"
   | "stairs"
+  | "tornado-zone"
+  | "hazard"
   | "object-square"
   | "object-rectangle";
 
