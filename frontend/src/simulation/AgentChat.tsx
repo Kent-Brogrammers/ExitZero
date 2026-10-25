@@ -1,5 +1,9 @@
 import { useEffect, useRef } from "react";
-import type { BuildingScenario, SimulationResult } from "../types/simulation";
+import type {
+  AnimationFrame,
+  BuildingScenario,
+  SimulationResult,
+} from "../types/simulation";
 import {
   communicationsAtTime,
   communicationMessage,
@@ -10,14 +14,19 @@ export function AgentChat({
   building,
   result,
   time,
+  liveFrame,
   onClose,
 }: {
   building: BuildingScenario;
   result: SimulationResult | null;
   time: number;
+  liveFrame?: AnimationFrame | null;
   onClose: () => void;
 }) {
-  const visible = communicationsAtTime(result, time);
+  const pursuitEvents =
+    liveFrame?.pursuit?.events ?? result?.frames.at(-1)?.pursuit?.events;
+  const timeStep = result?.time_step_seconds ?? building.time_step_seconds;
+  const visible = communicationsAtTime(result, time, pursuitEvents, timeStep);
   const latest = visible.events.at(-1);
   const list = useRef<HTMLOListElement>(null);
   useEffect(() => {
@@ -36,15 +45,17 @@ export function AgentChat({
           ×
         </button>
       </div>
-      {!result?.communication_events ? (
+      {!result?.communication_events && !pursuitEvents ? (
         <p className="note">
           Communications were not recorded for this simulation.
         </p>
       ) : !visible.total ? (
         <p className="note">
-          {result.communication_events.length
+          {result?.communication_events?.length || pursuitEvents?.length
             ? "No messages at this point in the recording."
-            : "No new opening information was recorded."}
+            : pursuitEvents
+              ? "No killer sightings or warnings were recorded."
+              : "No new opening information was recorded."}
         </p>
       ) : (
         <>
@@ -61,11 +72,9 @@ export function AgentChat({
           >
             {visible.events.map((event) => (
               <li
-                key={`${event.step}:${event.event_type ?? "shared"}:${event.sender_id}:${event.opening_id}`}
+                key={`${event.step}:${event.event_type ?? "shared"}:${event.sender_id}:${"opening_id" in event ? event.opening_id : "killer"}`}
               >
-                <time>
-                  {communicationTime(event.step * result.time_step_seconds)}
-                </time>
+                <time>{communicationTime(event.step * timeStep)}</time>
                 <p>{communicationMessage(event, building)}</p>
               </li>
             ))}

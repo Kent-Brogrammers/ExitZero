@@ -1,5 +1,5 @@
 import { formatDimensions } from "../utils/units";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { SimulationDetails } from "./SimulationDetails";
 import { PursuitMetrics } from "./PursuitMetrics";
 import type {
@@ -23,11 +23,13 @@ export function LiveSimulationView({
   live,
   active,
   showAgentNumbers = false,
+  agentChat,
 }: {
   building: BuildingScenario;
   live: LiveSimulation;
   active: boolean;
   showAgentNumbers?: boolean;
+  agentChat?: ReactNode;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const theme = useStudioTheme();
@@ -138,6 +140,7 @@ export function LiveSimulationView({
     <div className="playback-workspace">
       <div className="playback-stage">
         <div className="canvas-wrap playback-canvas-wrap">
+          {agentChat}
           <canvas
             data-world-canvas
             ref={canvas}

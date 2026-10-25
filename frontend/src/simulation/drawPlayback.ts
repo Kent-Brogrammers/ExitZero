@@ -117,6 +117,37 @@ export function drawAgents(
       context.fillText(label, point.x, point.y);
     }
   }
+  // Rust records the accepted capture position. These markers are visual only:
+  // they never rejoin active movement, traffic, or survivor population counts.
+  for (const caught of frame.pursuit?.caught ?? []) {
+    if (!caught.position) continue; // Legacy recordings have no exact position.
+    const p = worldToCanvas(caught.position, view);
+    const radius = Math.max(5 * ratio, building.agent_radius * view.scale);
+    context.beginPath();
+    context.arc(p.x, p.y, radius, 0, Math.PI * 2);
+    context.fillStyle = "#ed5a65";
+    context.fill();
+    context.strokeStyle = "#fff";
+    context.lineWidth = 1.5 * ratio;
+    const arm = radius * 0.45;
+    context.beginPath();
+    context.moveTo(p.x - arm, p.y - arm);
+    context.lineTo(p.x + arm, p.y + arm);
+    context.moveTo(p.x + arm, p.y - arm);
+    context.lineTo(p.x - arm, p.y + arm);
+    context.stroke();
+    if (showAgentNumbers) {
+      context.font = `500 ${11 * ratio}px system-ui`;
+      context.textAlign = "center";
+      context.textBaseline = "bottom";
+      context.fillStyle = "#fff";
+      context.fillText(
+        String(caught.agent_id + 1),
+        p.x,
+        p.y - radius - 2 * ratio,
+      );
+    }
+  }
   // Queue membership is recorded by Rust, never inferred from proximity or missing IDs.
   const waiting = new Set(
     frame.window_states?.flatMap((s) => s.queue_agent_ids),

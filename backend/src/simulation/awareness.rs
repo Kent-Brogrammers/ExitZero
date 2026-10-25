@@ -4,6 +4,16 @@ use super::perception::{self, WallKnowledge};
 use super::{Emergency, agent::Agent, geometry::Geometry, math, navigation::Navigation};
 use crate::models::{BuildingScenario, CommunicationEventType};
 
+/// The same range and physical line-of-sight rule applies to every report.
+pub(super) fn can_communicate(
+    a: crate::models::Point,
+    b: crate::models::Point,
+    range: f64,
+    geometry: &Geometry<'_>,
+) -> bool {
+    range > 0.0 && math::distance_to_point(a, b) <= range && geometry.has_line_of_sight(a, b)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Observation {
     pub blocked: bool,
@@ -400,9 +410,12 @@ pub(super) fn update_knowledge(
             }
             for j in i + 1..agents.len() {
                 if evacuated[j]
-                    || math::distance_to_point(agents[i].position, agents[j].position)
-                        > scenario.awareness.communication_range_metres
-                    || !geometry.has_line_of_sight(agents[i].position, agents[j].position)
+                    || !can_communicate(
+                        agents[i].position,
+                        agents[j].position,
+                        scenario.awareness.communication_range_metres,
+                        geometry,
+                    )
                 {
                     continue;
                 }

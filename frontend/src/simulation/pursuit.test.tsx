@@ -16,12 +16,16 @@ import { SimulationView } from "./SimulationView";
 import { SimulationSummary } from "./SimulationSummary";
 import { createFrameSampler } from "./interpolation";
 import { drawAgents } from "./drawPlayback";
+import { AgentChat } from "./AgentChat";
+import { communicationMessage, communicationsAtTime } from "./communication";
+import { canvasView } from "../editor/geometry";
 import { canvasPalette } from "../styles/canvasPalette";
 import { syntheticBuilding, syntheticResult } from "./playback.fixture";
 import type {
   AnimationFrame,
   BuildingScenario,
   SimulationResult,
+  PursuitEvent,
 } from "../types/simulation";
 
 // Explicit component fixtures only. Browser checks exercise actual Rust output.
@@ -287,4 +291,210 @@ describe("Halloween template and recorded outcomes", () => {
       });
     }
   });
+});
+
+it("keeps recorded caught markers fixed, red and crossed, and removes them on rewind", () => {
+  const colors: string[] = [];
+  const context = {
+    save: vi.fn(),
+    restore: vi.fn(),
+    setTransform: vi.fn(),
+    beginPath: vi.fn(),
+    arc: vi.fn(),
+    ellipse: vi.fn(),
+    moveTo: vi.fn(),
+    lineTo: vi.fn(),
+    fill: vi.fn(() => colors.push(context.fillStyle)),
+    stroke: vi.fn(),
+    fillText: vi.fn(),
+    measureText: () => ({ width: 6 }),
+    fillStyle: "",
+    strokeStyle: "",
+    lineWidth: 0,
+    font: "",
+    textAlign: "",
+    textBaseline: "",
+  };
+  const canvas = {
+    width: 800,
+    height: 600,
+    getContext: () => context,
+    getBoundingClientRect: () => ({ width: 800, height: 600 }),
+  } as unknown as HTMLCanvasElement;
+  const caught = { agent_id: 0, step: 10, position: { x: 1, y: 1 } };
+  const frame = {
+    ...end,
+    step: 10,
+    pursuit: { ...end.pursuit!, caught: [caught], events: [] },
+  };
+  const frames = [start, frame];
+  const raw = JSON.stringify(frames);
+  const sample = createFrameSampler(building, frames, 0.1);
+  drawAgents(canvas, building, sample(0.99), 1, canvasPalette(canvas));
+  expect(context.lineTo).not.toHaveBeenCalled();
+  drawAgents(canvas, building, sample(1), 1, canvasPalette(canvas), true);
+  expect(context.lineTo).toHaveBeenCalledTimes(2);
+  expect(colors).toContain("#ed5a65");
+  const view = canvasView(800, 600, building);
+  expect(context.arc).toHaveBeenCalledWith(
+    view.x + view.scale,
+    view.y + view.scale,
+    expect.any(Number),
+    0,
+    Math.PI * 2,
+  );
+  expect(context.fillText.mock.calls.some((c) => c[0] === "1")).toBe(true);
+  context.lineTo.mockClear();
+  drawAgents(canvas, building, sample(2), 1, canvasPalette(canvas));
+  expect(context.lineTo).toHaveBeenCalledTimes(2);
+  context.lineTo.mockClear();
+  drawAgents(canvas, building, sample(0), 1, canvasPalette(canvas));
+  expect(context.lineTo).not.toHaveBeenCalled();
+  expect(JSON.stringify(frames)).toBe(raw);
+});
+
+it("renders genuine sightings and grouped warnings with stable numbers at recorded times", () => {
+  const events: PursuitEvent[] = [
+    {
+      step: 4,
+      event_type: "sighting",
+      sender_id: 0,
+      recipient_ids: [],
+      position: { x: 1, y: 1 },
+    },
+    {
+      step: 5,
+      event_type: "warning",
+      sender_id: 0,
+      recipient_ids: [1, 2],
+      position: { x: 1, y: 1 },
+    },
+    {
+      step: 7,
+      event_type: "warning",
+      sender_id: 2,
+      recipient_ids: [3],
+      position: { x: 1, y: 1 },
+    },
+  ];
+  const recording = {
+    ...result,
+    frames: [start, { ...end, pursuit: { ...end.pursuit!, events } }],
+  };
+  expect(communicationMessage(events[0]!, building)).toBe(
+    "Agent 1 spotted the killer.",
+  );
+  expect(communicationMessage(events[1]!, building)).toContain(
+    "Agent 1 warned Agents 2 and 3",
+  );
+  const chat = (time: number) =>
+    renderToStaticMarkup(
+      <AgentChat
+        building={building}
+        result={recording}
+        time={time}
+        onClose={() => {}}
+      />,
+    );
+  expect(chat(0.39)).not.toContain("<li>");
+  expect(communicationsAtTime(recording, 0.5).events).toHaveLength(2);
+  expect(chat(0.5)).toContain("00:00.50");
+  expect(chat(0.7)).toContain("Agent 3 warned Agent 4");
+  expect(chat(0.5)).not.toContain("Agent 3 warned Agent 4");
+  expect(chat(0.5)).not.toContain("Communications were not recorded");
+  const live = renderToStaticMarkup(
+    <AgentChat
+      building={building}
+      result={null}
+      liveFrame={{ ...end, pursuit: { ...end.pursuit!, events } }}
+      time={0.5}
+      onClose={() => {}}
+    />,
+  );
+  expect(live).toContain("Agent 1 warned Agents 2 and 3");
+  expect(live).not.toContain("Agent 3 warned Agent 4");
+  expect(
+    renderToStaticMarkup(
+      <AgentChat
+        building={building}
+        result={{
+          ...result,
+          frames: [{ ...end, pursuit: { ...end.pursuit!, events: [] } }],
+        }}
+        time={8}
+        onClose={() => {}}
+      />,
+    ),
+  ).toContain("No killer sightings or warnings");
+});
+
+it("validates optional capture positions and warning records through the shared API contract", async () => {
+  const events: PursuitEvent[] = [
+    {
+      step: 4,
+      event_type: "sighting",
+      sender_id: 0,
+      recipient_ids: [],
+      position: { x: 1, y: 1 },
+    },
+    {
+      step: 5,
+      event_type: "warning",
+      sender_id: 0,
+      recipient_ids: [1],
+      position: { x: 1, y: 1 },
+    },
+  ];
+  const full: SimulationResult = {
+    ...result,
+    frames: [
+      { ...start, pursuit: { ...start.pursuit!, events: [] } },
+      {
+        ...end,
+        pursuit: {
+          ...end.pursuit!,
+          caught: [{ agent_id: 0, step: 30, position: { x: 1, y: 1 } }],
+          events,
+        },
+      },
+    ],
+  };
+  const client = createApiClient("/api");
+  const respond = (data: SimulationResult) =>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify(data), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+      ),
+    );
+  respond(full);
+  await expect(client.simulate(building)).resolves.toEqual(full);
+  for (const change of [
+    (r: SimulationResult) => {
+      r.frames.at(-1)!.pursuit!.caught[0]!.position!.x = building.width + 1;
+    },
+    (r: SimulationResult) => {
+      r.frames.at(-1)!.pursuit!.events![0]!.step = 81;
+    },
+    (r: SimulationResult) => {
+      r.frames.at(-1)!.pursuit!.events![1]!.recipient_ids = [0];
+    },
+    (r: SimulationResult) => {
+      r.frames.at(-1)!.pursuit!.events!.push({ ...events[1]!, step: 6 });
+    },
+    (r: SimulationResult) => {
+      r.frames.at(-1)!.pursuit!.events![1]!.recipient_ids = [5];
+    },
+  ]) {
+    const invalid = structuredClone(full);
+    change(invalid);
+    respond(invalid);
+    await expect(client.simulate(building)).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+  }
 });

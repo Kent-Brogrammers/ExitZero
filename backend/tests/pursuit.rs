@@ -11,6 +11,43 @@ fn house() -> BuildingScenario {
 }
 
 #[test]
+fn real_recording_contains_first_sighting_grouped_warning_and_later_relay() {
+    let mut b: BuildingScenario = serde_json::from_value(serde_json::json!({
+        "width":8,"height":6,"walls":[{"id":"east","start":{"x":8,"y":0},"end":{"x":8,"y":6},"thickness":0.1}],
+        "doors":[],"exits":[{"id":"out","wall_id":"east","offset":0.4,"width":4}],
+        "spawn_zones":[],"obstructions":[],"blocked_exit_ids":[],"seed":31,"agent_radius":0.2,"time_step_seconds":0.1,"max_steps":30,
+        "awareness":{"sight_range_metres":1.1,"communication_range_metres":2.25},
+        "pursuit":{"stalker_start":{"x":0.1,"y":1},"stalker_speed":0.1,"survivor_speed":1.3,"capture_radius":0.45,"avoidance_radius":2}
+    })).unwrap();
+    for (i, (x, y)) in [(1.0, 1.0), (2.8, 1.0), (3.0, 1.8), (5.0, 1.0)]
+        .into_iter()
+        .enumerate()
+    {
+        b.spawn_zones.push(serde_json::from_value(serde_json::json!({"id":format!("person{i}"),"x":x-0.2,"y":y-0.2,"width":0.4,"height":0.4,"count":1})).unwrap());
+    }
+    let result = simulate(&b).unwrap();
+    result.validate().unwrap();
+    let events = result
+        .frames
+        .last()
+        .unwrap()
+        .pursuit
+        .as_ref()
+        .unwrap()
+        .events
+        .as_ref()
+        .unwrap();
+    assert_eq!(events[0].sender_id, 0);
+    assert_eq!(events[0].step, 0);
+    assert_eq!(events[1].recipient_ids, vec![1, 2]);
+    assert_eq!(events[1].step, 0);
+    assert_eq!(events[2].sender_id, 1);
+    assert_eq!(events[2].recipient_ids, vec![3]);
+    assert_eq!(events[2].step, 1);
+    assert_eq!(events.len(), 3, "location refreshes do not spam recordings");
+}
+
+#[test]
 fn pursuit_contract_roundtrips_and_rejects_invalid_optional_values_and_capture_records() {
     let building = house();
     let json = serde_json::to_value(&building).unwrap();
@@ -47,6 +84,7 @@ fn pursuit_contract_roundtrips_and_rejects_invalid_optional_values_and_capture_r
         .push(exitzero::models::CaughtAgent {
             agent_id: 0,
             step: 100,
+            position: None,
         });
     assert!(result.validate().is_err());
 }
@@ -90,8 +128,57 @@ fn haunted_house_runs_real_seeded_pursuit_and_preserves_survivor_accounting() {
         );
         for caught in &p.caught {
             assert!(!frame.agents.iter().any(|a| a.id == caught.agent_id));
+            let position = caught
+                .position
+                .expect("real captures record their last position");
+            let first = result
+                .frames
+                .iter()
+                .find(|f| f.step == caught.step)
+                .expect("capture ticks are retained even in sampled recordings");
+            let original = first
+                .pursuit
+                .as_ref()
+                .unwrap()
+                .caught
+                .iter()
+                .find(|c| c.agent_id == caught.agent_id)
+                .unwrap();
+            assert_eq!(
+                (position.x, position.y),
+                (original.position.unwrap().x, original.position.unwrap().y)
+            );
         }
     }
+    assert!(!pursuit.events.as_ref().unwrap().is_empty());
+    let mut legacy = serde_json::to_value(&result).unwrap();
+    for frame in legacy["frames"].as_array_mut().unwrap() {
+        frame["pursuit"].as_object_mut().unwrap().remove("events");
+        for caught in frame["pursuit"]["caught"].as_array_mut().unwrap() {
+            caught.as_object_mut().unwrap().remove("position");
+        }
+    }
+    serde_json::from_value::<exitzero::models::SimulationResult>(legacy)
+        .unwrap()
+        .validate()
+        .unwrap();
+    let mut invalid = result.clone();
+    invalid
+        .frames
+        .last_mut()
+        .unwrap()
+        .pursuit
+        .as_mut()
+        .unwrap()
+        .caught[0]
+        .position
+        .as_mut()
+        .unwrap()
+        .x += 0.1;
+    assert!(
+        invalid.validate().is_err(),
+        "caught positions cannot drift during replay"
+    );
 }
 
 #[test]

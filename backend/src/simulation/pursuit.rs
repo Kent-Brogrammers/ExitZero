@@ -8,6 +8,7 @@ use super::{
     geometry::Geometry,
     math, motion,
     navigation::{Navigation, Route},
+    pursuit_awareness::PursuitAwareness,
     record_traffic,
 };
 use crate::models::{
@@ -31,6 +32,21 @@ fn advance(
         .is_some_and(|p| math::distance_to_point(position, *p) < 1e-8)
     {
         route.waypoints.remove(0);
+    }
+    if route.waypoints.len() == 1 {
+        // Keep the nearest body-clear arrival point after lateral corrections.
+        if let Some(target) = geometry
+            .exit_segments(&route.exit_id)
+            .into_iter()
+            .map(|(a, b)| math::closest_point_on_segment(position, a, b))
+            .filter(|&p| geometry.can_move(position, p))
+            .min_by(|&a, &b| {
+                math::distance_to_point(position, a)
+                    .total_cmp(&math::distance_to_point(position, b))
+            })
+        {
+            route.waypoints[0] = target;
+        }
     }
     let Some(&target) = route.waypoints.first() else {
         return position;
@@ -74,9 +90,7 @@ fn snapshot(
     step: u32,
     people: &[Agent],
     gone: &[bool],
-    stalker: Point,
-    escaped: u32,
-    caught: &[CaughtAgent],
+    pursuit: PursuitFrame,
     world: &OpeningStates,
 ) -> AnimationFrame {
     AnimationFrame {
@@ -92,11 +106,7 @@ fn snapshot(
                 injury: None,
             })
             .collect(),
-        pursuit: Some(PursuitFrame {
-            stalker,
-            escaped,
-            caught: caught.to_vec(),
-        }),
+        pursuit: Some(pursuit),
         blocked_opening_ids: Some(world.blocked().into_iter().collect()),
         window_states: None,
         sheltered: None,
@@ -130,6 +140,7 @@ pub(super) fn run(
     let mut routes: Vec<Option<Route>> = people.iter().map(|_| None).collect();
     let mut hunter_route = None;
     let mut caught = Vec::new();
+    let mut awareness = PursuitAwareness::new(people.len());
     let mut escaped = 0;
     let mut frames = Vec::new();
     let mut traffic = BTreeMap::new();
@@ -138,6 +149,7 @@ pub(super) fn run(
         .div_ceil(200_000)
         .max(1) as u32;
     let mut step = 0;
+    let mut last_outcomes = (0, 0);
     loop {
         let changed = if scenario.opening_events.is_empty() {
             false
@@ -157,27 +169,44 @@ pub(super) fn run(
             geometry = Geometry::with_blocked_openings(scenario, &[], world.blocked());
             navigation = Navigation::new(scenario, &geometry);
         }
-        let frame = snapshot(step, &people, &gone, stalker, escaped, &caught, &world);
+        let alerted = awareness.update(
+            step,
+            &people,
+            &gone,
+            stalker,
+            &scenario.awareness,
+            &geometry,
+        );
+        let frame = snapshot(
+            step,
+            &people,
+            &gone,
+            PursuitFrame {
+                stalker,
+                escaped,
+                caught: caught.clone(),
+                events: Some(awareness.events.clone()),
+            },
+            &world,
+        );
         if let Some(callback) = &mut emit
             && !callback(&frame)
         {
             return Err(SimulationError::Cancelled);
         }
         let finished = gone.iter().all(|&g| g) || step == scenario.max_steps;
-        if step % frame_stride == 0 || finished {
+        if step % frame_stride == 0 || finished || last_outcomes != (escaped, caught.len()) {
             frames.push(frame);
+            last_outcomes = (escaped, caught.len());
         }
         record_traffic(scenario, &people, &gone, &mut traffic);
         if finished {
             break;
         }
-        if changed || step % replan_stride == 0 {
-            for (i, person) in people.iter().enumerate().filter(|(i, _)| !gone[*i]) {
-                let forecast = if math::distance_to_point(person.position, stalker)
-                    <= scenario.awareness.sight_range_metres
-                    && geometry.has_line_of_sight(person.position, stalker)
-                {
-                    CrowdForecast::for_pursuit(&geometry, stalker, config.avoidance_radius)
+        for (i, person) in people.iter().enumerate().filter(|(i, _)| !gone[*i]) {
+            if changed || alerted[i] || step % replan_stride == 0 {
+                let forecast = if let Some(report) = awareness.known[i] {
+                    CrowdForecast::for_pursuit(&geometry, report.position, config.avoidance_radius)
                 } else {
                     CrowdForecast::for_geometry(&geometry)
                 };
@@ -188,6 +217,8 @@ pub(super) fn run(
                     scenario.agent_radius,
                 );
             }
+        }
+        if changed || step % replan_stride == 0 {
             // Try nearest living survivors in stable order. Unreachable targets
             // cannot make the stalker ignore a reachable survivor indefinitely.
             let mut targets: Vec<_> = people
@@ -228,6 +259,68 @@ pub(super) fn run(
             })
             .collect();
         let active: Vec<_> = gone.iter().map(|g| !g).collect();
+        // Reuse ordinary cooperative collision correction. Stopping both members
+        // of a converging exit queue forever leaves otherwise usable exits stalled.
+        let mut leaders = BTreeMap::<&str, (f64, usize)>::new();
+        for (i, route) in routes.iter().enumerate().filter(|(i, _)| !gone[*i]) {
+            if let Some(route) = route
+                && let Some(target) = route.waypoints.last()
+            {
+                let distance = math::distance_to_point(before[i], *target);
+                let entry = leaders.entry(&route.exit_id).or_insert((distance, i));
+                if distance < entry.0 {
+                    *entry = (distance, i);
+                }
+            }
+        }
+        let compliance: Vec<_> = routes
+            .iter()
+            .enumerate()
+            .map(|(i, route)| {
+                if gone[i]
+                    || route.is_none()
+                    || route
+                        .as_ref()
+                        .and_then(|r| leaders.get(r.exit_id.as_str()))
+                        .is_some_and(|(_, leader)| *leader == i)
+                {
+                    0.0
+                } else {
+                    1.0
+                }
+            })
+            .collect();
+        let limits: Vec<_> = before
+            .iter()
+            .map(|&position| {
+                let mut limits = geometry.velocity_limits(position, scenario.time_step_seconds);
+                limits.extend((0..16).map(|i| {
+                    let angle = std::f64::consts::TAU * i as f64 / 16.0;
+                    motion::VelocityLimit {
+                        normal: Point {
+                            x: angle.cos(),
+                            y: angle.sin(),
+                        },
+                        offset: -config.survivor_speed * (std::f64::consts::PI / 16.0).cos(),
+                    }
+                }));
+                limits
+            })
+            .collect();
+        motion::coordinate_moves(
+            &before,
+            &mut proposed,
+            &active,
+            &compliance,
+            scenario.agent_radius,
+            scenario.time_step_seconds,
+            &limits,
+        );
+        for i in 0..people.len() {
+            if !geometry.can_move(before[i], proposed[i]) {
+                proposed[i] = before[i];
+            }
+        }
         motion::resolve_collisions(&before, &mut proposed, &active, scenario.agent_radius);
         let hunter_before = stalker;
         stalker = advance(
@@ -256,11 +349,13 @@ pub(super) fn run(
                 caught.push(CaughtAgent {
                     agent_id: people[i].id,
                     step: step + 1,
+                    position: Some(proposed[i]),
                 });
                 gone[i] = true;
-            } else if routes[i]
-                .as_ref()
-                .is_some_and(|r| geometry.at_exit(proposed[i], &r.exit_id))
+            } else if scenario
+                .exits
+                .iter()
+                .any(|exit| geometry.at_exit(proposed[i], &exit.id))
             {
                 escaped += 1;
                 gone[i] = true;
@@ -315,6 +410,82 @@ mod tests {
             "obstructions":[],"blocked_exit_ids":[],"agent_radius":0.2,"time_step_seconds":0.1,"seed":42,"max_steps":100,
             "pursuit":{"stalker_start":{"x":2,"y":5},"stalker_speed":0.1,"survivor_speed":1.3,"capture_radius":0.45,"avoidance_radius":3}
         })).unwrap()
+    }
+    #[test]
+    fn nearby_survivors_clear_a_shared_exit_while_stalker_is_far_away() {
+        let mut b = room();
+        b.exits.retain(|e| e.id == "east-out");
+        b.exits[0].offset = 4.5;
+        b.exits[0].width = 1.0;
+        b.spawn_zones[0].x = 6.5;
+        b.spawn_zones[0].y = 3.5;
+        b.spawn_zones[0].width = 2.0;
+        b.spawn_zones[0].height = 3.0;
+        b.spawn_zones[0].count = 8;
+        b.max_steps = 250;
+        for seed in 0..5 {
+            b.seed = seed;
+            let result = super::super::simulate(&b).unwrap();
+            assert_eq!(
+                result.metrics.evacuated,
+                8,
+                "a collision-safe exit queue must drain, seed {seed}: {:?}",
+                result.frames.last().unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn a_genuine_warning_changes_an_unseeing_survivors_exit_choice() {
+        let b = room();
+        let geometry = Geometry::new(&b);
+        let navigation = Navigation::new(&b, &geometry);
+        let people = vec![
+            Agent::new(0, Point { x: 3.5, y: 5.0 }),
+            Agent::new(1, Point { x: 5.0, y: 5.0 }),
+        ];
+        assert_eq!(
+            navigation
+                .find_route(people[1].position, &geometry)
+                .unwrap()
+                .exit_id,
+            "west-out"
+        );
+        let mut awareness = PursuitAwareness::new(2);
+        let settings = crate::models::AgentAwareness {
+            sight_range_metres: 2.0,
+            communication_range_metres: 2.0,
+        };
+        let alerted = awareness.update(
+            0,
+            &people,
+            &[false, false],
+            Point { x: 2.0, y: 5.0 },
+            &settings,
+            &geometry,
+        );
+        assert!(alerted[1]);
+        assert_eq!(awareness.events[1].recipient_ids, vec![1]);
+        let forecast =
+            CrowdForecast::for_pursuit(&geometry, awareness.known[1].unwrap().position, 3.0);
+        assert_eq!(
+            navigation
+                .find_route_with_forecast(people[1].position, &geometry, &forecast, b.agent_radius)
+                .unwrap()
+                .exit_id,
+            "east-out"
+        );
+    }
+    #[test]
+    fn a_disabled_or_body_narrow_exit_never_counts_as_an_escape() {
+        let mut b = room();
+        b.exits.retain(|e| e.id == "east-out");
+        b.blocked_exit_ids.push("east-out".into());
+        b.max_steps = 80;
+        assert_eq!(super::super::simulate(&b).unwrap().metrics.evacuated, 0);
+        b.blocked_exit_ids.clear();
+        b.exits[0].width = 0.3;
+        assert_eq!(super::super::simulate(&b).unwrap().metrics.evacuated, 0);
     }
     #[test]
     fn visible_stalker_changes_exit_choice_without_becoming_an_invisible_wall() {

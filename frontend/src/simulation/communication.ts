@@ -2,16 +2,22 @@ import type {
   BuildingScenario,
   SimulationResult,
   CommunicationEvent,
+  PursuitEvent,
 } from "../types/simulation";
 
 /** The recording is chronological. Keep the activity panel small while seeking. */
 export function communicationsAtTime(
   result: SimulationResult | null,
   time: number,
+  pursuitEvents = result?.frames.at(-1)?.pursuit?.events,
+  timeStep = result?.time_step_seconds ?? 1,
 ) {
-  const events = result?.communication_events ?? [];
+  const openingEvents = result?.communication_events ?? [];
+  const events: (CommunicationEvent | PursuitEvent)[] = pursuitEvents
+    ? [...openingEvents, ...pursuitEvents].sort((a, b) => a.step - b.step)
+    : openingEvents;
   const step =
-    result && Number.isFinite(time) ? time / result.time_step_seconds : -1;
+    (result || pursuitEvents) && Number.isFinite(time) ? time / timeStep : -1;
   let low = 0,
     high = events.length;
   while (low < high) {
@@ -31,9 +37,19 @@ export function communicationTime(seconds: number) {
 }
 
 export function communicationMessage(
-  event: CommunicationEvent,
+  event: CommunicationEvent | PursuitEvent,
   building: BuildingScenario,
 ) {
+  if (event.event_type === "sighting")
+    return `Agent ${event.sender_id + 1} spotted the killer.`;
+  const numbers = event.recipient_ids.map((id) => String(id + 1));
+  const recipients =
+    numbers.length === 1
+      ? `Agent ${numbers[0]}`
+      : `Agents ${numbers.slice(0, -1).join(", ")} and ${numbers.at(-1)}`;
+  if (event.event_type === "warning")
+    return `Agent ${event.sender_id + 1} warned ${recipients} about the killer's last seen location.`;
+  if (!("opening_id" in event)) return "";
   const opening = [...building.doors, ...building.exits].find(
     (o) => o.id === event.opening_id,
   );
@@ -43,10 +59,5 @@ export function communicationMessage(
   const label = opening?.name ?? `${kind} ${event.opening_id}`;
   if (event.event_type === "discovery")
     return `Agent ${event.sender_id + 1} discovered that ${label} is ${event.blocked ? "blocked" : "open"}.`;
-  const numbers = event.recipient_ids.map((id) => String(id + 1));
-  const recipients =
-    numbers.length === 1
-      ? `Agent ${numbers[0]}`
-      : `Agents ${numbers.slice(0, -1).join(", ")} and ${numbers.at(-1)}`;
   return `Agent ${event.sender_id + 1} told ${recipients} that ${label} is ${event.blocked ? "blocked" : "open"}.`;
 }

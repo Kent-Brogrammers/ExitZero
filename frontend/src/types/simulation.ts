@@ -179,7 +179,16 @@ export interface PursuitFrame {
   /** Separate actor, excluded from survivor population and stable survivor IDs. */
   stalker: Point;
   escaped: number;
-  caught: { agent_id: number; step: number }[];
+  caught: { agent_id: number; step: number; position?: Point }[];
+  /** Cumulative real first sightings/warnings; absent in older recordings. */
+  events?: PursuitEvent[];
+}
+export interface PursuitEvent {
+  step: number;
+  event_type: "sighting" | "warning";
+  sender_id: number;
+  recipient_ids: number[];
+  position: Point;
 }
 
 export interface AgentStatistics {
