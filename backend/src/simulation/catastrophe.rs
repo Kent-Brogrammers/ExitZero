@@ -12,7 +12,8 @@ pub(super) fn state_blocks_opening(
     opening: &Opening,
     state: &crate::models::DisasterState,
 ) -> bool {
-    areas_block_opening(scenario, opening, &state.areas)
+    // Gas is dangerous to cross, but does not turn a doorway into solid wall.
+    state.kind != DisasterKind::GasLeak && areas_block_opening(scenario, opening, &state.areas)
 }
 
 pub(super) fn areas_block_opening(

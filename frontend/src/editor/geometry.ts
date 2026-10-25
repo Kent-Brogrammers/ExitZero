@@ -249,12 +249,8 @@ export function buildingError(
       zone.count * Math.PI * b.agent_radius ** 2 > zone.width * zone.height
     )
       return "Spawn zones need enough area and width for the configured occupant discs.";
-    if (
-      b.spawn_zones.slice(0, index).some((other) => overlaps(zone, other)) ||
-      b.obstructions.some((other) => overlaps(zone, other)) ||
-      b.walls.some((wall) => intersects(wall, zone))
-    )
-      return "Spawn zones cannot overlap walls, obstructions, or other spawn zones.";
+    if (b.spawn_zones.slice(0, index).some((other) => overlaps(zone, other)))
+      return "Spawn zones cannot overlap other spawn zones.";
     population += zone.count;
   }
   if (population > 10000) return "Total population must not exceed 10,000.";

@@ -1730,7 +1730,7 @@ fn a_thirty_person_two_exit_crowd_clears_without_repeated_route_reversals() {
 }
 
 #[test]
-fn fire_and_gas_close_affected_exits_and_exposure_is_gradual() {
+fn fire_closes_exits_gas_keeps_them_open_and_exposure_is_gradual() {
     use crate::models::{Disaster, DisasterKind};
     for kind in [DisasterKind::Fire, DisasterKind::GasLeak] {
         let mut scenario = two_exit_room();
@@ -1743,12 +1743,13 @@ fn fire_and_gas_close_affected_exits_and_exposure_is_gradual() {
         });
         let result = simulate(&scenario).unwrap();
         result.validate().unwrap();
-        assert!(
+        assert_eq!(
             result.frames[0]
                 .blocked_opening_ids
                 .as_ref()
                 .unwrap()
-                .contains(&"north_exit".into())
+                .contains(&"north_exit".into()),
+            kind == DisasterKind::Fire
         );
         assert!(
             !result.frames[0]
