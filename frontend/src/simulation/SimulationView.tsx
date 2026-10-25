@@ -1,3 +1,4 @@
+import { snapshotFrameIndex, type ReplayTarget } from "./replayTarget";
 import {
   useEffect,
   useMemo,
@@ -29,6 +30,7 @@ interface SimulationViewProps {
   building: BuildingScenario;
   result: SimulationResult | null;
   live?: LiveSimulation | null;
+  replayTarget?: ReplayTarget | null;
   active?: boolean;
   allowSyntheticPreview?: boolean;
   onOpenAnalytics?: () => void;
@@ -42,6 +44,7 @@ interface PlaybackProps extends SimulationViewProps {
 
 function Playback({
   building,
+  replayTarget,
   result,
   active = true,
   allowSyntheticPreview = true,
@@ -68,6 +71,15 @@ function Playback({
     player.getSnapshot,
   );
   const canvas = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    if (!replayTarget || replayTarget.source !== recording || !recording)
+      return;
+    const index = snapshotFrameIndex(recording, replayTarget.step);
+    if (index < 0) return;
+    player.pause();
+    player.seek(index);
+    canvas.current?.focus({ preventScroll: true });
+  }, [replayTarget, recording, player]);
   const frames = recording?.frames ?? [];
   const frame = frames[state.index] ?? null;
   const time = state.time;
@@ -457,6 +469,7 @@ function Playback({
 export function SimulationView({
   building,
   result,
+  replayTarget,
   live = null,
   active = true,
   allowSyntheticPreview = true,
@@ -474,7 +487,7 @@ export function SimulationView({
   // A newly returned API result takes precedence over a development preview.
   useEffect(() => {
     setPreview(false);
-  }, [result, running]);
+  }, [result, running, replayTarget]);
 
   return (
     <section
@@ -534,6 +547,7 @@ export function SimulationView({
       ) : (
         <Playback
           synthetic={preview}
+          replayTarget={replayTarget}
           allowSyntheticPreview={allowSyntheticPreview}
           analyticsOpen={analyticsOpen}
           onCloseAnalytics={closeAnalytics}

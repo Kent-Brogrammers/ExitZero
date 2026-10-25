@@ -1,3 +1,4 @@
+import type { ReplayTarget } from "./simulation/replayTarget";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import example from "../../shared/examples/building.json";
 import { withoutObjectNames } from "./editor/names";
@@ -81,6 +82,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [result, setResult] = useState<SimulationResult | null>(null);
+  const [replayTarget, setReplayTarget] = useState<ReplayTarget | null>(null);
   const [live, setLive] = useState<LiveSimulation | null>(null);
   const liveRequest = useRef<AbortController | null>(null);
   useEffect(() => () => liveRequest.current?.abort(), []);
@@ -464,6 +466,7 @@ export default function App() {
               onChange={changeBuilding}
               result={result}
               live={live}
+              replayTarget={replayTarget}
               allowSyntheticPreview={!officeDemo}
               disabled={busy}
               mode={view === "simulation" ? "simulation" : "edit"}
@@ -506,6 +509,20 @@ export default function App() {
             </div>
             <Suspense fallback={<p role="status">Loading analytics…</p>}>
               <AnalyticsDashboard
+                onViewInSimulation={(step) => {
+                  if (
+                    !result ||
+                    busy ||
+                    !result.frames.some((frame) => frame.step === step)
+                  )
+                    return;
+                  setReplayTarget((previous) => ({
+                    source: result,
+                    step,
+                    request: (previous?.request ?? 0) + 1,
+                  }));
+                  navigate("simulation");
+                }}
                 result={result}
                 stressResult={stressResult}
                 building={building}

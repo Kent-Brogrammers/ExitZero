@@ -1,0 +1,2 @@
+# Keep the recording byte hash stable across Windows and Unix checkouts.
+frontend/src/studio/office-demo/recording.json text eol=lf

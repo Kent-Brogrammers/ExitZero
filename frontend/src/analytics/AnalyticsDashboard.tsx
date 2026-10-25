@@ -15,6 +15,7 @@ import CrowdingRanking from "./CrowdingRanking";
 import { outcomeExplanation } from "./presentation";
 
 interface AnalyticsDashboardProps {
+  onViewInSimulation?: (step: number) => void;
   result: SimulationResult | null;
   stressResult: StressTestResult | null;
   building?: BuildingScenario;
@@ -24,6 +25,7 @@ interface AnalyticsDashboardProps {
 }
 
 export default function AnalyticsDashboard({
+  onViewInSimulation,
   result,
   stressResult,
   building,
@@ -105,7 +107,11 @@ export default function AnalyticsDashboard({
         )}
       </div>
       <TrafficHeatmap building={building} result={result} />
-      <CrowdingRanking building={building} result={result} />
+      <CrowdingRanking
+        building={building}
+        result={result}
+        onViewInSimulation={onViewInSimulation}
+      />
       <div className="panel comparison-panel">
         <h2>Vulnerability comparison</h2>
         <ScenarioComparison result={stressResult} />

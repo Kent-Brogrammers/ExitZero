@@ -1,3 +1,4 @@
+import type { ReplayTarget } from "../simulation/replayTarget";
 import { useEffect, useState } from "react";
 import type {
   BuildingScenario,
@@ -15,6 +16,7 @@ interface BuildingWorkspaceProps {
   onChange: (building: BuildingScenario) => void;
   result: SimulationResult | null;
   live?: LiveSimulation | null;
+  replayTarget?: ReplayTarget | null;
   disabled?: boolean;
   mode?: Mode;
   active?: boolean;
@@ -32,6 +34,7 @@ export function BuildingWorkspace({
   active = true,
   allowSyntheticPreview = true,
   onOpenAnalytics,
+  replayTarget,
 }: BuildingWorkspaceProps) {
   const [localMode, setMode] = useState<Mode>(() =>
     typeof window !== "undefined" && window.location.hash === "#simulation"
@@ -82,6 +85,7 @@ export function BuildingWorkspace({
           building={building}
           result={result}
           live={live}
+          replayTarget={replayTarget}
           allowSyntheticPreview={allowSyntheticPreview}
           active={active && mode === "simulation"}
           onOpenAnalytics={onOpenAnalytics}
