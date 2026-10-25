@@ -1,0 +1,57 @@
+.room-fill-dialog {
+  width: min(410px, calc(100vw - 32px));
+  max-height: calc(100dvh - 40px);
+  overflow: auto;
+  margin: auto;
+  padding: 22px;
+  color: var(--cad-text);
+  background: var(--cad-panel);
+  border: 1px solid var(--cad-border);
+  border-radius: 4px;
+  box-shadow: 0 24px 80px #0008;
+}
+.room-fill-dialog::backdrop {
+  background: #08090dbf;
+}
+.room-fill-dialog h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 500;
+}
+.room-fill-dialog p {
+  color: var(--cad-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.room-fill-dialog label {
+  display: grid;
+  gap: 7px;
+  margin-top: 18px;
+  font-size: 12px;
+}
+.room-fill-dialog input {
+  width: 100%;
+  min-height: 36px;
+  padding: 7px 10px;
+  color: var(--cad-text);
+  background: var(--cad-bg);
+  border: 1px solid var(--cad-border);
+  border-radius: 4px;
+}
+.room-fill-dialog .room-fill-error {
+  color: var(--cad-warning);
+}
+.room-fill-dialog .room-fill-replace {
+  color: var(--cad-text);
+}
+.room-fill-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 22px;
+}
+.room-fill-actions .room-fill-apply {
+  color: var(--studio-primary-text);
+  background: var(--studio-primary);
+  border-color: var(--studio-primary);
+}

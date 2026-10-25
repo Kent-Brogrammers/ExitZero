@@ -98,6 +98,8 @@ function intersects(wall: Wall, rectangle: Rectangle) {
   return true;
 }
 
+export { intersects as wallIntersectsRectangle, overlaps as rectanglesOverlap };
+
 /** Drafts may omit exits and occupants; simulation requests must be ready. */
 export function buildingError(
   value: unknown,
