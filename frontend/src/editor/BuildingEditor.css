@@ -167,6 +167,9 @@
   color: var(--cad-muted);
   pointer-events: none;
 }
+.editor-panel .editor-help.is-invalid {
+  color: var(--cad-warning);
+}
 .editor-panel .editor-canvas-wrap {
   position: absolute;
   inset: 0 88px 62px;

@@ -104,3 +104,37 @@ export function addObject(
     ],
   };
 }
+
+/** Spawn areas use the same drag bounds for preview and the saved rectangle. */
+export function addSpawnZone(
+  building: BuildingScenario,
+  start: Point,
+  end: Point,
+  square = false,
+  id = `spawn_${crypto.randomUUID()}`,
+): BuildingScenario {
+  const rectangle = dragRectangle(start, end, building, square);
+  const area = rectangle.width * rectangle.height;
+  const remaining =
+    10000 - building.spawn_zones.reduce((sum, zone) => sum + zone.count, 0);
+  const count = Math.max(
+    1,
+    Math.min(
+      remaining,
+      Math.floor(area / 1.5),
+      Math.floor(area / (Math.PI * building.agent_radius ** 2)),
+    ),
+  );
+  return {
+    ...building,
+    spawn_zones: [
+      ...building.spawn_zones,
+      {
+        id,
+        name: nextObjectName(building, "spawn_zones"),
+        ...rectangle,
+        count,
+      },
+    ],
+  };
+}

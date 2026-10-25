@@ -24,6 +24,7 @@ function canvasFixture(width: number, height = (width * 2) / 3) {
     fill: vi.fn(),
     setLineDash: vi.fn(),
     fillStyle: "",
+    globalAlpha: 1,
     strokeStyle: "",
     lineWidth: 0,
     lineCap: "",
@@ -173,43 +174,109 @@ describe("freeform Canvas drawing", () => {
   });
 });
 
-it("draws one width label and one blueprint swing after a door merge", () => {
-  const before = {
-    ...structuredClone(example),
-    walls: [
+it.each([false, true])(
+  "keeps a merged blueprint double door open with one label (selected=%s)",
+  (selected) => {
+    const before = {
+      ...structuredClone(example),
+      walls: [
+        {
+          id: "wall",
+          start: { x: 2, y: 2 },
+          end: { x: 20, y: 2 },
+          thickness: 0.2,
+        },
+      ],
+      doors: [{ id: "kept", wall_id: "wall", offset: 2, width: 1 }],
+      exits: [],
+      spawn_zones: [],
+      obstructions: [],
+      blocked_exit_ids: [],
+    };
+    const merged = mergeEditedDoors(before, {
+      ...before,
+      doors: [
+        ...before.doors,
+        { id: "new", wall_id: "wall", offset: 3, width: 1 },
+      ],
+    }).building;
+    const { context, element } = canvasFixture(600);
+    drawLayout(
+      element,
+      merged,
+      selected ? { kind: "doors", id: "kept" } : null,
+      undefined,
+      2,
       {
-        id: "wall",
-        start: { x: 2, y: 2 },
-        end: { x: 20, y: 2 },
-        thickness: 0.2,
+        ...canvasPalette(element),
+        blueprint: "1",
       },
-    ],
-    doors: [{ id: "kept", wall_id: "wall", offset: 2, width: 1 }],
-    exits: [],
-    spawn_zones: [],
-    obstructions: [],
-    blocked_exit_ids: [],
-  };
-  const merged = mergeEditedDoors(before, {
-    ...before,
-    doors: [
-      ...before.doors,
-      { id: "new", wall_id: "wall", offset: 3, width: 1 },
-    ],
-  }).building;
-  const { context, element } = canvasFixture(600);
-  drawLayout(element, merged, null, undefined, 2, {
-    ...canvasPalette(element),
-    blueprint: "1",
+    );
+    expect(context.arc).toHaveBeenCalledTimes(2);
+    expect(context.arc.mock.calls.map((args) => args[2])).toEqual([1, 1]);
+    expect(context.lineTo).not.toHaveBeenCalledWith(6, 2);
+    const labels = context.fillText.mock.calls.filter(([text]) =>
+      String(text).startsWith("Door"),
+    );
+    expect(labels).toHaveLength(1);
+    expect(labels[0]![0]).toBe("Door · 2.0 m");
+  },
+);
+
+it("can hide placement labels while retaining identical building geometry and footprints", () => {
+  const normal = canvasFixture(600),
+    hidden = canvasFixture(600);
+  const before = JSON.stringify(example);
+  drawLayout(normal.element, example, null, undefined, 1, undefined, {
+    showDimensions: false,
   });
-  expect(context.arc).toHaveBeenCalledTimes(1);
-  expect(context.arc.mock.calls[0]![2]).toBe(2);
-  const labels = context.fillText.mock.calls.filter(([text]) =>
-    String(text).startsWith("Door"),
+  drawLayout(hidden.element, example, null, undefined, 1, undefined, {
+    showLabels: false,
+    showDimensions: false,
+  });
+  expect(normal.context.fillText.mock.calls.length).toBeGreaterThan(0);
+  expect(hidden.context.fillText).not.toHaveBeenCalled();
+  expect(hidden.context.lineTo.mock.calls).toEqual(
+    normal.context.lineTo.mock.calls,
   );
-  expect(labels).toHaveLength(1);
-  expect(labels[0]![0]).toBe("Door · 2.0 m");
+  expect(hidden.context.fillRect.mock.calls).toEqual(
+    normal.context.fillRect.mock.calls,
+  );
+  expect(hidden.context.strokeRect.mock.calls).toEqual(
+    normal.context.strokeRect.mock.calls,
+  );
+  expect(JSON.stringify(example)).toBe(before);
 });
+
+it.each([false, true])(
+  "fills the live spawn rectangle using the saved square constraint (invalid=%s)",
+  (invalid) => {
+    const { context, element } = canvasFixture(600);
+    const b = {
+      ...example,
+      walls: [],
+      doors: [],
+      exits: [],
+      spawn_zones: [],
+      obstructions: [],
+    };
+    drawLayout(element, b, null, {
+      start: { x: 2, y: 3 },
+      end: { x: 6, y: 5 },
+      shape: "spawn",
+      constrain: true,
+      invalid,
+    });
+    expect(context.fillRect).toHaveBeenCalledWith(2, 3, 4, 4);
+    expect(context.strokeRect).toHaveBeenCalledWith(2, 3, 4, 4);
+    expect(context.strokeStyle).toBe(
+      invalid
+        ? canvasPalette(element).danger
+        : canvasPalette(element).selection,
+    );
+    expect(context.globalAlpha).toBe(1);
+  },
+);
 
 it("renders supplied freehand vertices and thickness identically at both pixel densities", () => {
   const points = [

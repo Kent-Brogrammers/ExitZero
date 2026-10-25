@@ -9,6 +9,7 @@ import {
 } from "./geometry";
 import {
   addObject,
+  addSpawnZone,
   addWallShape,
   CIRCLE_WALL_SEGMENTS,
   dragRectangle,
@@ -30,6 +31,120 @@ function ids() {
   let i = 0;
   return () => `new_${i++}`;
 }
+
+describe("drawn rectangular spawn areas", () => {
+  it.each([false, true])(
+    "uses the drag bounds and preserves names, counts and JSON (reverse=%s)",
+    (reverse) => {
+      const original = draft();
+      const [start, end] = reverse
+        ? [
+            { x: 10, y: 7 },
+            { x: 2, y: 3 },
+          ]
+        : [
+            { x: 2, y: 3 },
+            { x: 10, y: 7 },
+          ];
+      const next = addSpawnZone(original, start!, end!, false, "spawn-one");
+      expect(next.spawn_zones).toEqual([
+        {
+          id: "spawn-one",
+          name: "Spawn zone 1",
+          x: 2,
+          y: 3,
+          width: 8,
+          height: 4,
+          count: 21,
+        },
+      ]);
+      expect(buildingError(next, false)).toBeNull();
+      expect(JSON.parse(JSON.stringify(next))).toEqual(next);
+      expect(original.spawn_zones).toEqual([]);
+    },
+  );
+
+  it("saves the same square as the Shift preview, constrained inside workspace edges", () => {
+    const original = draft();
+    const next = addSpawnZone(
+      original,
+      { x: 28, y: 18 },
+      { x: 24, y: 17 },
+      true,
+      "square",
+    );
+    expect(next.spawn_zones[0]).toMatchObject({
+      x: 24,
+      y: 14,
+      width: 4,
+      height: 4,
+    });
+    expect(buildingError(next, false)).toBeNull();
+  });
+
+  it("caps the suggested population to the remaining shared limit and configured disc area", () => {
+    const original = {
+      ...draft(),
+      width: 1000,
+      height: 1000,
+      spawn_zones: [
+        { id: "existing", x: 1, y: 1, width: 200, height: 200, count: 9999 },
+      ],
+    };
+    const next = addSpawnZone(
+      original,
+      { x: 250, y: 250 },
+      { x: 270, y: 270 },
+      false,
+      "last",
+    );
+    expect(next.spawn_zones.at(-1)!.count).toBe(1);
+    expect(buildingError(next, false)).toBeNull();
+    const largeAgents = addSpawnZone(
+      { ...draft(), agent_radius: 1.5 },
+      { x: 2, y: 2 },
+      { x: 5, y: 5 },
+      false,
+      "large",
+    );
+    expect(largeAgents.spawn_zones[0]!.count).toBe(1);
+    expect(buildingError(largeAgents, false)).toBeNull();
+  });
+
+  it.each(["narrow", "wall", "obstruction", "spawn"])(
+    "reports an invalid %s footprint without modifying the original",
+    (kind) => {
+      const original = draft();
+      if (kind === "wall")
+        original.walls = [
+          {
+            id: "wall",
+            start: { x: 4, y: 1 },
+            end: { x: 4, y: 8 },
+            thickness: 0.2,
+          },
+        ];
+      if (kind === "obstruction")
+        original.obstructions = [
+          { id: "obstacle", x: 3, y: 3, width: 1, height: 1 },
+        ];
+      if (kind === "spawn")
+        original.spawn_zones = [
+          { id: "spawn", x: 3, y: 3, width: 1, height: 1, count: 1 },
+        ];
+      const before = structuredClone(original);
+      const next = addSpawnZone(
+        original,
+        { x: 2, y: 2 },
+        { x: kind === "narrow" ? 2.1 : 6, y: 6 },
+        false,
+        "new",
+      );
+      expect(buildingError(next, false)).not.toBeNull();
+      expect(original).toEqual(before);
+    },
+  );
+});
 
 describe("contract-compatible drawing shapes", () => {
   it.each([

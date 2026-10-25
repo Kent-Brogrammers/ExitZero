@@ -25,7 +25,7 @@ import { WindowProperties } from "./WindowProperties";
 import { objectName, nextObjectName, renameObject } from "./names";
 import { EditorUtilityRail } from "./EditorUtilityRail";
 import { EditorDrawingRail } from "./EditorDrawingRail";
-import { addObject, addWallShape, dragRectangle } from "./shapes";
+import { addObject, addWallShape, addSpawnZone, dragRectangle } from "./shapes";
 import { useStudioTheme } from "../styles/appearance";
 import { isWallTool, type EditorTool } from "./tools";
 import example from "../../../shared/examples/building.json";
@@ -69,6 +69,7 @@ type Gesture = {
   curve?: Point[];
   tracing?: boolean;
   overflow?: boolean;
+  spawnId?: string;
 };
 interface BuildingEditorProps {
   building: BuildingScenario;
@@ -456,6 +457,17 @@ export function BuildingEditor({
     ? (draftEdit?.building ?? building)
     : (openingPreview?.building ?? building);
   const freehand = gesture?.curve ? curveDraft(gesture) : null;
+  const spawnDraft =
+    tool === "spawn" && gesture && !gesture.selection
+      ? addSpawnZone(
+          gesture.base,
+          gesture.start,
+          gesture.current,
+          !!gesture.constrain,
+          gesture.spawnId,
+        )
+      : null;
+  const spawnProblem = spawnDraft ? buildingError(spawnDraft, false) : null;
   const displaySelection = gesture?.marquee
     ? combineSelection(
         gesture.initial ?? [],
@@ -514,11 +526,17 @@ export function BuildingEditor({
               shape: gesture.marquee ? "marquee" : tool,
               constrain: gesture.constrain,
               points: freehand?.points,
+              invalid: !!spawnProblem,
             }
           : undefined,
         window.devicePixelRatio,
         undefined,
-        { grid: drafting, furniture: furnitureSymbols },
+        {
+          grid: drafting,
+          furniture: furnitureSymbols,
+          showLabels: tool === "select" && !gesture,
+          showDimensions: tool === "select" && !gesture,
+        },
       );
     redraw();
     const observer = new ResizeObserver(redraw);
@@ -540,6 +558,7 @@ export function BuildingEditor({
     placement,
     openingPreview,
     furnitureSymbols,
+    spawnProblem,
   ]);
 
   function pointerDown(event: PointerEvent<HTMLCanvasElement>) {
@@ -641,6 +660,7 @@ export function BuildingEditor({
         current: start,
         base: building,
         constrain: event.shiftKey,
+        spawnId: tool === "spawn" ? `spawn_${crypto.randomUUID()}` : undefined,
       });
     }
   }
@@ -767,18 +787,15 @@ export function BuildingEditor({
       )
         selectElement({ kind: "stair_areas", id: area.id });
     } else if (tool === "spawn") {
-      const rectangle = dragRectangle(g.start, g.current, building);
-      const zone = {
-        id: `spawn_${crypto.randomUUID()}`,
-        name: nextObjectName(building, "spawn_zones"),
-        ...rectangle,
-        count: Math.min(
-          10000,
-          Math.max(1, Math.floor((rectangle.width * rectangle.height) / 1.5)),
-        ),
-      };
-      if (commit({ ...building, spawn_zones: [...building.spawn_zones, zone] }))
-        selectElement({ kind: "spawn_zones", id: zone.id });
+      const next = addSpawnZone(
+        building,
+        g.start,
+        g.current,
+        !!g.constrain,
+        g.spawnId,
+      );
+      const zone = next.spawn_zones.at(-1)!;
+      if (commit(next)) selectElement({ kind: "spawn_zones", id: zone.id });
     } else if (tool === "object-square" || tool === "object-rectangle") {
       const next = addObject(building, g.start, g.current, !!g.constrain);
       if (commit(next))
@@ -1029,7 +1046,7 @@ export function BuildingEditor({
                       : `Selected: ${objectName(building, selected!)}`}
               </p>
             )}
-            <p className="editor-help">
+            <p className={`editor-help${spawnProblem ? " is-invalid" : ""}`}>
               {furnitureKind(tool)
                 ? "Click to place or drag a footprint. Furniture blocks its full rectangle."
                 : tool === "select"
@@ -1053,7 +1070,10 @@ export function BuildingEditor({
                             : tool === "stairs"
                               ? "Drag a walkable stair-area marker. It does not connect floors or block occupants."
                               : tool === "spawn"
-                                ? "Drag a spawn area, then set its name and occupant count in Properties."
+                                ? (spawnProblem ??
+                                  (spawnDraft
+                                    ? `${spawnDraft.spawn_zones.at(-1)!.width.toFixed(2)} × ${spawnDraft.spawn_zones.at(-1)!.height.toFixed(2)} m · ${spawnDraft.spawn_zones.at(-1)!.count} occupants · Release to place`
+                                    : "Drag a rectangular spawn area · Shift for square · Set occupants in Properties"))
                                 : "Drag a rectangle · Shift for square · Edit dimensions in Properties"}
             </p>
             <div className="canvas-wrap editor-canvas-wrap">

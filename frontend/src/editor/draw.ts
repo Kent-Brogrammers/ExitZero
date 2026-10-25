@@ -7,6 +7,7 @@ import { canvasView, openingSegment, type Selection } from "./geometry";
 import { drawGrid } from "./drawGrid";
 import type { DraftingPreferences } from "./drafting";
 import { solidWallSegments, openingLabels } from "./openings";
+import { doorLeaves } from "./doorSymbols";
 import { drawFurniture, type FurnitureKind } from "./furniture";
 import { dragRectangle, wallShapePoints } from "./shapes";
 import { isWallTool, type EditorTool } from "./tools";
@@ -22,6 +23,7 @@ export function drawLayout(
     shape: EditorTool | "marquee";
     constrain?: boolean;
     points?: readonly Point[];
+    invalid?: boolean;
   },
   pixelRatio = 1,
   palette: CanvasPalette = canvasPalette(canvas),
@@ -30,6 +32,7 @@ export function drawLayout(
     furniture?: ReadonlyMap<string, FurnitureKind>;
     underlay?: (ctx: CanvasRenderingContext2D) => void;
     showDimensions?: boolean;
+    showLabels?: boolean;
     windowStates?: readonly WindowFrameState[];
   },
 ) {
@@ -146,16 +149,18 @@ export function drawLayout(
       ctx.stroke();
       continue;
     }
-    ctx.fillStyle = spawn ? palette.wall : palette.obstacleText;
-    ctx.font = `${12 * px}px system-ui`;
-    ctx.fillText(
-      spawn
-        ? `${rectangle.count} ${rectangle.count === 1 ? "occupant" : "occupants"}`
-        : "Obstruction",
-      rectangle.x + 6 * px,
-      rectangle.y + 17 * px,
-      Math.max(rectangle.width - 8 * px, px),
-    );
+    if (options?.showLabels !== false) {
+      ctx.fillStyle = spawn ? palette.wall : palette.obstacleText;
+      ctx.font = `${12 * px}px system-ui`;
+      ctx.fillText(
+        spawn
+          ? `${rectangle.count} ${rectangle.count === 1 ? "occupant" : "occupants"}`
+          : "Obstruction",
+        rectangle.x + 6 * px,
+        rectangle.y + 17 * px,
+        Math.max(rectangle.width - 8 * px, px),
+      );
+    }
   }
   ctx.lineCap = "round";
   for (const wall of building.walls) {
@@ -190,32 +195,54 @@ export function drawLayout(
       const wall = building.walls.find((v) => v.id === opening.wall_id);
       if (!wall) continue;
       const [a, b] = openingSegment(opening, wall);
-      ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
+      const blueprintDoor =
+        palette.blueprint === "1" && openings === building.doors;
       ctx.lineCap = "butt";
       ctx.lineWidth = selectedIds.has(opening.id) ? 5 * px : 3 * px;
-      ctx.strokeStyle = building.blocked_exit_ids.includes(opening.id)
-        ? palette.danger
-        : color;
-      ctx.stroke();
-      if (
-        palette.blueprint === "1" &&
-        building.doors.some((o) => o.id === opening.id)
-      ) {
-        const angle = Math.atan2(b.y - a.y, b.x - a.x),
-          normal = { x: -Math.sin(angle), y: Math.cos(angle) };
-        ctx.lineWidth = px;
+      ctx.strokeStyle =
+        blueprintDoor && selectedIds.has(opening.id)
+          ? palette.selection
+          : building.blocked_exit_ids.includes(opening.id)
+            ? palette.danger
+            : color;
+      if (!blueprintDoor) {
         ctx.beginPath();
         ctx.moveTo(a.x, a.y);
-        ctx.lineTo(
-          a.x + normal.x * opening.width,
-          a.y + normal.y * opening.width,
-        );
+        ctx.lineTo(b.x, b.y);
         ctx.stroke();
+      }
+      if (blueprintDoor) {
+        const angle = Math.atan2(b.y - a.y, b.x - a.x),
+          normal = { x: -Math.sin(angle), y: Math.cos(angle) };
+        ctx.lineWidth = selectedIds.has(opening.id) ? 2 * px : px;
         ctx.beginPath();
-        ctx.arc(a.x, a.y, opening.width, angle, angle + Math.PI / 2);
+        for (const jamb of [a, b]) {
+          ctx.moveTo(
+            jamb.x - (normal.x * wall.thickness) / 2,
+            jamb.y - (normal.y * wall.thickness) / 2,
+          );
+          ctx.lineTo(
+            jamb.x + (normal.x * wall.thickness) / 2,
+            jamb.y + (normal.y * wall.thickness) / 2,
+          );
+        }
         ctx.stroke();
+        for (const leaf of doorLeaves(opening, wall)) {
+          ctx.beginPath();
+          ctx.moveTo(leaf.hinge.x, leaf.hinge.y);
+          ctx.lineTo(leaf.tip.x, leaf.tip.y);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(
+            leaf.hinge.x,
+            leaf.hinge.y,
+            leaf.radius,
+            leaf.startAngle,
+            leaf.endAngle,
+            leaf.counterclockwise,
+          );
+          ctx.stroke();
+        }
       }
       ctx.lineCap = "round";
     }
@@ -291,12 +318,14 @@ export function drawLayout(
     }
   }
   ctx.font = `${11 * px}px system-ui`;
-  for (const label of openingLabels(
-    building,
-    px,
-    (text) => ctx.measureText?.(text).width ?? text.length * 6 * px,
-    options?.windowStates,
-  )) {
+  for (const label of options?.showLabels === false
+    ? []
+    : openingLabels(
+        building,
+        px,
+        (text) => ctx.measureText?.(text).width ?? text.length * 6 * px,
+        options?.windowStates,
+      )) {
     ctx.fillStyle = building.windows?.some((w) => w.id === label.id)
       ? palette.muted
       : building.blocked_exit_ids.includes(label.id)
@@ -320,13 +349,18 @@ export function drawLayout(
       }
   }
   if (draft) {
-    ctx.strokeStyle = palette.selection;
+    ctx.strokeStyle = draft.invalid ? palette.danger : palette.selection;
     ctx.lineWidth = 2 * px;
     ctx.setLineDash([6 * px, 4 * px]);
-    if (draft.shape === "marquee") {
-      const r = dragRectangle(draft.start, draft.end, building);
-      ctx.globalAlpha = 0.1;
-      ctx.fillStyle = palette.selection;
+    if (draft.shape === "marquee" || draft.shape === "spawn") {
+      const r = dragRectangle(
+        draft.start,
+        draft.end,
+        building,
+        draft.shape === "spawn" && !!draft.constrain,
+      );
+      ctx.globalAlpha = draft.shape === "spawn" ? 0.22 : 0.1;
+      ctx.fillStyle = draft.invalid ? palette.danger : palette.selection;
       ctx.fillRect(r.x, r.y, r.width, r.height);
       ctx.globalAlpha = 1;
       ctx.strokeRect(r.x, r.y, r.width, r.height);
