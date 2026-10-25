@@ -3,6 +3,7 @@ export interface ReplayTarget {
   source: SimulationResult;
   step: number;
   request: number;
+  play?: boolean;
 }
 /** Snapshot steps refer to recorded frames, not seconds or array positions. */
 export function snapshotFrameIndex(

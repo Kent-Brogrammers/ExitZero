@@ -1,3 +1,4 @@
+import { formatDimensions } from "../utils/units";
 import { furniturePresets, type FurnitureKind } from "./furniture";
 import { StudioPopover } from "../ui/StudioPopover";
 import { ToolIcon } from "./ToolIcon";
@@ -197,7 +198,7 @@ export function EditorDrawingRail({
                 choice(
                   `furniture-${kind as FurnitureKind}`,
                   preset.label,
-                  `${preset.width} × ${preset.height} m · blocks movement`,
+                  `${formatDimensions(preset.width, preset.height)} · blocks movement`,
                   kind,
                   close,
                 ),

@@ -1,0 +1,59 @@
+/* Temporary, inherited scope. Removing the scenario restores the prior tokens;
+   no persisted appearance preference or global root style is changed. */
+[data-halloween="true"] {
+  --cad-bg: #100e15;
+  --cad-panel: #1c1724;
+  --cad-surface: #17131e;
+  --cad-control: #251d2c;
+  --cad-hover: #352338;
+  --cad-accent: #f6a15f;
+  --cad-accent-hover: #ffbb82;
+  --cad-selected: #35243b;
+  --studio-primary: #bc662f;
+  --studio-primary-hover: #d17a3e;
+  --studio-primary-text: #fff8f1;
+}
+[data-halloween="true"] canvas,
+canvas[data-halloween="true"] {
+  --cad-bg: #101424;
+  --cad-surface: #142338;
+  --cad-accent: #f6b276;
+  --cad-wall: #d6d3e7;
+  --cad-grid: #253045;
+  --cad-grid-major: #3d3a58;
+}
+.template-card[data-halloween="true"] h3,
+.pursuit-controls > strong {
+  color: #f6b276;
+}
+.template-card[data-halloween="true"] {
+  border-color: #795341;
+}
+.pursuit-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.pursuit-controls p,
+.pursuit-report p {
+  color: var(--cad-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.pursuit-settings-fields {
+  display: grid;
+  gap: 12px;
+}
+.pursuit-report {
+  max-width: 680px;
+  padding: 24px 0;
+}
+.pursuit-legend {
+  font-size: 11px;
+  color: var(--cad-muted);
+}
+.pursuit-report .playback-readout {
+  margin-block: 24px;
+}

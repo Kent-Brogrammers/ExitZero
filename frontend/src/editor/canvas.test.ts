@@ -282,7 +282,7 @@ it.each([false, true])(
       String(text).startsWith("Door"),
     );
     expect(labels).toHaveLength(1);
-    expect(labels[0]![0]).toBe("Door · 2.0 m");
+    expect(labels[0]![0]).toBe("Door · 6.6 ft");
   },
 );
 

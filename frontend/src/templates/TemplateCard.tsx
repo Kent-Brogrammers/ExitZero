@@ -1,3 +1,4 @@
+import { formatDimensions } from "../utils/units";
 import type { ReactNode } from "react";
 import type { BuildingScenario } from "../types/simulation";
 import { buildingError } from "../editor/geometry";
@@ -23,12 +24,22 @@ export function TemplateCard({
 }) {
   const problem = buildingError(building);
   return (
-    <article className="template-card" aria-label={`${name} template`}>
+    <article
+      className="template-card"
+      data-halloween={building.pursuit ? "true" : undefined}
+      aria-label={`${name} template`}
+    >
       <TemplatePreview building={building} name={name} />
       <div className="template-card-content">
         <h3>{name}</h3>
+        {building.pursuit && (
+          <p className="templates-local-note">
+            Halloween track · A masked stalker, a suburban house, three ways
+            out. Edit the plan or run a real seeded pursuit.
+          </p>
+        )}
         <p className="template-metadata">
-          {building.width} × {building.height} m{" "}
+          {formatDimensions(building.width, building.height)}{" "}
           <span aria-hidden="true">·</span>{" "}
           {building.spawn_zones.reduce((count, zone) => count + zone.count, 0)}{" "}
           occupants

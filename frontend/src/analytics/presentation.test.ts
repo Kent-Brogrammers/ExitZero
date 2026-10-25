@@ -1,8 +1,32 @@
 import { describe, expect, it } from "vitest";
-import { outcomeExplanation, scenarioTitle } from "./presentation";
+import {
+  outcomeExplanation,
+  scenarioTitle,
+  clearanceChange,
+} from "./presentation";
 import { syntheticStressResult } from "./stressFixture";
 
 describe("result explanations", () => {
+  it("uses recorded stopping reasons without inferring deaths or proven entrapment", () => {
+    const incomplete = {
+      ...syntheticStressResult.baseline,
+      status: "incomplete" as const,
+      clearance_steps: null,
+    };
+    expect(outcomeExplanation(incomplete, "no_active_routes")).toContain(
+      "no remaining occupant had an active route",
+    );
+    expect(outcomeExplanation(incomplete, "no_active_routes")).toContain(
+      "does not prove",
+    );
+    expect(outcomeExplanation(incomplete, "movement_stagnation")).toContain(
+      "without movement or new information",
+    );
+    expect(clearanceChange(126, 210, 0.1)).toBe("+84 steps / 8.40 s (+66.7%)");
+    expect(clearanceChange(126, 120)).toBe("-6 steps (-4.8%)");
+    expect(clearanceChange(null, 120)).toContain("unavailable");
+    expect(clearanceChange(0, 10)).not.toContain("%");
+  });
   it("uses blocker metadata for short labels and preserves the full description separately", () => {
     const scenario = syntheticStressResult.scenarios[1]!;
     expect(

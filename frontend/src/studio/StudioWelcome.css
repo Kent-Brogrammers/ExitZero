@@ -9,9 +9,30 @@
 }
 .welcome-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
   padding: 26px 5%;
+}
+.welcome-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+.welcome-templates-action {
+  min-height: 44px;
+  padding: 12px 16px;
+  gap: 16px;
+  border-color: var(--studio-primary);
+  background: var(--cad-control);
+  color: var(--cad-text);
+  font-size: var(--text-control);
+  font-weight: 500;
+}
+.welcome-templates-action:hover:not(:disabled) {
+  border-color: var(--cad-shelter);
+  background: var(--cad-hover);
 }
 .welcome-edition {
   font-size: 11px;

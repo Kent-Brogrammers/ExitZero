@@ -35,6 +35,7 @@ struct Prediction {
 
 #[derive(Default)]
 pub(super) struct CrowdForecast {
+    pursuit_threat: Option<(Point, f64)>,
     people: Vec<Prediction>,
     disaster: Option<crate::models::Disaster>,
     hazard_areas: Vec<crate::models::HazardArea>,
@@ -94,6 +95,7 @@ impl CrowdMemory {
         }
         self.tracks.retain(|_, track| track.tick == tick);
         CrowdForecast {
+            pursuit_threat: None,
             people,
             disaster: geometry.disaster,
             hazard_areas: geometry.hazard_areas.clone(),
@@ -104,6 +106,7 @@ impl CrowdMemory {
 impl CrowdForecast {
     pub(super) fn for_geometry(geometry: &Geometry<'_>) -> Self {
         Self {
+            pursuit_threat: None,
             people: vec![],
             disaster: geometry.disaster,
             hazard_areas: geometry.hazard_areas.clone(),
@@ -112,6 +115,7 @@ impl CrowdForecast {
     #[cfg(test)]
     pub(super) fn stationary(positions: &[Point]) -> Self {
         Self {
+            pursuit_threat: None,
             disaster: None,
             hazard_areas: vec![],
             people: positions
@@ -123,6 +127,14 @@ impl CrowdForecast {
                     future: [Some(position); 3],
                 })
                 .collect(),
+        }
+    }
+
+    /// Halloween-only soft route penalty. It never changes physical collision.
+    pub(super) fn for_pursuit(geometry: &Geometry<'_>, stalker: Point, radius: f64) -> Self {
+        Self {
+            pursuit_threat: Some((stalker, radius)),
+            ..Self::for_geometry(geometry)
         }
     }
 
@@ -163,6 +175,9 @@ impl CrowdForecast {
                 .sum::<f64>()
         });
         danger_cost
+            + self.pursuit_threat.map_or(0.0, |(stalker, distance)| {
+                occupancy_cost(start, heading, length, stalker, distance / 4.0) * 40.0
+            })
             + self
                 .people
                 .iter()

@@ -1,3 +1,4 @@
+import { lengthInputValue, lengthFromInput } from "../utils/units";
 import type { BuildingScenario, WindowOpening } from "../types/simulation";
 import { configureWindowEscape, suggestedWindowExterior } from "./openings";
 
@@ -58,14 +59,15 @@ export function WindowProperties({
           </label>
           {(
             [
-              ["clear_width_metres", "Usable width (m)"],
-              ["clear_height_metres", "Usable height (m)"],
+              ["clear_width_metres", "Usable width (ft)"],
+              ["clear_height_metres", "Usable height (ft)"],
               ["preparation_seconds", "Preparation delay (s)"],
               ["traversal_seconds", "Traversal delay (s)"],
             ] as const
           ).map(([field, label]) => (
             <WindowNumber
               key={field}
+              distance={field.endsWith("_metres")}
               label={label}
               value={escape[field]}
               onCommit={(value) => update({ [field]: value })}
@@ -130,7 +132,8 @@ export function WindowProperties({
           </label>
           {context && (
             <WindowNumber
-              label="Required clear height (m)"
+              distance
+              label="Required clear height (ft)"
               value={context.required_clear_height_metres}
               onCommit={(value) =>
                 onChange({
@@ -159,6 +162,7 @@ export function WindowProperties({
 }
 
 function WindowNumber({
+  distance = false,
   label,
   value,
   onCommit,
@@ -166,7 +170,9 @@ function WindowNumber({
   label: string;
   value: number;
   onCommit: (n: number) => unknown;
+  distance?: boolean;
 }) {
+  const displayed = distance ? lengthInputValue(value) : value;
   return (
     <label className="number-field">
       {label}
@@ -174,12 +180,13 @@ function WindowNumber({
         key={value}
         aria-label={label}
         type="number"
-        step="0.1"
-        defaultValue={value}
+        step="any"
+        defaultValue={displayed}
         onBlur={(e) => {
-          const n = e.currentTarget.valueAsNumber;
-          if (Number.isFinite(n)) onCommit(n);
-          e.currentTarget.value = String(value);
+          const input = e.currentTarget.valueAsNumber;
+          const n = distance ? lengthFromInput(input, value) : input;
+          if (Number.isFinite(n) && n !== value) onCommit(n);
+          e.currentTarget.value = String(displayed);
         }}
         onKeyDown={(e) => {
           if (e.key === "Enter") e.currentTarget.blur();

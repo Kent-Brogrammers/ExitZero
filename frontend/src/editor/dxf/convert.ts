@@ -1,3 +1,4 @@
+import { formatLength } from "../../utils/units";
 import DxfParser from "dxf-parser";
 import type { Point, BuildingScenario, Wall } from "../../types/simulation";
 
@@ -284,7 +285,7 @@ export function buildDxf(
     options.maxGap > 5
   )
     throw new Error(
-      "Check scale, wall thickness (0–2 m), and maximum gap (0–5 m).",
+      `Check scale, wall thickness (0–${formatLength(2, 2)}), and maximum gap (0–${formatLength(5, 2)}).`,
     );
   if (
     options.crop &&
@@ -329,7 +330,7 @@ export function buildDxf(
     height = (maxY - minY) * options.scale + 2;
   if (width > 1000 || height > 1000)
     throw new Error(
-      "Imported extent exceeds 1000 m. Check units or crop to the floor plan.",
+      `Imported extent exceeds ${formatLength(1000)}. Check units or crop to the floor plan.`,
     );
   const world = (p: Point) => ({
     x: (p.x - minX) * options.scale + 1,
@@ -378,7 +379,7 @@ export function buildDxf(
         : stroke.thickness * options.scale;
     if (thickness <= 0 || thickness > 2)
       throw new Error(
-        "Detected wall thickness exceeds 2 m. Exclude non-wall layers or check units.",
+        `Detected wall thickness exceeds ${formatLength(2, 2)}. Exclude non-wall layers or check units.`,
       );
     const key = [a.x, a.y, b.x, b.y, thickness]
       .map((v) => v.toFixed(4))
@@ -468,7 +469,9 @@ export function buildDxf(
     warnings: [
       ...drawing.warnings,
       ...(discarded
-        ? [`${discarded} segments shorter than 0.1 m omitted.`]
+        ? [
+            `${discarded} segments shorter than ${formatLength(0.1, 2)} omitted.`,
+          ]
         : []),
       options.closedRectanglesAreWalls
         ? "Selected closed rectangles become wall centre lines; verify they are wall solids, not room outlines."

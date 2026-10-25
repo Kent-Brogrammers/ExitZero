@@ -64,6 +64,7 @@ pub(super) fn spawn_agents(
         for occupant in 0..zone.count {
             let mut accepted = None;
             for _ in 0..1000 {
+                super::control::checkpoint()?;
                 let position = Point {
                     x: min_x + random_unit(&mut random_state) * available_width,
                     y: min_y + random_unit(&mut random_state) * available_height,

@@ -100,7 +100,7 @@ describe("assisted DXF import", () => {
         { ...options, scale: 1, closedRectanglesAreWalls: true },
         example,
       ),
-    ).toThrow("thickness exceeds 2 m");
+    ).toThrow("thickness exceeds 6.56 ft");
     const { building } = buildDxf(
       parseDxf(rectangleDxf(4, 0.2)),
       {
@@ -200,7 +200,7 @@ describe("assisted DXF import", () => {
       buildDxf(drawing, { ...options, maxGap: 0 }, example).openings,
     ).toHaveLength(0);
     expect(() => buildDxf(drawing, { ...options, scale: 1 }, example)).toThrow(
-      "1000 m",
+      "3280.8 ft",
     );
     expect(() =>
       buildDxf(drawing, { ...options, scale: NaN }, example),

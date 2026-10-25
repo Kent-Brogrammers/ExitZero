@@ -1,3 +1,5 @@
+import { formatDimensions } from "../utils/units";
+import { drawStalker } from "./drawPursuit";
 import type { Point, WindowFrameState } from "../types/simulation";
 import { canvasView, openingSegment, type Selection } from "./geometry";
 import { drawGrid } from "./drawGrid";
@@ -34,8 +36,11 @@ export function drawLayout(
     underlay?: (ctx: CanvasRenderingContext2D) => void;
     showDimensions?: boolean;
     showLabels?: boolean;
+    showPursuitStart?: boolean;
     windowStates?: readonly WindowFrameState[];
     disasterState?: import("../types/simulation").DisasterState;
+    hazardMode?: "filled" | "outline" | "both";
+    showBlockedLabels?: boolean;
   },
 ) {
   const ctx = canvas.getContext("2d");
@@ -63,6 +68,22 @@ export function drawLayout(
       ctx.fillRect(zone.x, zone.y, zone.width, zone.height);
   }
   options?.underlay?.(ctx);
+  if (building.pursuit && options?.showPursuitStart !== false) {
+    drawStalker(
+      ctx,
+      building.pursuit.stalker_start,
+      Math.max(building.agent_radius, 10 * px),
+    );
+    if (options?.showLabels !== false) {
+      ctx.fillStyle = palette.wall;
+      ctx.font = `${11 * px}px system-ui`;
+      ctx.fillText(
+        "Stalker start",
+        building.pursuit.stalker_start.x + 14 * px,
+        building.pursuit.stalker_start.y,
+      );
+    }
+  }
   if (options?.grid)
     drawGrid(ctx, building, { scale, x, y }, ratio, options.grid, palette);
   if (building.disaster) {
@@ -84,12 +105,13 @@ export function drawLayout(
       ctx.lineWidth = 2 * px;
       ctx.beginPath();
       ctx.arc(area.center.x, area.center.y, exposure, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
+      if (options?.hazardMode !== "outline") ctx.fill();
+      if (options?.hazardMode !== "filled") ctx.stroke();
       ctx.fillStyle = color + "60";
       ctx.beginPath();
       ctx.arc(area.center.x, area.center.y, area.radius, 0, Math.PI * 2);
-      ctx.fill();
+      if (options?.hazardMode !== "outline") ctx.fill();
+      else ctx.stroke();
       if (index === 0) {
         ctx.fillStyle = palette.wall;
         ctx.font = `${12 * px}px system-ui`;
@@ -402,6 +424,12 @@ export function drawLayout(
         (text) => ctx.measureText?.(text).width ?? text.length * 6 * px,
         options?.windowStates,
       )) {
+    if (
+      options?.showBlockedLabels === false &&
+      openingStartsBlocked(building, label.id) &&
+      !selectedIds.has(label.id)
+    )
+      continue;
     ctx.fillStyle = building.windows?.some((w) => w.id === label.id)
       ? palette.muted
       : openingStartsBlocked(building, label.id) ||
@@ -499,6 +527,10 @@ export function drawLayout(
   if (options?.showDimensions !== false) {
     ctx.fillStyle = palette.muted;
     ctx.font = `${12 * px}px system-ui`;
-    ctx.fillText(`${building.width} × ${building.height} m`, 12 * px, 20 * px);
+    ctx.fillText(
+      formatDimensions(building.width, building.height),
+      12 * px,
+      20 * px,
+    );
   }
 }

@@ -1,3 +1,4 @@
+import { formatLength, formatDimensions } from "../utils/units";
 import { useEffect, useRef, useState } from "react";
 import type { BuildingScenario, SimulationResult } from "../types/simulation";
 import { drawLayout } from "../editor/draw";
@@ -46,12 +47,15 @@ export default function TrafficHeatmap({
     const redraw = () =>
       drawLayout(
         target,
-        building,
+        frameLayout(building, result.frames.at(-1) ?? null),
         null,
         undefined,
         window.devicePixelRatio || 1,
         canvasPalette(target),
         {
+          hazardMode: "filled",
+          showBlockedLabels: false,
+          disasterState: result.frames.at(-1)?.disaster_state,
           underlay: (ctx) => {
             if (!visible || data.max === 0) return;
             ctx.save();
@@ -113,15 +117,16 @@ export default function TrafficHeatmap({
                 value={smoothing}
                 onChange={(event) => setSmoothing(Number(event.target.value))}
                 aria-label="Traffic smoothing radius"
+                aria-valuetext={formatLength(smoothing, 2)}
               />{" "}
-              {smoothing.toFixed(2)} m
+              {formatLength(smoothing, 2)}
             </label>
           </div>
           <canvas
             ref={canvas}
             className="traffic-canvas"
             role="img"
-            aria-label={`Traffic from the standalone simulation on a ${result.width} by ${result.height} metre floor plan. Maximum ${traffic?.max ?? 0} visits per spatial bin.`}
+            aria-label={`Traffic from the standalone simulation on a ${formatDimensions(result.width, result.height)} floor plan. Maximum ${traffic?.max ?? 0} visits per spatial bin.`}
           />
           {traffic?.max ? (
             <div className="traffic-legend">
@@ -140,9 +145,10 @@ export default function TrafficHeatmap({
             <p>
               Computed visits, smoothed for display. Color may extend beyond
               recorded paths; it does not predict movement through walls. Source
-              counts are unchanged ({traffic?.size.toFixed(2)} m bins). Colors
-              are relative to this run, not density or measured congestion.
-              Scenario selection does not change this map.
+              counts are unchanged (
+              {traffic ? formatLength(traffic.size, 2) : "—"} bins). Colors are
+              relative to this run, not density or measured congestion. Scenario
+              selection does not change this map.
             </p>
           </details>
         </>
@@ -150,3 +156,4 @@ export default function TrafficHeatmap({
     </section>
   );
 }
+import { frameLayout } from "../simulation/frameLayout";

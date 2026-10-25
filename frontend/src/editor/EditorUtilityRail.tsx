@@ -3,8 +3,10 @@ import { StudioPopover } from "../ui/StudioPopover";
 import { DraftingControls } from "./DraftingControls";
 import type { DraftingPreferences } from "./drafting";
 import { ToolIcon } from "./ToolIcon";
+import type { LayoutSaveActions } from "../templates/layouts";
 
 interface EditorUtilityRailProps {
+  saveActions?: LayoutSaveActions;
   disabled: boolean;
   canUndo: boolean;
   canRedo: boolean;
@@ -67,6 +69,31 @@ export function EditorUtilityRail(props: EditorUtilityRailProps) {
       >
         {(close) => (
           <div className="file-actions">
+            {props.saveActions && (
+              <>
+                {(
+                  [
+                    ["Save", props.saveActions.save],
+                    ["Save As…", props.saveActions.saveAs],
+                    ["Save as Template…", props.saveActions.saveTemplate],
+                    ["Open Saved Layouts", props.saveActions.open],
+                  ] as const
+                ).map(([label, action]) => (
+                  <button
+                    key={label}
+                    type="button"
+                    className="studio-control"
+                    onClick={() => {
+                      close();
+                      action();
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+                <hr />
+              </>
+            )}
             {(
               [
                 ["New Layout", props.onNew],

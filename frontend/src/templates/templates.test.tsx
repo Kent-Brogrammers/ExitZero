@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { renderToStaticMarkup } from "react-dom/server";
+import { formatDimensions } from "../utils/units";
 import example from "../../../shared/examples/building.json";
 import { buildingError } from "../editor/geometry";
 import { setOpeningBlocked } from "../editor/openingState";
 import { buildingPresets } from "../editor/presets";
+import { emergencyPresets } from "../editor/emergencyPresets";
 import { TemplatesPage } from "./TemplatesPage";
 import {
   createTemplate,
@@ -147,22 +149,24 @@ describe("Templates presentation", () => {
   };
   it("lists actual preset previews, dimensions, populations and explicit office recording access", () => {
     const html = renderToStaticMarkup(<TemplatesPage {...props} />);
-    expect(html.match(/role="img"/g)).toHaveLength(buildingPresets.length);
+    expect(html.match(/role="img"/g)).toHaveLength(
+      buildingPresets.length + emergencyPresets.length,
+    );
     for (const preset of buildingPresets) {
       expect(html).toContain(`${preset.label} floor plan preview`);
       expect(html).toContain(
-        `${preset.building.width} × ${preset.building.height} m`,
+        formatDimensions(preset.building.width, preset.building.height),
       );
       expect(html).toContain(
         `${preset.building.spawn_zones.reduce((n, z) => n + z.count, 0)} occupants`,
       );
     }
     expect(html.match(/>Run Simulation<\/button>/g)).toHaveLength(
-      buildingPresets.length,
+      buildingPresets.length + emergencyPresets.length,
     );
     expect(html).toContain("View saved office recording");
     expect(html).toContain("My Templates");
-    expect(html).toContain("Save Current Layout");
+    expect(html).toContain("Save as Template");
   });
   it("renders local templates and disables simulation while offline without disabling Edit", () => {
     const storage = memoryStorage();
@@ -176,8 +180,25 @@ describe("Templates presentation", () => {
     expect(html).toContain("Delete");
     expect(html).toContain("Backend offline");
     expect(html.match(/>Edit<\/button>/g)).toHaveLength(
-      buildingPresets.length + 1,
+      buildingPresets.length + emergencyPresets.length + 1,
     );
+  });
+  it("adds four configured emergencies as ordinary editable blueprint cards, separate from saved recordings", () => {
+    const html = renderToStaticMarkup(<TemplatesPage {...props} />);
+    const section = html.match(
+      /<section aria-label="Emergency Scenarios">(.*?)<\/section>/s,
+    )![1]!;
+    expect(section.match(/role="img"/g)).toHaveLength(4);
+    expect(section.match(/>Edit<\/button>/g)).toHaveLength(4);
+    expect(section.match(/>Run Simulation<\/button>/g)).toHaveLength(4);
+    for (const preset of emergencyPresets) {
+      expect(section).toContain(`${preset.label} floor plan preview`);
+      expect(section).toContain(preset.description);
+    }
+    expect(section).toContain(
+      "Evolving hazards and physical escape challenges",
+    );
+    expect(section).not.toContain("View saved office recording");
   });
   it("reports unreadable storage and disables saving to avoid destroying it", () => {
     vi.stubGlobal("window", { localStorage: { getItem: () => "corrupt" } });

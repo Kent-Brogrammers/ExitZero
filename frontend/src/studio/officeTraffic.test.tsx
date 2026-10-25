@@ -108,11 +108,11 @@ describe("recorded office welcome traffic", () => {
     expect(html).toMatch(/aria-pressed="true"[^>]*>Floor Plan/);
     expect(html).toMatch(/disabled=""[^>]*>Traffic Heatmap/);
     expect(html).toContain("Loading recorded traffic");
-    expect(html.match(/36 × 24 m/g)).toHaveLength(1);
+    expect(html.match(/118.1 × 78.7 ft/g)).toHaveLength(1);
     const ordinary = renderToStaticMarkup(
       <WelcomePreview building={officeDemoBuilding} officeDemo={false} />,
     );
-    expect(ordinary).toContain("1 m grid");
+    expect(ordinary).toContain("3.3 ft grid");
     expect(ordinary).not.toContain("Traffic Heatmap");
   });
 });

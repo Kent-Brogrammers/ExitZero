@@ -271,6 +271,9 @@ impl Navigation {
         let mut connections: Vec<Vec<Connection>> = (0..points.len()).map(|_| Vec::new()).collect();
         for a in 0..points.len() {
             for b in a + 1..points.len() {
+                if super::control::cancelled() {
+                    break;
+                }
                 if geometry.can_move(points[a], points[b]) {
                     let distance = math::distance_to_point(points[a], points[b]);
                     connections[a].push(Connection { to: b, distance });
@@ -407,6 +410,9 @@ impl Navigation {
         };
         let mut best_cost = consider(from, 0.0, None);
         while let Some(SearchState { node, distance }) = queue.pop() {
+            if super::control::cancelled() {
+                return None;
+            }
             if distance > distances[node] {
                 continue;
             }

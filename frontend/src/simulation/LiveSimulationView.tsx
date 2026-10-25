@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { SimulationDetails } from "./SimulationDetails";
 import { AgentChat } from "./AgentChat";
 import { chatSummaryMessage } from "./communication";
+import { formatDimensions } from "../utils/units";
+import { PursuitMetrics } from "./PursuitMetrics";
 import type {
   AnimationFrame,
   BuildingScenario,
@@ -18,6 +20,10 @@ import { frameCrowding } from "../analytics/crowding";
 
 import { createFrameSampler } from "./interpolation";
 import { frameLayout } from "./frameLayout";
+import {
+  defaultDisplayOptions,
+  type SimulationDisplayOptions,
+} from "./displayOptions";
 
 export function LiveSimulationView({
   building,
@@ -28,6 +34,7 @@ export function LiveSimulationView({
   onChatOpenChange,
   onSpeedChange,
   onCancel,
+  displayOptions = defaultDisplayOptions,
 }: {
   building: BuildingScenario;
   live: LiveSimulation;
@@ -37,6 +44,7 @@ export function LiveSimulationView({
   onChatOpenChange: (open: boolean) => void;
   onSpeedChange?: (speed: LiveSpeedControl["speed"]) => void;
   onCancel?: () => void;
+  displayOptions?: SimulationDisplayOptions;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const theme = useStudioTheme();
@@ -63,26 +71,30 @@ export function LiveSimulationView({
   }>({ frame: null, sample: null, fromTime: 0, receivedAt: 0 });
 
   useEffect(() => {
-    const data = trafficBins(
-      (live.frame?.agents ?? []).map((agent) => ({
-        x: agent.x,
-        y: agent.y,
-        visits: 1,
-      })),
-      building.width,
-      building.height,
-    );
-    const field = trafficField(data, building.width, building.height, 0.6);
-    const layer = heatLayer.current ?? document.createElement("canvas");
-    layer.width = field.columns;
-    layer.height = field.rows;
-    const ctx = layer.getContext("2d");
-    if (ctx) {
-      const pixels = ctx.createImageData(field.columns, field.rows);
-      pixels.data.set(fieldPixels({ ...field, peak: Math.max(4, field.peak) }));
-      ctx.putImageData(pixels, 0, 0);
-    }
-    heatLayer.current = layer;
+    if (displayOptions.showTraffic) {
+      const data = trafficBins(
+        (live.frame?.agents ?? []).map((agent) => ({
+          x: agent.x,
+          y: agent.y,
+          visits: 1,
+        })),
+        building.width,
+        building.height,
+      );
+      const field = trafficField(data, building.width, building.height, 0.6);
+      const layer = heatLayer.current ?? document.createElement("canvas");
+      layer.width = field.columns;
+      layer.height = field.rows;
+      const ctx = layer.getContext("2d");
+      if (ctx) {
+        const pixels = ctx.createImageData(field.columns, field.rows);
+        pixels.data.set(
+          fieldPixels({ ...field, peak: Math.max(4, field.peak) }),
+        );
+        ctx.putImageData(pixels, 0, 0);
+      }
+      heatLayer.current = layer;
+    } else heatLayer.current = null;
     const previous = latest.current.frame;
     const frame = live.frame;
     latest.current = {
@@ -98,7 +110,7 @@ export function LiveSimulationView({
         (previous?.step ?? frame?.step ?? 0) * building.time_step_seconds,
       receivedAt: performance.now(),
     };
-  }, [building, live.frame]);
+  }, [building, live.frame, displayOptions.showTraffic]);
 
   useEffect(() => {
     if (!active || !canvas.current) return;
@@ -124,17 +136,21 @@ export function LiveSimulationView({
         {
           windowStates: frame?.window_states,
           disasterState: frame?.disaster_state,
-          underlay: (ctx) => {
-            const layer = heatLayer.current;
-            if (!layer) return;
-            ctx.save();
-            ctx.beginPath();
-            ctx.rect(0, 0, building.width, building.height);
-            ctx.clip();
-            ctx.imageSmoothingEnabled = true;
-            ctx.drawImage(layer, 0, 0, building.width, building.height);
-            ctx.restore();
-          },
+          showPursuitStart: false,
+          ...displayOptions,
+          underlay: displayOptions.showTraffic
+            ? (ctx) => {
+                const layer = heatLayer.current;
+                if (!layer) return;
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(0, 0, building.width, building.height);
+                ctx.clip();
+                ctx.imageSmoothingEnabled = true;
+                ctx.drawImage(layer, 0, 0, building.width, building.height);
+                ctx.restore();
+              }
+            : undefined,
         },
       );
       drawAgents(
@@ -149,7 +165,15 @@ export function LiveSimulationView({
     }
     animation = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(animation);
-  }, [active, building, theme, showAgentNumbers, speed, cancelled]);
+  }, [
+    active,
+    building,
+    theme,
+    showAgentNumbers,
+    speed,
+    cancelled,
+    displayOptions,
+  ]);
 
   const population = building.spawn_zones.reduce(
     (sum, zone) => sum + zone.count,
@@ -175,16 +199,16 @@ export function LiveSimulationView({
             }
           />
           <div className="canvas-caption">
-            <span>
-              {building.width} × {building.height} m
-            </span>
+            <span>{formatDimensions(building.width, building.height)}</span>
             <span>
               {cancelled
                 ? "Cancelled"
                 : frame
                   ? building.disaster
                     ? `Alarm: ${building.disaster.kind.replace("_", " ")} · live`
-                    : "Live · recording"
+                    : building.pursuit
+                      ? "Halloween — The Pursuit · live"
+                      : "Live · recording"
                   : "Preparing simulation…"}
             </span>
           </div>
@@ -226,36 +250,42 @@ export function LiveSimulationView({
                     : "—"}
                 </dd>
               </div>
-              <div>
-                <dt>Remaining</dt>
-                <dd>{frame?.agents.length ?? "—"}</dd>
-              </div>
-              <div>
-                <dt>
-                  {building.disaster?.kind === "tornado"
-                    ? "Sheltered"
-                    : "Evacuated"}
-                </dt>
-                <dd>
-                  {frame
-                    ? building.disaster?.kind === "tornado"
-                      ? (frame.sheltered ?? 0)
-                      : population -
-                        frame.agents.length -
-                        (frame.sheltered ?? 0)
-                    : "—"}
-                </dd>
-              </div>
-              <div>
-                <dt>Status</dt>
-                <dd role="status">
-                  {cancelled
-                    ? "Cancelled"
-                    : frame
-                      ? `Live · ${speed}×`
-                      : "Starting…"}
-                </dd>
-              </div>
+              {frame?.pursuit ? (
+                <PursuitMetrics frame={frame} />
+              ) : (
+                <>
+                  <div>
+                    <dt>Remaining</dt>
+                    <dd>{frame?.agents.length ?? "—"}</dd>
+                  </div>
+                  <div>
+                    <dt>
+                      {building.disaster?.kind === "tornado"
+                        ? "Sheltered"
+                        : "Evacuated"}
+                    </dt>
+                    <dd>
+                      {frame
+                        ? building.disaster?.kind === "tornado"
+                          ? (frame.sheltered ?? 0)
+                          : population -
+                            frame.agents.length -
+                            (frame.sheltered ?? 0)
+                        : "—"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Status</dt>
+                    <dd role="status">
+                      {cancelled
+                        ? "Cancelled"
+                        : frame
+                          ? `Live · ${speed}×`
+                          : "Starting…"}
+                    </dd>
+                  </div>
+                </>
+              )}
             </dl>
             {frame && (
               <SimulationDetails
@@ -267,6 +297,11 @@ export function LiveSimulationView({
                   aria-label="Live crowding"
                 >
                   <h4>Live crowding</h4>
+                  <p>
+                    Blocked openings:{" "}
+                    {frame.blocked_opening_ids?.join(", ") || "None recorded"}.
+                    Closure marks stay visible when labels are hidden.
+                  </p>
                   <p className="note">
                     Current busiest zone:{" "}
                     {Math.max(
@@ -277,7 +312,7 @@ export function LiveSimulationView({
                         building.height,
                       ).map((spot) => spot.count),
                     )}{" "}
-                    occupants in a 2 × 2 m zone.
+                    occupants in a {formatDimensions(2, 2)} zone.
                   </p>
                   <p className="note">
                     Colors show current positions, relative to this frame. They

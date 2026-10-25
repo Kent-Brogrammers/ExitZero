@@ -1,3 +1,4 @@
+import { formatLength } from "../utils/units";
 import { buildingError } from "../editor/geometry";
 import type {
   BuildingScenario,
@@ -39,7 +40,7 @@ export function openingChanges(
       const old = source[kind].find((item) => item.id === opening.id);
       return old && old.width !== opening.width
         ? [
-            `${kind === "doors" ? "Door" : "Exit"} ${old.name ?? old.id}: ${old.width} → ${opening.width} m`,
+            `${kind === "doors" ? "Door" : "Exit"} ${old.name ?? old.id}: ${formatLength(old.width)} → ${formatLength(opening.width)}`,
           ]
         : [];
     }),
