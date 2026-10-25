@@ -6,6 +6,7 @@ import example from "../../shared/examples/building.json";
 import { withoutObjectNames } from "./editor/names";
 import { buildingError } from "./editor/geometry";
 import { BuildingWorkspace } from "./editor/BuildingWorkspace";
+import type { BuildingEditorHandle } from "./editor/BuildingEditor";
 import { StudioPopover } from "./ui/StudioPopover";
 import { AppearanceSelector } from "./styles/StudioAppearance";
 import { StudioWelcome } from "./studio/StudioWelcome";
@@ -75,6 +76,7 @@ export default function App() {
     JSON.stringify(building),
   );
   const [layoutRevision, setLayoutRevision] = useState(0);
+  const editor = useRef<BuildingEditorHandle | null>(null);
   const [activeLayout, setActiveLayout] = useState<UserTemplate | null>(null);
   const [saveMode, setSaveMode] = useState<
     "save" | "saveAs" | "template" | null
@@ -209,7 +211,7 @@ export default function App() {
         optimization.result.baseline,
         candidate,
       );
-      setBuilding(next);
+      if (!editor.current?.applyBuilding(next)) return;
       setResult(null);
       setStressResult(null);
       setOptimization({ ...optimization, applied: candidate });
@@ -312,6 +314,7 @@ export default function App() {
         liveRequest.current = controller;
         setResult(null);
         setStressResult(null);
+        setReplayTarget(null);
         setLive({ frame: null });
         setMessage("Starting live simulation…");
         navigate("simulation");
@@ -325,10 +328,9 @@ export default function App() {
           },
           controller.signal,
         );
-        if (!controller.signal.aborted) {
-          setResult(recording);
-          setMessage("Recording ready.");
-        }
+        controller.signal.throwIfAborted();
+        setResult(recording);
+        setMessage("Recording ready.");
       } else if (action === "stress") {
         setStressResult(
           await api.stressTest({
@@ -354,7 +356,13 @@ export default function App() {
         setMessage(`${optimized.candidates.length} layout improvements found.`);
       }
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Request failed.");
+      setMessage(
+        liveRequest.current?.signal.aborted
+          ? "Simulation stopped. No recording was saved."
+          : error instanceof Error
+            ? error.message
+            : "Request failed.",
+      );
     } finally {
       setLive(null);
       liveRequest.current = null;
@@ -589,21 +597,31 @@ export default function App() {
                 </div>
               )}
             </StudioPopover>
-            {view !== "templates" && (
+            {live ? (
               <button
+                type="button"
                 className="run-action"
-                disabled={busy || connection !== "online" || !!layoutProblem}
-                title={
-                  layoutProblem ??
-                  (connection !== "online"
-                    ? "Backend unavailable. Open Settings to retry."
-                    : "Run this floor plan through the simulation engine.")
-                }
-                onClick={() => void run("simulate")}
+                onClick={() => liveRequest.current?.abort()}
               >
-                {busy ? "Working…" : "Run Simulation"}
-                <span aria-hidden="true">↗</span>
+                Stop Simulation
               </button>
+            ) : (
+              view !== "templates" && (
+                <button
+                  className="run-action"
+                  disabled={busy || connection !== "online" || !!layoutProblem}
+                  title={
+                    layoutProblem ??
+                    (connection !== "online"
+                      ? "Backend unavailable. Open Settings to retry."
+                      : "Run this floor plan through the simulation engine.")
+                  }
+                  onClick={() => void run("simulate")}
+                >
+                  {busy ? "Working…" : "Run Simulation"}
+                  <span aria-hidden="true">↗</span>
+                </button>
+              )
             )}
           </div>
         </header>
@@ -647,6 +665,7 @@ export default function App() {
           >
             <BuildingWorkspace
               key={layoutRevision}
+              editorRef={editor}
               building={building}
               onChange={changeBuilding}
               result={result}

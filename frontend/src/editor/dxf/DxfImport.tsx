@@ -107,6 +107,7 @@ export default function DxfImport({
     [scale, setScale] = useState(0.001),
     [thickness, setThickness] = useState(0.2),
     [maxGap, setMaxGap] = useState(3),
+    [closedRectanglesAreWalls, setClosedRectanglesAreWalls] = useState(false),
     [cropEnabled, setCropEnabled] = useState(false);
   const [crop, setCrop] = useState({ minX: 0, maxX: 1, minY: 0, maxY: 1 });
   const [choices, setChoices] = useState<{
@@ -123,6 +124,7 @@ export default function DxfImport({
     scale,
     thickness,
     maxGap,
+    closedRectanglesAreWalls,
     cropEnabled,
     crop,
   });
@@ -132,9 +134,18 @@ export default function DxfImport({
       scale,
       thickness,
       maxGap,
+      closedRectanglesAreWalls,
       ...(cropEnabled ? { crop } : {}),
     }),
-    [layers, scale, thickness, maxGap, cropEnabled, crop],
+    [
+      layers,
+      scale,
+      thickness,
+      maxGap,
+      closedRectanglesAreWalls,
+      cropEnabled,
+      crop,
+    ],
   );
   const conversion = useMemo(() => {
     if (!drawing) return null;
@@ -233,6 +244,7 @@ export default function DxfImport({
           maxY: Math.max(...points.map((p) => p.y)),
         });
         setCropEnabled(false);
+        setClosedRectanglesAreWalls(false);
         setChoices({ key: "", values: {} });
         setRemoved({ key: "", ids: [] });
       };
@@ -352,6 +364,20 @@ export default function DxfImport({
                   />
                 </label>
                 <p>Feet: 1 · Inches: 0.08333333 · Millimeters: 0.00328084</p>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={closedRectanglesAreWalls}
+                    onChange={(e) =>
+                      setClosedRectanglesAreWalls(e.target.checked)
+                    }
+                  />
+                  Closed rectangles are solid walls
+                </label>
+                <p>
+                  Leave off for room outlines. Enable only for filled wall
+                  footprints.
+                </p>
                 <label>
                   Line-wall thickness (ft)
                   <LengthInput

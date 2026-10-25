@@ -498,6 +498,170 @@ fn wide_exit_offers_distinct_body_clear_arrival_positions() {
 }
 
 #[test]
+fn partially_obstructed_exit_has_safe_intervals_at_any_wall_angle() {
+    for angle in [
+        0.0_f64,
+        std::f64::consts::FRAC_PI_4,
+        std::f64::consts::FRAC_PI_2,
+        std::f64::consts::PI,
+    ] {
+        let mut scenario = room();
+        scenario.walls.push(Wall {
+            id: "partition".into(),
+            name: None,
+            start: Point { x: 5.0, y: 0.0 },
+            end: Point { x: 5.0, y: 3.0 },
+            thickness: 0.2,
+        });
+        let transform = |p: Point| Point {
+            x: 15.0 + (p.x - 5.0) * angle.cos() - (p.y - 5.0) * angle.sin(),
+            y: 15.0 + (p.x - 5.0) * angle.sin() + (p.y - 5.0) * angle.cos(),
+        };
+        scenario.width = 30.0;
+        scenario.height = 30.0;
+        for wall in &mut scenario.walls {
+            wall.start = transform(wall.start);
+            wall.end = transform(wall.end);
+        }
+        let left = transform(Point { x: 3.5, y: 3.0 });
+        let right = transform(Point { x: 6.5, y: 3.0 });
+        scenario.spawn_zones = vec![
+            pinned_zone("left", left.x, left.y),
+            pinned_zone("right", right.x, right.y),
+        ];
+        let geometry = Geometry::new(&scenario);
+        assert!(!geometry.opening_is_blocked("north_exit"));
+        let intervals = geometry.exit_segments("north_exit");
+        assert_eq!(intervals.len(), 2);
+        assert!(!geometry.at_exit(transform(Point { x: 5.0, y: 0.0 }), "north_exit"));
+        let navigation = Navigation::new(&scenario, &geometry);
+        for (from, (a, b)) in [left, right].into_iter().zip(&intervals) {
+            let route = navigation.find_route(from, &geometry).unwrap();
+            let target = *route.waypoints.last().unwrap();
+            assert!(math::distance_to_segment(target, *a, *b) < 1e-8);
+            let mut previous = from;
+            for next in route.waypoints {
+                assert!(geometry.can_move(previous, next));
+                previous = next;
+            }
+        }
+        let result = simulate(&scenario).unwrap();
+        result.validate().unwrap();
+        assert_eq!(result.metrics.status, SimulationStatus::Completed);
+        assert_eq!(result.metrics.evacuated, 2);
+        assert!(
+            result
+                .frames
+                .iter()
+                .flat_map(|frame| &frame.agents)
+                .all(|agent| {
+                    geometry.can_stand_at(Point {
+                        x: agent.x,
+                        y: agent.y,
+                    })
+                })
+        );
+        assert_eq!(
+            serde_json::to_value(&result).unwrap(),
+            serde_json::to_value(simulate(&scenario).unwrap()).unwrap()
+        );
+    }
+}
+
+#[test]
+fn partial_exit_rejects_disabled_sealed_and_body_narrow_passages() {
+    for mode in ["disabled", "sealed", "narrow"] {
+        let mut scenario = room();
+        scenario.walls.push(Wall {
+            id: "partition".into(),
+            name: None,
+            start: Point { x: 5.0, y: 0.0 },
+            end: Point { x: 5.0, y: 3.0 },
+            thickness: 0.2,
+        });
+        match mode {
+            "disabled" => scenario.blocked_exit_ids.push("north_exit".into()),
+            "sealed" => {
+                let wall = scenario.walls.last_mut().unwrap();
+                wall.start = Point { x: 3.0, y: 0.0 };
+                wall.end = Point { x: 7.0, y: 0.0 };
+            }
+            _ => {
+                scenario.exits[0].offset = 4.4;
+                scenario.exits[0].width = 1.2;
+            }
+        }
+        let geometry = Geometry::new(&scenario);
+        assert!(geometry.exit_segments("north_exit").is_empty(), "{mode}");
+        let result = simulate(&scenario).unwrap();
+        result.validate().unwrap();
+        assert_eq!(result.metrics.evacuated, 0, "{mode}");
+        assert_eq!(result.metrics.remaining, 2);
+        assert_eq!(result.metrics.clearance_steps, None);
+    }
+}
+
+#[test]
+fn partial_exit_intervals_merge_blockers_and_respect_obstructions() {
+    let mut scenario = room();
+    for (id, x) in [("partition", 5.0), ("overlap", 5.3)] {
+        scenario.walls.push(Wall {
+            id: id.into(),
+            name: None,
+            start: Point { x, y: 0.0 },
+            end: Point { x, y: 2.0 },
+            thickness: 0.2,
+        });
+    }
+    scenario.obstructions.push(crate::models::Obstruction {
+        id: "blocked-left".into(),
+        name: None,
+        x: 3.0,
+        y: 0.0,
+        width: 1.5,
+        height: 1.0,
+    });
+    let geometry = Geometry::new(&scenario);
+    let intervals = geometry.exit_segments("north_exit");
+    assert_eq!(intervals.len(), 1);
+    let (start, end) = intervals[0];
+    assert!(start.x > 5.6 && end.x < 6.7);
+    for t in [0.0, 0.25, 0.5, 0.75, 1.0] {
+        assert!(geometry.can_stand_at(math::interpolate(start, end, t)));
+    }
+    let navigation = Navigation::new(&scenario, &geometry);
+    let from = Point { x: 1.0, y: 1.0 };
+    let route = navigation.find_route(from, &geometry).unwrap();
+    assert!(geometry.at_exit(*route.waypoints.last().unwrap(), "north_exit"));
+    let mut previous = from;
+    for next in route.waypoints {
+        assert!(geometry.can_move(previous, next));
+        previous = next;
+    }
+}
+
+#[test]
+fn partial_exit_intervals_include_exact_rounded_cap_clearance() {
+    let mut scenario = room();
+    scenario.walls.push(Wall {
+        id: "nearby-cap".into(),
+        name: None,
+        start: Point { x: 5.0, y: 0.2 },
+        end: Point { x: 5.0, y: 2.0 },
+        thickness: 0.2,
+    });
+    let geometry = Geometry::new(&scenario);
+    let intervals = geometry.exit_segments("north_exit");
+    assert_eq!(intervals.len(), 2);
+    let margin = ((scenario.agent_radius + 0.1 + 1e-6).powi(2) - 0.2_f64.powi(2)).sqrt();
+    assert!((intervals[0].1.x - (5.0 - margin)).abs() < 1e-8);
+    assert!((intervals[1].0.x - (5.0 + margin)).abs() < 1e-8);
+    for (a, b) in intervals {
+        assert!(geometry.can_move(a, b));
+    }
+}
+
+#[test]
 fn audited_two_occupant_wide_exit_evacuates_without_recovery_stall() {
     let scenario = room();
     let result = simulate(&scenario).unwrap();

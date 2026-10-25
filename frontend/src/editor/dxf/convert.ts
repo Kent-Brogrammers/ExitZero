@@ -11,6 +11,10 @@ export interface DxfStroke {
 }
 export interface DxfDrawing {
   strokes: DxfStroke[];
+  rectangles?: {
+    strokeIds: string[];
+    centerline: DxfStroke;
+  }[];
   units: number;
   warnings: string[];
 }
@@ -26,6 +30,7 @@ export interface ImportOptions {
   scale: number;
   thickness: number;
   maxGap: number;
+  closedRectanglesAreWalls?: boolean;
   crop?: { minX: number; maxX: number; minY: number; maxY: number };
 }
 const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -42,6 +47,7 @@ export function parseDxf(text: string): DxfDrawing {
       "Drawing exceeds 20,000 entities. Export just the floor plan.",
     );
   const strokes: DxfStroke[] = [],
+    rectangles: NonNullable<DxfDrawing["rectangles"]> = [],
     skipped = new Map<string, number>();
   const skip = (type: string) =>
     skipped.set(type, (skipped.get(type) ?? 0) + 1);
@@ -182,7 +188,8 @@ export function parseDxf(text: string): DxfDrawing {
     const points = e.vertices.map((v) => ({ x: v.x, y: v.y }));
     if (points.length > 2 && distance(points[0]!, points.at(-1)!) < 1e-8)
       points.pop();
-    // Narrow closed rectangles are wall solids: replace outlines with one centre line.
+    // Keep outlines until the reviewer explicitly identifies filled wall rectangles.
+    let centerline: Omit<DxfStroke, "id"> | undefined;
     if (e.shape && points.length === 4) {
       const [a, b, c, d] = points as [Point, Point, Point, Point];
       const lengths = [
@@ -205,15 +212,25 @@ export function parseDxf(text: string): DxfDrawing {
           x: (p.x + q.x) / 2,
           y: (p.y + q.y) / 2,
         });
-        if (lengths[0]! >= lengths[1]!)
-          add(e.layer, mid(a, d), mid(b, c), lengths[1]!);
-        else add(e.layer, mid(a, b), mid(c, d), lengths[0]!);
-        continue;
+        centerline = {
+          layer: e.layer,
+          start: lengths[0]! >= lengths[1]! ? mid(a, d) : mid(a, b),
+          end: lengths[0]! >= lengths[1]! ? mid(b, c) : mid(c, d),
+          thickness: Math.min(lengths[0]!, lengths[1]!),
+        };
       }
     }
+    const firstStroke = strokes.length;
     for (let i = 1; i < points.length; i++)
       add(e.layer, points[i - 1]!, points[i]!);
     if (e.shape && points.length > 2) add(e.layer, points.at(-1)!, points[0]!);
+    if (centerline) {
+      const strokeIds = strokes.slice(firstStroke).map((stroke) => stroke.id);
+      rectangles.push({
+        strokeIds,
+        centerline: { id: strokeIds[0]!, ...centerline },
+      });
+    }
   }
   if (!strokes.length)
     throw new Error(
@@ -221,6 +238,7 @@ export function parseDxf(text: string): DxfDrawing {
     );
   return {
     strokes,
+    rectangles,
     units: Number(doc.header?.["$INSUNITS"] ?? 0),
     warnings: [...skipped].map(
       ([type, count]) =>
@@ -327,8 +345,26 @@ export function buildDxf(
   };
   const groups: Group[] = [],
     seen = new Set<string>();
+  const selectedIds = new Set(selected.map((stroke) => stroke.id));
+  const replacements = new Map<string, DxfStroke>();
+  const replaced = new Set<string>();
+  if (options.closedRectanglesAreWalls) {
+    for (const rectangle of drawing.rectangles ?? []) {
+      if (!rectangle.strokeIds.every((id) => selectedIds.has(id))) continue;
+      replacements.set(rectangle.strokeIds[0]!, rectangle.centerline);
+      for (const id of rectangle.strokeIds) replaced.add(id);
+    }
+  }
+  const wallStrokes = selected.flatMap((stroke) => {
+    const replacement = replacements.get(stroke.id);
+    return replacement
+      ? [replacement]
+      : replaced.has(stroke.id)
+        ? []
+        : [stroke];
+  });
   let discarded = 0;
-  for (const stroke of selected) {
+  for (const stroke of wallStrokes) {
     let a = world(stroke.start),
       b = world(stroke.end);
     if (a.x > b.x || (a.x === b.x && a.y > b.y)) [a, b] = [b, a];
@@ -424,7 +460,9 @@ export function buildDxf(
     opening_events: [],
     obstructions: [],
     stair_areas: [],
+    tornado_zones: [],
   };
+  delete building.disaster;
   return {
     building,
     openings,
@@ -435,7 +473,10 @@ export function buildDxf(
             `${discarded} segments shorter than ${formatLength(0.1, 2)} omitted.`,
           ]
         : []),
-      "Wall rectangles become centre lines. Gaps up to the chosen limit are opening suggestions, not verified doors or exits.",
+      options.closedRectanglesAreWalls
+        ? "Selected closed rectangles become wall centre lines; verify they are wall solids, not room outlines."
+        : "Closed rectangles remain outlines. Enable solid-wall rectangles only for drawings that use filled wall footprints.",
+      "Gaps up to the chosen limit are opening suggestions, not verified doors or exits.",
     ],
   };
 }
