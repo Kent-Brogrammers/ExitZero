@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { WindowReadout } from "./WindowReadout";
 import type {
   AnimationFrame,
   BuildingScenario,
@@ -94,6 +95,7 @@ export function LiveSimulationView({
         window.devicePixelRatio || 1,
         palette,
         {
+          windowStates: frame?.window_states,
           underlay: (ctx) => {
             const layer = heatLayer.current;
             if (!layer) return;
@@ -187,6 +189,7 @@ export function LiveSimulationView({
               </div>
             </dl>
           </div>
+          <WindowReadout building={building} states={frame?.window_states} />
           <details className="live-crowding-details note">
             <summary>About live crowding</summary>
             <p>

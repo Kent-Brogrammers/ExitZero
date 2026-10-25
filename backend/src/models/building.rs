@@ -121,6 +121,14 @@ pub struct BuildingScenario {
     pub walls: Vec<Wall>,
     pub doors: Vec<Opening>,
     pub exits: Vec<Opening>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub windows: Vec<super::WindowOpening>,
+    #[serde(
+        default,
+        deserialize_with = "super::windows::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub window_escape_context: Option<super::WindowEscapeContext>,
     pub spawn_zones: Vec<SpawnZone>,
     pub blocked_exit_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "super::AgentAwareness::is_default")]
@@ -137,7 +145,7 @@ pub struct BuildingScenario {
 }
 
 // Missing names are permitted; a present name must be a string, not null.
-fn deserialize_name<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+pub(super) fn deserialize_name<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -229,6 +237,7 @@ impl BuildingScenario {
             || self.spawn_zones.len() > 100
             || self.obstructions.len() > 100
             || self.stair_areas.len() > 100
+            || self.windows.len() > 100
         {
             return Err("require 1–1000 exits and 1–100 spawn zones; limits are 500 walls, 1000 doors, 100 obstructions, and 100 stair areas".into());
         }
@@ -238,6 +247,7 @@ impl BuildingScenario {
             .map(|v| &v.name)
             .chain(self.doors.iter().map(|v| &v.name))
             .chain(self.exits.iter().map(|v| &v.name))
+            .chain(self.windows.iter().map(|v| &v.name))
             .chain(self.spawn_zones.iter().map(|v| &v.name))
             .chain(self.obstructions.iter().map(|v| &v.name))
             .chain(self.stair_areas.iter().map(|v| &v.name))
@@ -258,6 +268,7 @@ impl BuildingScenario {
             .map(|v| &v.id)
             .chain(self.doors.iter().map(|v| &v.id))
             .chain(self.exits.iter().map(|v| &v.id))
+            .chain(self.windows.iter().map(|v| &v.id))
             .chain(self.spawn_zones.iter().map(|v| &v.id))
             .chain(self.obstructions.iter().map(|v| &v.id))
             .chain(self.stair_areas.iter().map(|v| &v.id))
@@ -279,7 +290,18 @@ impl BuildingScenario {
         }
         let walls: HashMap<_, _> = self.walls.iter().map(|wall| (&wall.id, wall)).collect();
         let mut openings: HashMap<&str, Vec<(f64, f64)>> = HashMap::new();
-        for opening in self.doors.iter().chain(&self.exits) {
+        let window_openings: Vec<_> = self
+            .windows
+            .iter()
+            .map(|w| Opening {
+                id: w.id.clone(),
+                name: w.name.clone(),
+                wall_id: w.wall_id.clone(),
+                offset: w.offset,
+                width: w.width,
+            })
+            .collect();
+        for opening in self.doors.iter().chain(&self.exits).chain(&window_openings) {
             let Some(wall) = walls.get(&opening.wall_id) else {
                 return Err("openings must reference an existing wall".into());
             };
@@ -296,9 +318,36 @@ impl BuildingScenario {
                 .iter()
                 .any(|&(start, stop)| opening.offset < stop - 1e-8 && start < end - 1e-8)
             {
-                return Err("door and exit openings on the same wall must not overlap".into());
+                return Err(
+                    "door, exit and window openings on the same wall must not overlap".into(),
+                );
             }
             intervals.push((opening.offset, end));
+        }
+        if let Some(context) = &self.window_escape_context {
+            if !context.floor_elevation_metres.is_finite()
+                || !(0.0..=1000.0).contains(&context.floor_elevation_metres)
+                || !positive(context.required_clear_height_metres, 1000.0)
+            {
+                return Err("window escape context needs a finite nonnegative elevation and positive required height".into());
+            }
+        }
+        for window in &self.windows {
+            if let Some(escape) = &window.emergency_escape {
+                if !positive(escape.clear_width_metres, window.width)
+                    || !positive(escape.clear_height_metres, 1000.0)
+                    || !escape.preparation_seconds.is_finite()
+                    || !(0.0..=100000.0).contains(&escape.preparation_seconds)
+                    || !positive(escape.traversal_seconds, 100000.0)
+                    || (escape.preparation_seconds / self.time_step_seconds).ceil()
+                        > f64::from(u32::MAX - 100_000)
+                    || (escape.traversal_seconds / self.time_step_seconds).ceil()
+                        > f64::from(u32::MAX - 100_000)
+                    || ![-1, 1].contains(&escape.exterior_side)
+                {
+                    return Err("invalid window escape dimensions, timing or exterior side".into());
+                }
+            }
         }
         let exit_ids: HashSet<_> = self.exits.iter().map(|exit| &exit.id).collect();
         let blocked: HashSet<_> = self.blocked_exit_ids.iter().collect();

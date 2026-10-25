@@ -35,6 +35,24 @@ const drawing: DxfDrawing = {
 };
 const options = { layers: ["WALLS"], scale: 0.001, thickness: 0.2, maxGap: 3 };
 describe("assisted DXF import", () => {
+  it("replaces wall-attached windows with the imported geometry and preserves the original for Undo", () => {
+    const base = {
+      ...structuredClone(example),
+      windows: [
+        {
+          id: "old-window",
+          wall_id: example.walls[0]!.id,
+          offset: 1,
+          width: 1,
+        },
+      ],
+    };
+    const before = structuredClone(base);
+    const { building } = buildDxf(drawing, options, base);
+    expect(building.windows).toEqual([]);
+    expect(buildingError(building, false)).toBeNull();
+    expect(base).toEqual(before);
+  });
   it("converts millimetres, flips Y, excludes unrelated layers, and detects a one-metre opening", () => {
     const { building, openings } = buildDxf(drawing, options, example);
     expect(building.width).toBe(12);

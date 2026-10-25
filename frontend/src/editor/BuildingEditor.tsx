@@ -1,4 +1,3 @@
-import { blankManualLayout } from "./dxf/classify";
 import DxfImport from "./dxf/DxfImport";
 import {
   addFurniture,
@@ -22,6 +21,7 @@ import {
   useDraftingPreferences,
 } from "./drafting";
 import { ObjectNameField } from "./ObjectNameField";
+import { WindowProperties } from "./WindowProperties";
 import { objectName, nextObjectName, renameObject } from "./names";
 import { EditorUtilityRail } from "./EditorUtilityRail";
 import { EditorDrawingRail } from "./EditorDrawingRail";
@@ -117,6 +117,7 @@ export function BuildingEditor({
   const [drafting, setDrafting] = useDraftingPreferences();
   const canvas = useRef<HTMLCanvasElement>(null);
   const importInput = useRef<HTMLInputElement>(null);
+  const dxfDialog = useRef<HTMLDialogElement>(null);
   const propertiesButton = useRef<HTMLButtonElement>(null);
   const savedLayout = useRef(JSON.stringify(building));
   const [furnitureSymbols, setFurnitureSymbols] = useState(
@@ -327,7 +328,11 @@ export function BuildingEditor({
     }
     return { building: moveSelection(g.base, items, delta), snapped: false };
   }
-  function openingAt(point: Point, kind: "doors" | "exits", id: string) {
+  function openingAt(
+    point: Point,
+    kind: "doors" | "exits" | "windows",
+    id: string,
+  ) {
     const closest = building.walls
       .map((wall) => ({ wall, ...project(point, wall) }))
       .sort((a, b) => a.distance - b.distance)[0];
@@ -344,10 +349,13 @@ export function BuildingEditor({
       ),
       width,
     };
-    const candidate = { ...building, [kind]: [...building[kind], opening] };
+    const candidate = {
+      ...building,
+      [kind]: [...(building[kind] ?? []), opening],
+    };
     return {
       opening,
-      ...(drafting.snap
+      ...(drafting.snap && kind !== "windows"
         ? snapOpeningToNeighbor(
             candidate,
             kind,
@@ -402,10 +410,12 @@ export function BuildingEditor({
   }
   const movement = gesture?.selection ? moved(gesture) : null;
   const placement =
-    !gesture && (tool === "door" || tool === "exit") && cursor
+    !gesture &&
+    (tool === "door" || tool === "exit" || tool === "window") &&
+    cursor
       ? openingAt(
           cursor,
-          tool === "door" ? "doors" : "exits",
+          tool === "window" ? "windows" : tool === "door" ? "doors" : "exits",
           openingId.current,
         )
       : null;
@@ -455,7 +465,12 @@ export function BuildingEditor({
           : placement
             ? [
                 {
-                  kind: tool === "exit" ? "exits" : "doors",
+                  kind:
+                    tool === "window"
+                      ? "windows"
+                      : tool === "exit"
+                        ? "exits"
+                        : "doors",
                   id:
                     openingPreview?.replacements.get(placement.opening.id) ??
                     placement.opening.id,
@@ -530,8 +545,9 @@ export function BuildingEditor({
       }
       return;
     }
-    if (tool === "door" || tool === "exit") {
-      const kind = tool === "door" ? "doors" : "exits";
+    if (tool === "door" || tool === "exit" || tool === "window") {
+      const kind =
+        tool === "window" ? "windows" : tool === "door" ? "doors" : "exits";
       const candidate = openingAt(point, kind, openingId.current);
       if (!candidate) {
         setError("Click near a wall to place an opening.");
@@ -856,10 +872,8 @@ export function BuildingEditor({
       <DxfImport
         base={building}
         disabled={disabled}
+        dialogRef={dxfDialog}
         onApply={(next) => replaceLayout(next, "the reviewed DXF layout")}
-        onDrawOwn={() =>
-          replaceLayout(blankManualLayout(building), "a blank manual layout")
-        }
       />
       <fieldset className="editor-controls" disabled={disabled}>
         <div className="editor-workspace">
@@ -885,6 +899,7 @@ export function BuildingEditor({
                     walls: [],
                     doors: [],
                     exits: [],
+                    ...(building.windows ? { windows: [] } : {}),
                     spawn_zones: [],
                     blocked_exit_ids: [],
                     ...(building.opening_events ? { opening_events: [] } : {}),
@@ -901,6 +916,7 @@ export function BuildingEditor({
                 replaceLayout(structuredClone(preset.building), preset.label)
               }
               onImport={() => importInput.current?.click()}
+              onImportDxf={() => dxfDialog.current?.showModal()}
               onExport={exportLayout}
               onProperties={() => setPropertiesOpen(!propertiesOpen)}
               drafting={drafting}
@@ -948,8 +964,10 @@ export function BuildingEditor({
                         ? "Drag opposite corners · Shift for square · Creates four walls"
                         : tool === "wall-circle"
                           ? "Drag an ellipse · Shift for circle · Saves 32 connected wall segments"
-                          : tool === "door" || tool === "exit"
-                            ? `Click a wall to place ${tool === "exit" ? "an exit" : "a door"}. Adjust its width in Properties.`
+                          : tool === "door" ||
+                              tool === "exit" ||
+                              tool === "window"
+                            ? `Click a wall to place ${tool === "exit" ? "an exit" : tool === "window" ? "a window" : "a door"}. Adjust its width in Properties.`
                             : tool === "stairs"
                               ? "Drag a walkable stair-area marker. It does not connect floors or block occupants."
                               : tool === "spawn"
@@ -965,7 +983,7 @@ export function BuildingEditor({
                 tabIndex={0}
                 data-selected-count={displaySelection.length}
                 role="img"
-                aria-label={`Editable floor plan, ${building.width} by ${building.height} metres. ${building.walls.length} walls, ${building.doors.length} doors, ${building.exits.length} exits, ${building.spawn_zones.length} spawn zones, ${building.obstructions.length} obstructions. ${selections.length > 1 ? `${selections.length} selected objects. ` : selectedElement && selected ? `Selected: ${objectName(building, selected)}. ` : ""}Use layout tools to draw or the element inspector to edit.`}
+                aria-label={`Editable floor plan, ${building.width} by ${building.height} metres. ${building.walls.length} walls, ${building.doors.length} doors, ${building.exits.length} exits, ${building.windows?.length ?? 0} windows, ${building.spawn_zones.length} spawn zones, ${building.obstructions.length} obstructions. ${selections.length > 1 ? `${selections.length} selected objects. ` : selectedElement && selected ? `Selected: ${objectName(building, selected)}. ` : ""}Use layout tools to draw or the element inspector to edit.`}
                 style={{
                   aspectRatio: "3 / 2",
                   cursor:
@@ -1020,6 +1038,7 @@ export function BuildingEditor({
                 <span>
                   {building.walls.length} walls · {building.doors.length} doors
                   · {building.exits.length} exits ·{" "}
+                  {building.windows?.length ?? 0} windows ·{" "}
                   {building.spawn_zones.length} spawn zones
                 </span>
                 <span>
@@ -1071,6 +1090,7 @@ export function BuildingEditor({
                     "walls",
                     "doors",
                     "exits",
+                    "windows",
                     "spawn_zones",
                     "obstructions",
                     "stair_areas",
@@ -1215,7 +1235,7 @@ export function BuildingEditor({
                 )}
                 <p className="note">
                   {"wall_id" in selectedElement
-                    ? `On ${objectName(building, { kind: "walls", id: selectedElement.wall_id })}. Touching openings of the same kind merge. Exits merge only with matching blocked states; blocked exits stay solid.`
+                    ? `On ${objectName(building, { kind: "walls", id: selectedElement.wall_id })}. ${selected.kind === "windows" ? "Windows stay distinct and solid until serviced by the engine." : "Touching doors merge; exits merge only with matching blocked states. Blocked exits stay solid."}`
                     : "Dimensions in metres"}
                 </p>
                 {"start" in selectedElement ? (
@@ -1259,6 +1279,15 @@ export function BuildingEditor({
                         />
                       ))}
                   </>
+                )}
+                {selected.kind === "windows" && (
+                  <WindowProperties
+                    building={building}
+                    window={building.windows!.find(
+                      (w) => w.id === selected.id,
+                    )!}
+                    onChange={commit}
+                  />
                 )}
                 {selected.kind === "exits" && (
                   <label className="block-toggle">

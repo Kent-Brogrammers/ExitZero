@@ -18,10 +18,18 @@ pub struct SimulationMetrics {
     pub trapped: u32,
     pub remaining: u32,
     pub clearance_steps: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evacuated_by_route: Option<super::EvacuatedByRoute>,
 }
 
 impl SimulationMetrics {
     pub fn validate(&self) -> Result<(), String> {
+        if self.evacuated_by_route.as_ref().is_some_and(|counts| {
+            u64::from(counts.normal_exit) + u64::from(counts.emergency_window)
+                != u64::from(self.evacuated)
+        }) {
+            return Err("escape route counts must sum to evacuated".into());
+        }
         if self.clearance_steps.is_some_and(|steps| steps > 100_000) {
             return Err("clearance_steps must be at most 100000".into());
         }
@@ -83,6 +91,8 @@ pub struct AnimationFrame {
     /// Physical state at this frame; absent in legacy recordings.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blocked_opening_ids: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_states: Option<Vec<super::WindowFrameState>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -110,6 +120,8 @@ pub struct AgentStatistics {
     pub evacuation_seconds: Option<f64>,
     /// Successful exit ID, null for occupants that did not evacuate.
     pub exit_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub escape_route: Option<super::EscapeRoute>,
     /// False means the sampled navigation graph found no route, not proven trapped.
     pub route_found: bool,
 }
@@ -153,6 +165,20 @@ impl SimulationResult {
     pub fn validate(&self) -> Result<(), String> {
         self.metrics.validate()?;
         if let Some(analytics) = &self.analytics {
+            if let Some(counts) = &self.metrics.evacuated_by_route {
+                let window_count = analytics
+                    .agents
+                    .iter()
+                    .filter(|a| {
+                        a.escape_route
+                            .as_ref()
+                            .is_some_and(|r| r.kind == super::EscapeRouteKind::EmergencyWindow)
+                    })
+                    .count() as u32;
+                if window_count != counts.emergency_window {
+                    return Err("escape route totals disagree with per-agent outcomes".into());
+                }
+            }
             let nonnegative = |value: f64| value.is_finite() && value >= 0.0;
             let mut ids = std::collections::HashSet::new();
             if analytics.agents.len() != self.metrics.total_population as usize
@@ -182,7 +208,18 @@ impl SimulationResult {
                             !nonnegative(value) || (value - agent.elapsed_seconds).abs() > 1e-6
                         })
                         || did_evacuate != agent.evacuation_seconds.is_some()
-                        || did_evacuate != agent.exit_id.is_some()
+                        || did_evacuate != (agent.exit_id.is_some() || agent.escape_route.is_some())
+                        || agent.escape_route.as_ref().is_some_and(|route| {
+                            route.opening_id.trim().is_empty()
+                                || match route.kind {
+                                    super::EscapeRouteKind::NormalExit => {
+                                        agent.exit_id.as_ref() != Some(&route.opening_id)
+                                    }
+                                    super::EscapeRouteKind::EmergencyWindow => {
+                                        agent.exit_id.is_some()
+                                    }
+                                }
+                        })
                         || agent
                             .evacuation_step
                             .zip(agent.evacuation_seconds)
@@ -232,6 +269,36 @@ impl SimulationResult {
                     .any(|agent| !self.in_bounds(agent.x, agent.y) || !ids.insert(agent.id))
             {
                 return Err("frames must contain unique agents with finite positions within building bounds".into());
+            }
+            if let Some(states) = &frame.window_states {
+                let mut windows = std::collections::HashSet::new();
+                let mut participants = std::collections::HashSet::new();
+                if states.len() > 100
+                    || states.iter().any(|s| {
+                        !windows.insert(&s.window_id)
+                            || s.window_id.trim().is_empty()
+                            || s.window_id.chars().count() > 64
+                            || matches!(
+                                s.state,
+                                super::WindowState::Opening | super::WindowState::Breaking
+                            ) && s.preparation_ready_step.is_none()
+                            || s.state == super::WindowState::Intact
+                                && s.preparation_ready_step.is_some()
+                            || s.traversing_agent_id.is_some()
+                                != s.traversal_earliest_finish_step.is_some()
+                            || s.traversing_agent_id.is_some()
+                                && !matches!(
+                                    s.state,
+                                    super::WindowState::Open | super::WindowState::Broken
+                                )
+                            || s.queue_agent_ids
+                                .iter()
+                                .chain(s.traversing_agent_id.iter())
+                                .any(|id| !ids.contains(id) || !participants.insert(*id))
+                    })
+                {
+                    return Err("invalid window state or queue membership in frame".into());
+                }
             }
         }
         Ok(())

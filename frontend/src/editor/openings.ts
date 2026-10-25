@@ -1,4 +1,9 @@
-import type { BuildingScenario, Point, Wall } from "../types/simulation";
+import type {
+  BuildingScenario,
+  Point,
+  Wall,
+  WindowFrameState,
+} from "../types/simulation";
 import { openingSegment, wallLength, project, distance } from "./geometry";
 
 // Match Rust and the shared opening bounds/overlap tolerance, in metres.
@@ -8,10 +13,26 @@ const OPENING_EPSILON = 1e-8;
 export function solidWallSegments(
   building: BuildingScenario,
   wall: Wall,
+  windowStates: readonly WindowFrameState[] = [],
 ): [Point, Point][] {
   const openings = [
     ...building.doors,
     ...building.exits.filter((o) => !building.blocked_exit_ids.includes(o.id)),
+    ...(building.windows ?? [])
+      .filter((w) =>
+        windowStates.some(
+          (s) =>
+            s.window_id === w.id &&
+            (s.state === "open" || s.state === "broken"),
+        ),
+      )
+      .map((w) => ({
+        ...w,
+        offset:
+          w.offset +
+          (w.width - (w.emergency_escape?.clear_width_metres ?? w.width)) / 2,
+        width: w.emergency_escape?.clear_width_metres ?? w.width,
+      })),
   ]
     .filter((o) => o.wall_id === wall.id)
     .sort((a, b) => a.offset - b.offset);
@@ -47,18 +68,24 @@ export function openingLabels(
   building: BuildingScenario,
   px: number,
   measure: (text: string) => number,
+  windowStates: readonly WindowFrameState[] = [],
 ): OpeningLabel[] {
   const placed: OpeningLabel[] = [];
   for (const [kind, items] of [
     ["Door", building.doors],
     ["Exit", building.exits],
+    ["Window", building.windows ?? []],
   ] as const)
     for (const o of items) {
       const wall = building.walls.find((w) => w.id === o.wall_id);
       if (!wall) continue;
       const [a, b] = openingSegment(o, wall),
         anchor = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-      const text = `${building.blocked_exit_ids.includes(o.id) ? "Blocked exit" : kind} · ${o.width.toFixed(1)} m`;
+      const state =
+        kind === "Window"
+          ? windowStates.find((s) => s.window_id === o.id)?.state
+          : undefined;
+      const text = `${building.blocked_exit_ids.includes(o.id) ? "Blocked exit" : kind} · ${o.width.toFixed(1)} m${state ? ` · ${state}` : ""}`;
       const width = Math.min(measure(text), building.width),
         height = 13 * px;
       const x = Math.max(
@@ -92,10 +119,10 @@ export function hitOpening(
   building: BuildingScenario,
   point: Point,
   tolerance: number,
-): { kind: "doors" | "exits"; id: string } | null {
+): { kind: "doors" | "exits" | "windows"; id: string } | null {
   const candidates = [];
-  for (const kind of ["doors", "exits"] as const)
-    for (const opening of building[kind]) {
+  for (const kind of ["doors", "exits", "windows"] as const)
+    for (const opening of building[kind] ?? []) {
       const wall = building.walls.find((w) => w.id === opening.wall_id);
       if (!wall) continue;
       const [start, end] = openingSegment(opening, wall),

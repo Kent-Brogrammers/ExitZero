@@ -24,6 +24,7 @@ import { createPlayback, PLAYBACK_SPEEDS } from "./playback";
 import { syntheticBuilding, syntheticResult } from "./playback.fixture";
 import { SimulationSummary } from "./SimulationSummary";
 import { frameLayout } from "./frameLayout";
+import { WindowReadout } from "./WindowReadout";
 import "./SimulationView.css";
 
 interface SimulationViewProps {
@@ -159,6 +160,7 @@ function Playback({
         ratio,
         palette,
         {
+          windowStates: agents?.window_states,
           underlay: (ctx) => {
             ctx.save();
             ctx.beginPath();
@@ -429,6 +431,7 @@ function Playback({
               </div>
             </details>
           </div>
+          <WindowReadout building={building} states={frame?.window_states} />
           <div className="playback-help">
             {mismatch ? (
               <p className="playback-error" role="alert">

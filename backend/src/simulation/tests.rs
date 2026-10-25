@@ -42,6 +42,8 @@ fn room() -> BuildingScenario {
         opening_events: vec![],
         obstructions: vec![],
         stair_areas: vec![],
+        windows: vec![],
+        window_escape_context: None,
         agent_radius: 0.2,
         time_step_seconds: 0.1,
         seed: 42,
@@ -1217,12 +1219,13 @@ pub(super) fn assert_accepted_moves(
     before: &[Point],
     after: &[Point],
     active: &[bool],
+    windows: &super::windows::Windows<'_>,
 ) {
     for i in 0..before.len() {
         if !active[i] {
             continue;
         }
-        assert!(geometry.can_move(before[i], after[i]));
+        assert!(windows.geometry(i, geometry).can_move(before[i], after[i]));
         assert!(
             math::distance_to_point(before[i], after[i]) <= 1.3 * scenario.time_step_seconds + 1e-7
         );

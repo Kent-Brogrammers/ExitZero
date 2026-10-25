@@ -29,6 +29,7 @@ export function drawPlayback(
     undefined,
     pixelRatio,
     palette,
+    { windowStates: frame?.window_states },
   );
   drawAgents(canvas, building, frame, pixelRatio, palette);
 }
@@ -64,6 +65,29 @@ export function drawAgents(
   }
   context.fill();
   context.stroke();
+  // Queue membership is recorded by Rust, never inferred from proximity or missing IDs.
+  const waiting = new Set(
+    frame.window_states?.flatMap((s) => s.queue_agent_ids),
+  );
+  const traversing = new Set(
+    frame.window_states?.map((s) => s.traversing_agent_id),
+  );
+  for (const agent of frame.agents) {
+    if (!waiting.has(agent.id) && !traversing.has(agent.id)) continue;
+    const p = worldToCanvas(agent, view);
+    context.beginPath();
+    context.arc(
+      p.x,
+      p.y,
+      building.agent_radius * view.scale + 2 * ratio,
+      0,
+      Math.PI * 2,
+    );
+    context.strokeStyle = traversing.has(agent.id)
+      ? palette.exit
+      : palette.door;
+    context.stroke();
+  }
   context.restore();
 }
 
@@ -90,7 +114,10 @@ export function createPlaybackRenderer(
       drawPlayback(canvas, building, frame, nextRatio, palette);
       return;
     }
-    const nextOpeningState = JSON.stringify(frame?.blocked_opening_ids);
+    const nextOpeningState = JSON.stringify([
+      frame?.blocked_opening_ids,
+      frame?.window_states?.map((s) => [s.window_id, s.state]),
+    ]);
     if (
       width !== nextWidth ||
       height !== nextHeight ||
@@ -105,6 +132,7 @@ export function createPlaybackRenderer(
         undefined,
         nextRatio,
         palette,
+        { windowStates: frame?.window_states },
       );
       width = canvas.width;
       height = canvas.height;

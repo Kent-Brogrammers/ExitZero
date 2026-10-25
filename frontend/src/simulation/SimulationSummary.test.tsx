@@ -33,6 +33,15 @@ function summary(
 }
 
 describe("read-only playback summary", () => {
+  it("shows route totals only when explicitly supplied by the matching engine result", () => {
+    expect(
+      summary({
+        ...recording,
+        evacuated_by_route: { normal_exit: 1, emergency_window: 2 },
+      }),
+    ).toContain("Via emergency windows</dt><dd>2");
+    expect(summary(recording)).not.toContain("Via emergency windows");
+  });
   it("uses the recording's outcome without inferring population totals from frame agents", () => {
     const html = summary(recording);
     expect(html).toContain("Final recorded outcome");

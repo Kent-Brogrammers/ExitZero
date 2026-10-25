@@ -17,6 +17,7 @@ interface EditorUtilityRailProps {
   onExample: () => void;
   onPreset: (preset: BuildingPreset) => void;
   onImport: () => void;
+  onImportDxf: () => void;
   onExport: () => void;
   onProperties: () => void;
   drafting: DraftingPreferences;
@@ -73,6 +74,7 @@ export function EditorUtilityRail(props: EditorUtilityRailProps) {
                 ["New layout", props.onNew],
                 ["Load example", props.onExample],
                 ["Import JSON", props.onImport],
+                ["Import DXF floor plan…", props.onImportDxf],
                 ["Export JSON", props.onExport],
               ] as const
             ).map(([label, action]) => (

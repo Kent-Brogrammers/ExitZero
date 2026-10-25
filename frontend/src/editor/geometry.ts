@@ -15,6 +15,7 @@ export type Selection = {
     | "walls"
     | "doors"
     | "exits"
+    | "windows"
     | "spawn_zones"
     | "obstructions"
     | "stair_areas";
@@ -117,6 +118,7 @@ export function buildingError(
     ...b.walls,
     ...b.doors,
     ...b.exits,
+    ...(b.windows ?? []),
     ...b.spawn_zones,
     ...b.obstructions,
     ...(b.stair_areas ?? []),
@@ -130,12 +132,12 @@ export function buildingError(
     if (!inside(wall.start) || !inside(wall.end) || wallLength(wall) < 0.1)
       return "Walls need endpoints inside the workspace and length of at least 0.1 m.";
   }
-  const openings = [...b.doors, ...b.exits];
+  const openings = [...b.doors, ...b.exits, ...(b.windows ?? [])];
   for (let index = 0; index < openings.length; index++) {
     const o = openings[index]!;
     const wall = b.walls.find((w) => w.id === o.wall_id);
     if (!wall || o.offset + o.width > wallLength(wall) + 1e-8)
-      return "Every door or exit must fit along an existing wall.";
+      return "Every door, exit or window must fit along an existing wall.";
     if (
       openings
         .slice(0, index)
@@ -146,8 +148,26 @@ export function buildingError(
             other.offset < o.offset + o.width - 1e-8,
         )
     )
-      return "Doors and exits on the same wall must not overlap.";
+      return "Doors, exits and windows on the same wall must not overlap.";
   }
+  if (
+    b.windows?.some(
+      (w) =>
+        w.emergency_escape && w.emergency_escape.clear_width_metres > w.width,
+    )
+  )
+    return "A window's usable width must fit within its nominal width.";
+  if (
+    b.windows?.some(
+      (w) =>
+        w.emergency_escape &&
+        [
+          w.emergency_escape.preparation_seconds,
+          w.emergency_escape.traversal_seconds,
+        ].some((s) => Math.ceil(s / b.time_step_seconds) > 4294867295),
+    )
+  )
+    return "Window timing must fit within 32-bit simulation ticks.";
   if (b.blocked_exit_ids.some((id) => !b.exits.some((exit) => exit.id === id)))
     return "Blocked exit IDs must reference existing exits.";
   const events = b.opening_events ?? [];
@@ -156,7 +176,7 @@ export function buildingError(
     const key = JSON.stringify([event.step, event.opening_id]);
     if (
       event.step >= b.max_steps ||
-      !openings.some((o) => o.id === event.opening_id) ||
+      ![...b.doors, ...b.exits].some((o) => o.id === event.opening_id) ||
       (index > 0 && events[index - 1]!.step > event.step) ||
       seenEvents.has(key)
     )
@@ -213,6 +233,9 @@ export function removeElement(
     case "exits":
       next.exits = next.exits.filter((v) => v.id !== selection.id);
       break;
+    case "windows":
+      next.windows = (next.windows ?? []).filter((v) => v.id !== selection.id);
+      break;
     case "spawn_zones":
       next.spawn_zones = next.spawn_zones.filter((v) => v.id !== selection.id);
       break;
@@ -230,6 +253,8 @@ export function removeElement(
   if (selection.kind === "walls") {
     next.doors = next.doors.filter((o) => o.wall_id !== selection.id);
     next.exits = next.exits.filter((o) => o.wall_id !== selection.id);
+    if (next.windows)
+      next.windows = next.windows.filter((o) => o.wall_id !== selection.id);
   }
   next.blocked_exit_ids = next.blocked_exit_ids.filter((id) =>
     next.exits.some((o) => o.id === id),
@@ -261,7 +286,11 @@ export function translateElement(
     );
     wall.start = { x: wall.start.x + dx, y: wall.start.y + dy };
     wall.end = { x: wall.end.x + dx, y: wall.end.y + dy };
-  } else if (selection.kind === "doors" || selection.kind === "exits") {
+  } else if (
+    selection.kind === "doors" ||
+    selection.kind === "exits" ||
+    selection.kind === "windows"
+  ) {
     const opening = (next[selection.kind] ?? []).find(
       (v) => v.id === selection.id,
     )!;

@@ -227,7 +227,7 @@
   color: var(--cad-muted);
   margin: 9px 0;
 }
-.editor-panel .number-field input {
+.editor-panel .number-field :is(input, select) {
   width: 90px;
   min-width: 0;
   border: 1px solid var(--cad-border-strong);
@@ -482,4 +482,26 @@
 }
 .object-curves .shape-choice small {
   font-size: 9px;
+}
+
+.window-properties {
+  border: 0;
+  border-top: 1px solid var(--cad-border);
+  padding: 12px 0 0;
+  margin: 0;
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+.window-properties legend {
+  color: var(--cad-text);
+  font-size: var(--text-small);
+  padding: 8px 0;
+}
+.window-properties .block-toggle {
+  align-items: flex-start;
+  line-height: 1.5;
+}
+.editor-panel .window-properties :is(.number-field, .block-toggle) {
+  margin: 0;
 }

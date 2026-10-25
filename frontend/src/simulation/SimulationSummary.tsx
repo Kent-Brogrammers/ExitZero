@@ -85,6 +85,18 @@ export function SimulationSummary({
               <dt>Remaining</dt>
               <dd>{result.remaining}</dd>
             </div>
+            {result.evacuated_by_route && (
+              <>
+                <div>
+                  <dt>Via normal exits</dt>
+                  <dd>{result.evacuated_by_route.normal_exit}</dd>
+                </div>
+                <div>
+                  <dt>Via emergency windows</dt>
+                  <dd>{result.evacuated_by_route.emergency_window}</dd>
+                </div>
+              </>
+            )}
             <div>
               <dt>Trapped</dt>
               <dd>{result.trapped}</dd>

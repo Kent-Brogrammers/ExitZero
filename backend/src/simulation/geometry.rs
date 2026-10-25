@@ -15,6 +15,7 @@ pub(super) struct Geometry<'a> {
     blocked_openings: BTreeSet<String>,
     partial_knowledge: bool,
     observed_openings: BTreeSet<String>,
+    service_apertures: Vec<Opening>,
 }
 
 // Create geometry operations for a borrowed building scenario.
@@ -123,6 +124,7 @@ impl<'a> Geometry<'a> {
             blocked_openings,
             partial_knowledge,
             observed_openings,
+            service_apertures: Vec::new(),
         };
         // Match the rounded-wall clearance used by playback and integration
         // checks. Cache the pieces rather than rebuilding them for every move.
@@ -135,6 +137,38 @@ impl<'a> Geometry<'a> {
                     .solid_wall_segments(wall)
                     .into_iter()
                     .map(|(start, end)| (start, end, wall.thickness / 2.0, index))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        geometry
+    }
+
+    /// A clear window aperture is available only to its authorized traverser.
+    /// Normal navigation and everybody waiting still use intact-wall geometry.
+    pub(super) fn with_window_aperture(
+        scenario: &'a BuildingScenario,
+        emergencies: &'a [Emergency],
+        blocked: BTreeSet<String>,
+        window: &crate::models::WindowOpening,
+    ) -> Self {
+        let mut geometry = Self::with_blocked_openings(scenario, emergencies, blocked);
+        let escape = window.emergency_escape.as_ref().unwrap();
+        geometry.service_apertures.push(Opening {
+            id: window.id.clone(),
+            name: None,
+            wall_id: window.wall_id.clone(),
+            offset: window.offset + (window.width - escape.clear_width_metres) / 2.0,
+            width: escape.clear_width_metres,
+        });
+        geometry.solid_walls = scenario
+            .walls
+            .iter()
+            .enumerate()
+            .flat_map(|(index, wall)| {
+                geometry
+                    .solid_wall_segments(wall)
+                    .into_iter()
+                    .map(|(a, b)| (a, b, wall.thickness / 2.0, index))
                     .collect::<Vec<_>>()
             })
             .collect();
@@ -294,6 +328,7 @@ impl<'a> Geometry<'a> {
             blocked_openings: scenario.blocked_exit_ids.iter().cloned().collect(),
             partial_knowledge: false,
             observed_openings: BTreeSet::new(),
+            service_apertures: Vec::new(),
         };
         scenario.walls.iter().any(|wall| {
             wall.id != opening.wall_id
@@ -713,6 +748,7 @@ impl<'a> Geometry<'a> {
             .chain(self.scenario.exits.iter().filter(|exit| {
                 !self.opening_is_blocked(&exit.id) || visible == Some(exit.id.as_str())
             }))
+            .chain(&self.service_apertures)
             .filter(|opening| opening.wall_id == wall.id)
             .map(|opening| (opening.offset, opening.offset + opening.width))
             .collect();

@@ -1,5 +1,5 @@
 import { classifyOpenings } from "./classify";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { BuildingScenario } from "../../types/simulation";
 import { drawLayout } from "../draw";
 import { buildingError, canvasView, openingSegment } from "../geometry";
@@ -82,19 +82,17 @@ export default function DxfImport({
   base,
   disabled,
   onApply,
-  onDrawOwn,
+  dialogRef: dialog,
 }: {
   base: BuildingScenario;
   disabled?: boolean;
   onApply: (building: BuildingScenario) => boolean;
-  onDrawOwn: () => boolean;
+  dialogRef: RefObject<HTMLDialogElement | null>;
 }) {
-  const dialog = useRef<HTMLDialogElement>(null),
-    file = useRef<HTMLInputElement>(null),
+  const file = useRef<HTMLInputElement>(null),
     worker = useRef<Worker | null>(null),
     timer = useRef<ReturnType<typeof setTimeout> | null>(null),
     request = useRef(0);
-  const [imported, setImported] = useState(false);
   const [drawing, setDrawing] = useState<DxfDrawing | null>(null),
     [filename, setFilename] = useState(""),
     [error, setError] = useState(""),
@@ -260,39 +258,6 @@ export default function DxfImport({
   }
   return (
     <>
-      <div className="dxf-launch" role="group" aria-label="Floor plan source">
-        <button
-          type="button"
-          disabled={disabled}
-          aria-pressed={!imported}
-          onClick={() => {
-            if (imported && !onDrawOwn()) return;
-            setImported(false);
-            close();
-            setDrawing(null);
-            setFilename("");
-            setError("");
-            setLayers([]);
-            setChoices({ key: "", values: {} });
-            setRemoved({ key: "", ids: [] });
-            setCropEnabled(false);
-            setCrop({ minX: 0, maxX: 1, minY: 0, maxY: 1 });
-            setScale(0.001);
-            setThickness(0.2);
-            setMaxGap(3);
-          }}
-        >
-          Draw / edit your own
-        </button>
-        <button
-          type="button"
-          disabled={disabled}
-          aria-pressed={imported}
-          onClick={() => dialog.current?.showModal()}
-        >
-          Import DXF floor plan…
-        </button>
-      </div>
       <dialog
         ref={dialog}
         className="dxf-dialog"
@@ -571,7 +536,6 @@ export default function DxfImport({
                       const problem = buildingError(next, false);
                       if (problem) throw new Error(problem);
                       if (onApply(next)) {
-                        setImported(true);
                         close();
                       }
                     } catch (e) {

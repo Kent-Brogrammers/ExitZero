@@ -189,6 +189,64 @@ The analytics team can use these fields for distance/wait distributions and evac
 
 ## Ongoing ownership
 
+### Emergency windows (Issue #43)
+
+Use **Window** beside Door/Exit to place solid glazing on any wall angle. Select,
+move, rename, delete and edit width/offset with the existing Properties workflow.
+Creation and single selection keep Properties closed. Windows remain separate
+stable records even when touching; doors, exits and windows cannot overlap.
+JSON without windows remains compatible.
+
+The optional `windows[].emergency_escape` config explicitly specifies enabled,
+open/break preparation, clear width/height, preparation/traversal seconds, exterior
+side and exterior availability. `window_escape_context` must explicitly assert
+zero floor elevation, homogeneous traversal capability and a required clear
+height. The inspector's initial 5 s / 3 s timings and 1.2 m / 1 m height inputs
+are editable modeling examples, **not validated safety estimates**. Glazing is
+opaque; ordinary/disabled windows remain solid.
+
+For this conservative MVP, Rust considers fallback windows **only when every
+normal exit is physically blocked**. Failed sampled navigation is not proof that
+normal exits are unreachable. An isolated room with an unblocked exit elsewhere
+therefore does not yet activate fallback. In this fallback phase, the model uses
+global window locations and actual geometry; it does not model individual window
+discovery, hesitation, injuries, climbing ability differences or multiple floors.
+
+Exterior side is the sign of `(-dy/L, dx/L)` from the parent wall's start/end.
+The user must identify the exterior; workspace boundaries do not establish it.
+Both approach and landing discs must fit inside the drawing workspace, and Rust
+checks the entire crossing against walls, obstructions and hazards. Leave drawing
+space outside exterior walls. Usable width creates a centered aperture with jamb
+clearance; no intact wall can be bypassed.
+
+Agents queue by arrival at the holding lane, then stable ID for ties in a tick.
+Collision-checked staging positions extend inward along the wall normal, reserving
+the service lane for its FIFO head. Tight layouts without staging space can still
+stall or time out; the engine never moves occupants through barriers to clear a
+queue. Preparation runs once per window:
+intact → opening → open, or intact → breaking → broken. Preparation takes
+`ceil(preparation_seconds / time_step_seconds)` ticks (zero allowed). One agent
+traverses at a time, for at least `ceil(traversal_seconds / time_step_seconds)` ticks,
+also respecting the walking speed cap, whole-body movement checks and occupant
+collisions. Actual delays can therefore be longer. Service time is not counted
+as collision waiting. A reopened normal exit releases queued/approaching agents;
+an active crossing finishes rather than jumping back. Started preparation is
+shared and continues while the run is active.
+
+The prepared aperture is reserved for its authorized traverser. General walking
+and perception retain the opaque wall model at windows, including prepared ones;
+glass transparency and individual discovery are future modeling work. At least
+one normal exit remains required by building validation.
+
+`window_states` records physical phases, FIFO IDs and active traversal/deadlines
+in live and saved frames. Playback uses these states, never a frontend escape
+animation. Amber rings indicate queue members; green rings indicate a traverser.
+Per-agent `escape_route` and optional `evacuated_by_route` distinguish normal exits
+from windows; `exit_id` retains its normal-exit meaning. Legacy recordings have no
+invented route breakdown. Remaining/trapped accounting and severity order are
+preserved; eligible-but-unreached windows do not prove occupants trapped. Stress
+and optimization calls clone configuration and create fresh service state per run.
+
 | Developer   | First feature                                                   | Following feature                                     |
 | ----------- | --------------------------------------------------------------- | ----------------------------------------------------- |
 | Developer 1 | Freeform layout editing                                         | Real-frame playback controls                          |

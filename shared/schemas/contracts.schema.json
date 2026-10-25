@@ -159,6 +159,16 @@
           "items": {
             "$ref": "#/$defs/OpeningStateChange"
           }
+        },
+        "windows": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/WindowOpening"
+          }
+        },
+        "window_escape_context": {
+          "$ref": "#/$defs/WindowEscapeContext"
         }
       }
     },
@@ -201,6 +211,9 @@
           "type": ["integer", "null"],
           "minimum": 0,
           "maximum": 100000
+        },
+        "evacuated_by_route": {
+          "$ref": "#/$defs/EvacuatedByRoute"
         }
       },
       "allOf": [
@@ -292,6 +305,13 @@
             "maxLength": 64,
             "pattern": "\\S"
           }
+        },
+        "window_states": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/WindowFrameState"
+          }
         }
       }
     },
@@ -370,6 +390,9 @@
         },
         "analytics": {
           "$ref": "#/$defs/SimulationAnalytics"
+        },
+        "evacuated_by_route": {
+          "$ref": "#/$defs/EvacuatedByRoute"
         }
       },
       "allOf": [
@@ -813,6 +836,16 @@
         },
         "route_found": {
           "type": "boolean"
+        },
+        "escape_route": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/EscapeRoute"
+            }
+          ]
         }
       },
       "allOf": [
@@ -832,6 +865,9 @@
               },
               "exit_id": {
                 "type": "null"
+              },
+              "escape_route": {
+                "type": "null"
               }
             }
           },
@@ -840,13 +876,42 @@
               "evacuation_seconds": {
                 "type": "number"
               },
-              "exit_id": {
-                "type": "string"
-              },
               "route_found": {
                 "const": true
               }
-            }
+            },
+            "anyOf": [
+              {
+                "properties": {
+                  "exit_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "required": ["escape_route"],
+                "properties": {
+                  "exit_id": {
+                    "type": "null"
+                  },
+                  "escape_route": {
+                    "allOf": [
+                      {
+                        "$ref": "#/$defs/EscapeRoute"
+                      },
+                      {
+                        "properties": {
+                          "kind": {
+                            "const": "emergency_window"
+                          }
+                        },
+                        "type": "object"
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
           }
         }
       ]
@@ -1023,6 +1088,198 @@
         },
         "blocked": {
           "type": "boolean"
+        }
+      }
+    },
+    "WindowEscape": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "preparation",
+        "clear_width_metres",
+        "clear_height_metres",
+        "preparation_seconds",
+        "traversal_seconds",
+        "exterior_side",
+        "exterior_available"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "preparation": {
+          "enum": ["open", "break"]
+        },
+        "clear_width_metres": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1000
+        },
+        "clear_height_metres": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1000
+        },
+        "preparation_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100000
+        },
+        "traversal_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 100000
+        },
+        "exterior_side": {
+          "enum": [-1, 1]
+        },
+        "exterior_available": {
+          "type": "boolean"
+        }
+      }
+    },
+    "WindowOpening": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "wall_id", "offset", "width"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "\\S"
+        },
+        "wall_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "\\S"
+        },
+        "offset": {
+          "type": "number",
+          "maximum": 1000,
+          "minimum": 0
+        },
+        "width": {
+          "type": "number",
+          "maximum": 1000,
+          "exclusiveMinimum": 0
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "[^\\s\\u0085]",
+          "description": "Optional user-facing display name. Stable object references continue to use id; names do not affect simulation."
+        },
+        "emergency_escape": {
+          "$ref": "#/$defs/WindowEscape"
+        }
+      }
+    },
+    "WindowEscapeContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "floor_elevation_metres",
+        "all_agents_can_traverse",
+        "required_clear_height_metres"
+      ],
+      "properties": {
+        "floor_elevation_metres": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "all_agents_can_traverse": {
+          "type": "boolean"
+        },
+        "required_clear_height_metres": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1000
+        }
+      }
+    },
+    "WindowFrameState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "window_id",
+        "state",
+        "preparation_ready_step",
+        "queue_agent_ids",
+        "traversing_agent_id",
+        "traversal_earliest_finish_step"
+      ],
+      "properties": {
+        "window_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "\\S"
+        },
+        "state": {
+          "enum": ["intact", "opening", "breaking", "open", "broken"]
+        },
+        "preparation_ready_step": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "queue_agent_ids": {
+          "type": "array",
+          "maxItems": 10000,
+          "uniqueItems": true,
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          }
+        },
+        "traversing_agent_id": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "traversal_earliest_finish_step": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 4294967295
+        }
+      }
+    },
+    "EscapeRoute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "opening_id"],
+      "properties": {
+        "kind": {
+          "enum": ["normal_exit", "emergency_window"]
+        },
+        "opening_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "\\S"
+        }
+      }
+    },
+    "EvacuatedByRoute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["normal_exit", "emergency_window"],
+      "properties": {
+        "normal_exit": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "emergency_window": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
         }
       }
     }

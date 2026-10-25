@@ -20,6 +20,36 @@ export interface Opening {
   offset: number;
   width: number;
 }
+/** Solid glazing unless explicitly configured and serviced by the Rust engine. */
+export interface WindowOpening extends Opening {
+  emergency_escape?: {
+    enabled: boolean;
+    preparation: "open" | "break";
+    clear_width_metres: number;
+    clear_height_metres: number;
+    preparation_seconds: number;
+    traversal_seconds: number;
+    exterior_side: -1 | 1;
+    exterior_available: boolean;
+  };
+}
+export interface WindowEscapeContext {
+  floor_elevation_metres: number;
+  all_agents_can_traverse: boolean;
+  required_clear_height_metres: number;
+}
+export interface WindowFrameState {
+  window_id: string;
+  state: "intact" | "opening" | "breaking" | "open" | "broken";
+  preparation_ready_step: number | null;
+  queue_agent_ids: number[];
+  traversing_agent_id: number | null;
+  traversal_earliest_finish_step: number | null;
+}
+export interface EscapeRoute {
+  kind: "normal_exit" | "emergency_window";
+  opening_id: string;
+}
 export interface Obstruction {
   id: string;
   /** Display metadata only; references always use id. */
@@ -42,6 +72,8 @@ export interface BuildingScenario {
   walls: Wall[];
   doors: Opening[];
   exits: Opening[];
+  windows?: WindowOpening[];
+  window_escape_context?: WindowEscapeContext;
   spawn_zones: SpawnZone[];
   blocked_exit_ids: string[];
   /** Omitted settings use 8 m sight and 3 m communication ranges. Zero disables a range. */
@@ -76,6 +108,7 @@ export interface SimulationMetrics {
   trapped: number;
   remaining: number;
   clearance_steps: number | null;
+  evacuated_by_route?: { normal_exit: number; emergency_window: number };
 }
 
 export interface AgentPosition extends Point {
@@ -87,6 +120,7 @@ export interface AnimationFrame {
   agents: AgentPosition[];
   /** Physical state at this time; absent in older recordings. */
   blocked_opening_ids?: string[];
+  window_states?: WindowFrameState[];
 }
 
 export interface AgentStatistics {
@@ -103,6 +137,7 @@ export interface AgentStatistics {
   evacuation_seconds: number | null;
   /** Successful exit; null if this occupant did not evacuate. */
   exit_id: string | null;
+  escape_route?: EscapeRoute | null;
   /** Latest route search using personal opening knowledge; false does not prove entrapment. */
   route_found: boolean;
 }
