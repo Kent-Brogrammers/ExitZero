@@ -211,7 +211,6 @@ export function EditorDrawingRail({
           </>
         )}
       </StudioPopover>
-      {button("stairs", "Stairs", "stairs")}
       {button("tornado-zone", "Tornado zone", "shelter")}
     </div>
   );
