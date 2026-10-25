@@ -42,3 +42,29 @@ it("shows actual window queue state and clearly marks missing state instead of i
   expect(html).toContain("East window");
   expect(html).toContain("broken");
 });
+
+it("shows authoritative rejection reasons and distinguishes people approaching from those waiting", () => {
+  const html = renderToStaticMarkup(
+    <WindowReadout
+      building={syntheticBuilding}
+      states={[
+        {
+          window_id: "pane",
+          state: "intact",
+          preparation_ready_step: null,
+          queue_agent_ids: [],
+          traversing_agent_id: null,
+          traversal_earliest_finish_step: null,
+          approaching_agent_ids: [1, 2],
+          unavailable_reason:
+            "No route to the configured indoor approach. Check the exterior direction.",
+        },
+      ]}
+    />,
+  );
+  expect(html).toContain("2 approaching");
+  expect(html).toContain("0 waiting");
+  expect(html).toContain("1 unavailable");
+  expect(html).toContain("Check the exterior direction");
+  expect(html).toContain('open=""');
+});

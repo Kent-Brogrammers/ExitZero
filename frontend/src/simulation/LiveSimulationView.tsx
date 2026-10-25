@@ -20,10 +20,12 @@ export function LiveSimulationView({
   building,
   live,
   active,
+  showAgentNumbers = false,
 }: {
   building: BuildingScenario;
   live: LiveSimulation;
   active: boolean;
+  showAgentNumbers?: boolean;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const theme = useStudioTheme();
@@ -95,11 +97,8 @@ export function LiveSimulationView({
         window.devicePixelRatio || 1,
         palette,
         {
-<<<<<<< HEAD
           windowStates: frame?.window_states,
-=======
           disasterState: frame?.disaster_state,
->>>>>>> connor/catastrophes
           underlay: (ctx) => {
             const layer = heatLayer.current;
             if (!layer) return;
@@ -119,12 +118,13 @@ export function LiveSimulationView({
         frame,
         window.devicePixelRatio || 1,
         palette,
+        showAgentNumbers,
       );
       animation = requestAnimationFrame(tick);
     }
     animation = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(animation);
-  }, [active, building, theme]);
+  }, [active, building, theme, showAgentNumbers]);
 
   const population = building.spawn_zones.reduce(
     (sum, zone) => sum + zone.count,

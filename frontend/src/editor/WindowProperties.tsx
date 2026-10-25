@@ -1,4 +1,5 @@
 import type { BuildingScenario, WindowOpening } from "../types/simulation";
+import { suggestedWindowExterior } from "./openings";
 
 /** Explicit scenario assumptions; changing these never renames or replaces an opening. */
 export function WindowProperties({
@@ -11,6 +12,18 @@ export function WindowProperties({
   onChange: (next: BuildingScenario) => unknown;
 }) {
   const escape = pane.emergency_escape;
+  const suggestedSide = suggestedWindowExterior(building, pane);
+  const wall = building.walls.find((w) => w.id === pane.wall_id);
+  const direction = (side: -1 | 1) => {
+    if (!wall) return side === 1 ? "+ normal" : "− normal";
+    const dx = -(wall.end.y - wall.start.y) * side;
+    const dy = (wall.end.x - wall.start.x) * side;
+    const parts = [];
+    if (Math.abs(dy) > Math.abs(dx) * 0.01) parts.push(dy < 0 ? "up" : "down");
+    if (Math.abs(dx) > Math.abs(dy) * 0.01)
+      parts.push(dx < 0 ? "left" : "right");
+    return `Toward ${parts.join(" / ")}`;
+  };
   const update = (
     patch: Partial<NonNullable<WindowOpening["emergency_escape"]>>,
   ) => {
@@ -22,7 +35,7 @@ export function WindowProperties({
       clear_height_metres: 1.2,
       preparation_seconds: 5,
       traversal_seconds: 3,
-      exterior_side: 1,
+      exterior_side: suggestedSide ?? 1,
       exterior_available: false,
       ...escape,
       ...patch,
@@ -80,10 +93,24 @@ export function WindowProperties({
                 update({ exterior_side: Number(e.target.value) as -1 | 1 })
               }
             >
-              <option value={1}>+ normal</option>
-              <option value={-1}>− normal</option>
+              <option value={1}>{direction(1)}</option>
+              <option value={-1}>{direction(-1)}</option>
             </select>
           </label>
+          {suggestedSide !== null && escape.exterior_side !== suggestedSide && (
+            <>
+              <p className="note">
+                The exterior arrow points toward every occupied spawn zone.
+                Check that it points outside.
+              </p>
+              <button
+                type="button"
+                onClick={() => update({ exterior_side: suggestedSide })}
+              >
+                Point exterior away from occupants
+              </button>
+            </>
+          )}
           <label className="block-toggle">
             <input
               type="checkbox"
@@ -134,10 +161,11 @@ export function WindowProperties({
       <p className="note">
         The selection arrow points toward the configured exterior. + normal is
         (−dy/L, +dx/L) from the wall start; − normal is the opposite side.
-        Ordinary windows are solid. Escape is considered only when all normal
-        exits are blocked. Exterior landing and full-body clearance are checked
-        by Rust. Timings and capability are user assumptions, not validated
-        safety estimates. Intact glazing is opaque in this model.
+        Ordinary windows are solid. Enabled windows are a fallback when normal
+        exits are blocked or no route around known fire/gas is found. The
+        crossing and exterior landing must be clear. Timings and capability are
+        user assumptions, not validated safety estimates. Intact glazing is
+        opaque in this model.
       </p>
     </fieldset>
   );

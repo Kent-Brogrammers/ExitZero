@@ -29,6 +29,99 @@ function respond(body: unknown, status = 200) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("API integration contract", () => {
+  it("accepts recorded window diagnostics and rejects approaching IDs duplicated in the queue", async () => {
+    const withWindow = {
+      ...building,
+      windows: [
+        { id: "pane", wall_id: building.walls[0]!.id, offset: 0, width: 1 },
+      ],
+    };
+    const state = {
+      window_id: "pane",
+      state: "intact",
+      preparation_ready_step: null,
+      queue_agent_ids: [] as number[],
+      traversing_agent_id: null,
+      traversal_earliest_finish_step: null,
+      approaching_agent_ids: [mock.frames[0]!.agents[0]!.id],
+      unavailable_reason: "No route to the configured indoor approach.",
+    };
+    const response = (windowState: typeof state) => ({
+      ...mock,
+      frames: [
+        { ...mock.frames[0]!, window_states: [windowState] },
+        ...mock.frames.slice(1),
+      ],
+    });
+    const valid = response(state);
+    respond(valid);
+    await expect(client.simulate(withWindow)).resolves.toEqual(valid);
+    respond(
+      response({ ...state, queue_agent_ids: state.approaching_agent_ids }),
+    );
+    await expect(client.simulate(withWindow)).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+    respond(response({ ...state, approaching_agent_ids: [4294967295] }));
+    await expect(client.simulate(withWindow)).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+  });
+  it("accepts optional communication events and rejects invented IDs, recipients or future times", async () => {
+    const event = {
+      step: 0,
+      sender_id: mock.frames[0]!.agents[0]!.id,
+      recipient_ids: [mock.frames[0]!.agents[1]!.id],
+      opening_id: building.exits[0]!.id,
+      blocked: true,
+    };
+    const result = { ...mock, communication_events: [event] };
+    respond(result);
+    await expect(client.simulate(building)).resolves.toEqual(result);
+    const discovery = { ...event, event_type: "discovery", recipient_ids: [] };
+    const typed = {
+      ...result,
+      communication_events: [discovery, { ...event, event_type: "shared" }],
+    };
+    respond(typed);
+    await expect(client.simulate(building)).resolves.toEqual(typed);
+    for (const bad of [
+      { ...event, event_type: "discovery" },
+      { ...event, event_type: "shared", recipient_ids: [] },
+      { ...event, event_type: "invented" },
+      { ...event, sender_id: 4294967295 },
+      { ...event, recipient_ids: [event.sender_id] },
+      { ...event, recipient_ids: [4294967295] },
+      { ...event, recipient_ids: [] },
+      {
+        ...event,
+        recipient_ids: [event.recipient_ids[0], event.recipient_ids[0]],
+      },
+      { ...event, opening_id: "missing-opening" },
+      { ...event, step: 100000 },
+    ]) {
+      respond({ ...result, communication_events: [bad] });
+      await expect(client.simulate(building)).rejects.toMatchObject({
+        code: "invalid_response",
+      });
+    }
+    respond({ ...result, communication_events: [event, event] });
+    await expect(client.simulate(building)).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+    respond({
+      ...result,
+      communication_events: [
+        { ...event, step: mock.frames.at(-1)!.step },
+        event,
+      ],
+    });
+    await expect(client.simulate(building)).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+    respond(mock);
+    await expect(client.simulate(building)).resolves.toEqual(mock);
+  });
   it("accepts explicit window route counts and rejects inconsistent totals or queue IDs", async () => {
     // Synthetic contract test data only; the API never manufactures these outcomes.
     const result = {

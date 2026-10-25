@@ -203,11 +203,8 @@ mod tests {
 
     fn completed(steps: u32) -> SimulationMetrics {
         SimulationMetrics {
-<<<<<<< HEAD
             evacuated_by_route: None,
-=======
             sheltered: 0,
->>>>>>> connor/catastrophes
             status: SimulationStatus::Completed,
             total_population: 4,
             evacuated: 4,
@@ -219,11 +216,8 @@ mod tests {
 
     fn unfinished(remaining: u32, trapped: u32) -> SimulationMetrics {
         SimulationMetrics {
-<<<<<<< HEAD
             evacuated_by_route: None,
-=======
             sheltered: 0,
->>>>>>> connor/catastrophes
             status: SimulationStatus::Incomplete,
             total_population: 4,
             evacuated: 4 - remaining,
@@ -237,12 +231,9 @@ mod tests {
         SimulationResult {
             metrics,
             frames: vec![AnimationFrame {
-<<<<<<< HEAD
                 window_states: None,
-=======
                 disaster_state: None,
                 sheltered: None,
->>>>>>> connor/catastrophes
                 blocked_opening_ids: None,
                 step: 0,
                 agents: (0..4)
@@ -256,6 +247,7 @@ mod tests {
             }],
             traffic_samples: vec![],
             analytics: None,
+            communication_events: None,
             width: building.width,
             height: building.height,
             time_step_seconds: building.time_step_seconds,

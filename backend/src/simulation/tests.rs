@@ -54,6 +54,82 @@ fn room() -> BuildingScenario {
 }
 
 #[test]
+fn a_fire_warning_relays_between_groups_and_immediately_changes_their_destination() {
+    for kind in [
+        crate::models::DisasterKind::Fire,
+        crate::models::DisasterKind::GasLeak,
+    ] {
+        let mut scenario = room();
+        scenario.exits.push(Opening {
+            id: "south_exit".into(),
+            name: None,
+            wall_id: "south".into(),
+            offset: 3.0,
+            width: 4.0,
+        });
+        scenario.spawn_zones = vec![
+            pinned_zone("witness", 5.0, 0.9),
+            pinned_zone("hears_witness", 5.0, 2.9),
+            pinned_zone("hears_relay", 5.0, 4.9),
+        ];
+        scenario.awareness.sight_range_metres = 0.65;
+        scenario.awareness.communication_range_metres = 2.1;
+        scenario.disaster = Some(crate::models::Disaster {
+            kind,
+            center: Point { x: 5.0, y: 0.2 },
+            radius: 0.2,
+            dynamics: None,
+        });
+        let result = simulate(&scenario).unwrap();
+        result.validate().unwrap();
+        assert_eq!(
+            result.metrics.status,
+            SimulationStatus::Completed,
+            "{kind:?}"
+        );
+        let recipient = &result.frames[1].agents[1];
+        assert!(
+            recipient.y > 2.9,
+            "the first recipient should turn away before seeing the hazard"
+        );
+        assert!(
+            result.frames[1].agents[2].y < 4.9,
+            "reports must take a tick to relay"
+        );
+        assert!(
+            result
+                .analytics
+                .as_ref()
+                .unwrap()
+                .agents
+                .iter()
+                .all(|a| { a.exit_id.as_deref() == Some("south_exit") && a.injury == 0.0 })
+        );
+        assert_collision_free(&scenario, &result);
+        assert_eq!(
+            serde_json::to_value(&result).unwrap(),
+            serde_json::to_value(simulate(&scenario).unwrap()).unwrap()
+        );
+    }
+}
+
+#[test]
+fn danger_avoiding_routes_allow_outward_escape_but_reject_entry_and_inward_crossings() {
+    let mut scenario = room();
+    scenario.disaster = Some(crate::models::Disaster {
+        kind: crate::models::DisasterKind::GasLeak,
+        center: Point { x: 5.0, y: 5.0 },
+        radius: 1.0,
+        dynamics: None,
+    });
+    let geometry = Geometry::new(&scenario);
+    assert!(!geometry.avoids_known_danger(Point { x: 2.0, y: 5.0 }, Point { x: 8.0, y: 5.0 }));
+    assert!(!geometry.avoids_known_danger(Point { x: 5.5, y: 5.0 }, Point { x: 4.0, y: 5.0 }));
+    assert!(geometry.avoids_known_danger(Point { x: 5.0, y: 5.0 }, Point { x: 8.0, y: 5.0 }));
+    assert!(geometry.avoids_known_danger(Point { x: 5.5, y: 5.0 }, Point { x: 8.0, y: 5.0 }));
+}
+
+#[test]
 fn live_frames_arrive_during_physics_and_preserve_the_recording() {
     let scenario = room();
     let expected = simulate(&scenario).unwrap();
@@ -1727,21 +1803,39 @@ fn growing_hazard_memory_only_updates_visible_or_reported_patches() {
         Agent::new(0, Point { x: 2.0, y: 3.0 }),
         Agent::new(1, Point { x: 8.0, y: 8.0 }),
     ];
-    update_knowledge(&mut agents, &[false, false], &world, &geometry);
+    update_knowledge(
+        &mut agents,
+        &[false, false],
+        &world,
+        &geometry,
+        |_, _, _, _, _| {},
+    );
     assert_eq!(agents[0].known_hazards.len(), 1);
     assert!(agents[1].known_hazards.is_empty());
     let revision = agents[0].known_hazards[&0].revision;
     agents[0].position = Point { x: 7.0, y: 7.0 };
     world.apply(10, &agents, &[false, false]);
     geometry.hazard_areas = world.disaster_state().unwrap().areas.clone();
-    update_knowledge(&mut agents, &[false, false], &world, &geometry);
+    update_knowledge(
+        &mut agents,
+        &[false, false],
+        &world,
+        &geometry,
+        |_, _, _, _, _| {},
+    );
     assert_eq!(
         agents[0].known_hazards[&0].revision, revision,
         "unseen spread must not refresh remembered geometry"
     );
     assert!(agents[1].known_hazards.is_empty());
     agents[0].position = Point { x: 2.0, y: 3.0 };
-    update_knowledge(&mut agents, &[false, false], &world, &geometry);
+    update_knowledge(
+        &mut agents,
+        &[false, false],
+        &world,
+        &geometry,
+        |_, _, _, _, _| {},
+    );
     assert!(agents[0].known_hazards[&0].revision > revision);
 }
 

@@ -21,6 +21,7 @@ export function drawPlayback(
   frame: AnimationFrame | null,
   pixelRatio: number,
   palette: CanvasPalette = canvasPalette(canvas),
+  showAgentNumbers = false,
 ) {
   drawLayout(
     canvas,
@@ -29,13 +30,12 @@ export function drawPlayback(
     undefined,
     pixelRatio,
     palette,
-<<<<<<< HEAD
-    { windowStates: frame?.window_states },
-=======
-    { disasterState: frame?.disaster_state },
->>>>>>> connor/catastrophes
+    {
+      windowStates: frame?.window_states,
+      disasterState: frame?.disaster_state,
+    },
   );
-  drawAgents(canvas, building, frame, pixelRatio, palette);
+  drawAgents(canvas, building, frame, pixelRatio, palette, showAgentNumbers);
 }
 
 export function drawAgents(
@@ -44,6 +44,7 @@ export function drawAgents(
   frame: AnimationFrame | null,
   pixelRatio: number,
   palette: CanvasPalette,
+  showAgentNumbers = false,
 ) {
   const context = canvas.getContext("2d");
   const display = canvas.getBoundingClientRect();
@@ -55,6 +56,14 @@ export function drawAgents(
   context.fillStyle = palette.selection;
   context.strokeStyle = palette.background;
   context.lineWidth = ratio;
+  // A small screen-space minimum keeps labels readable without changing physics.
+  const radiusFor = (id: number) =>
+    Math.max(
+      building.agent_radius * view.scale,
+      showAgentNumbers
+        ? Math.min(14, 7 + String(id + 1).length * 1.5) * ratio
+        : 0,
+    );
   const groups = [
     {
       color: palette.selection,
@@ -77,21 +86,29 @@ export function drawAgents(
     context.beginPath();
     for (const agent of group.agents) {
       const point = worldToCanvas(agent, view);
-      context.moveTo(point.x + building.agent_radius * view.scale, point.y);
-      context.arc(
-        point.x,
-        point.y,
-        building.agent_radius * view.scale,
-        0,
-        Math.PI * 2,
-      );
+      context.moveTo(point.x + radiusFor(agent.id), point.y);
+      context.arc(point.x, point.y, radiusFor(agent.id), 0, Math.PI * 2);
     }
     context.fill();
     context.stroke();
   }
-<<<<<<< HEAD
-  context.fill();
-  context.stroke();
+  if (showAgentNumbers) {
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillStyle = palette.background;
+    for (const agent of frame.agents) {
+      const point = worldToCanvas(agent, view);
+      const label = String(agent.id + 1);
+      const radius = radiusFor(agent.id);
+      const baseSize = Math.min(11 * ratio, radius * 1.1);
+      context.font = `500 ${baseSize}px system-ui`;
+      const width = context.measureText(label).width;
+      const size =
+        baseSize * Math.min(1, (radius * 2 - 4 * ratio) / Math.max(width, 1));
+      context.font = `500 ${size}px system-ui`;
+      context.fillText(label, point.x, point.y);
+    }
+  }
   // Queue membership is recorded by Rust, never inferred from proximity or missing IDs.
   const waiting = new Set(
     frame.window_states?.flatMap((s) => s.queue_agent_ids),
@@ -103,20 +120,12 @@ export function drawAgents(
     if (!waiting.has(agent.id) && !traversing.has(agent.id)) continue;
     const p = worldToCanvas(agent, view);
     context.beginPath();
-    context.arc(
-      p.x,
-      p.y,
-      building.agent_radius * view.scale + 2 * ratio,
-      0,
-      Math.PI * 2,
-    );
+    context.arc(p.x, p.y, radiusFor(agent.id) + 2 * ratio, 0, Math.PI * 2);
     context.strokeStyle = traversing.has(agent.id)
       ? palette.exit
       : palette.door;
     context.stroke();
   }
-=======
->>>>>>> connor/catastrophes
   context.restore();
 }
 
@@ -131,7 +140,11 @@ export function createPlaybackRenderer(
   let width = 0,
     height = 0,
     ratio = 0;
-  return (frame: AnimationFrame | null, pixelRatio: number) => {
+  return (
+    frame: AnimationFrame | null,
+    pixelRatio: number,
+    showAgentNumbers = false,
+  ) => {
     const display = canvas.getBoundingClientRect();
     if (display.width <= 0 || display.height <= 0) return;
     const nextRatio = Number.isFinite(pixelRatio) ? Math.max(1, pixelRatio) : 1;
@@ -140,16 +153,20 @@ export function createPlaybackRenderer(
     const context = canvas.getContext("2d"),
       cache = layout.getContext("2d");
     if (!context || !cache) {
-      drawPlayback(canvas, building, frame, nextRatio, palette);
+      drawPlayback(
+        canvas,
+        building,
+        frame,
+        nextRatio,
+        palette,
+        showAgentNumbers,
+      );
       return;
     }
     const nextOpeningState = JSON.stringify([
       frame?.blocked_opening_ids,
-<<<<<<< HEAD
       frame?.window_states?.map((s) => [s.window_id, s.state]),
-=======
       frame?.disaster_state,
->>>>>>> connor/catastrophes
     ]);
     if (
       width !== nextWidth ||
@@ -165,11 +182,10 @@ export function createPlaybackRenderer(
         undefined,
         nextRatio,
         palette,
-<<<<<<< HEAD
-        { windowStates: frame?.window_states },
-=======
-        { disasterState: frame?.disaster_state },
->>>>>>> connor/catastrophes
+        {
+          windowStates: frame?.window_states,
+          disasterState: frame?.disaster_state,
+        },
       );
       width = canvas.width;
       height = canvas.height;
@@ -182,6 +198,6 @@ export function createPlaybackRenderer(
       context.clearRect(0, 0, width, height);
       context.drawImage(layout, 0, 0);
     }
-    drawAgents(canvas, building, frame, nextRatio, palette);
+    drawAgents(canvas, building, frame, nextRatio, palette, showAgentNumbers);
   };
 }

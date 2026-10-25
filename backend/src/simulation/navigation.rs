@@ -61,7 +61,7 @@ impl Navigation {
         let mut exits: Vec<ExitTarget> = scenario
             .exits
             .iter()
-            .filter(|exit| !geometry.opening_is_blocked(&exit.id))
+            .filter(|exit| !geometry.opening_is_unsafe(&exit.id))
             .filter_map(|exit| {
                 let (start, end) = geometry.exit_segment(&exit.id)?;
                 Some(ExitTarget {
@@ -73,34 +73,6 @@ impl Navigation {
             })
             .collect();
 
-<<<<<<< HEAD
-        Self::with_targets(scenario, geometry, exits)
-    }
-
-    /// Reuse the same collision-checked visibility graph for an interior approach point.
-    pub(super) fn to_point(
-        scenario: &BuildingScenario,
-        geometry: &Geometry<'_>,
-        id: String,
-        position: Point,
-    ) -> Self {
-        Self::with_targets(
-            scenario,
-            geometry,
-            vec![ExitTarget {
-                id,
-                start: position,
-                end: position,
-            }],
-        )
-    }
-
-    fn with_targets(
-        scenario: &BuildingScenario,
-        geometry: &Geometry<'_>,
-        exits: Vec<ExitTarget>,
-    ) -> Self {
-=======
         if scenario
             .disaster
             .is_some_and(|d| d.kind == crate::models::DisasterKind::Tornado)
@@ -123,7 +95,33 @@ impl Navigation {
                 })
                 .collect();
         }
->>>>>>> connor/catastrophes
+        Self::with_targets(scenario, geometry, exits)
+    }
+
+    /// Reuse the same collision-checked visibility graph for an interior approach point.
+    pub(super) fn to_point(
+        scenario: &BuildingScenario,
+        geometry: &Geometry<'_>,
+        id: String,
+        position: Point,
+    ) -> Self {
+        Self::with_targets(
+            scenario,
+            geometry,
+            vec![ExitTarget {
+                id,
+                start: position,
+                end: position,
+                shelter: false,
+            }],
+        )
+    }
+
+    fn with_targets(
+        scenario: &BuildingScenario,
+        geometry: &Geometry<'_>,
+        exits: Vec<ExitTarget>,
+    ) -> Self {
         let mut points = Vec::new();
         let mut add_point = |point: Point| {
             if geometry.can_stand_at(point)
@@ -323,6 +321,42 @@ impl Navigation {
         occupants: &CrowdForecast,
         radius: f64,
     ) -> Option<Route> {
+        self.search(from, geometry, occupants, radius, false)
+    }
+
+    /// Search the same graph with known hazard crossings excluded. Failure is
+    /// a reason to try a window, not proof that the occupant is trapped.
+    pub(super) fn find_route_avoiding_danger(
+        &self,
+        from: Point,
+        geometry: &Geometry<'_>,
+    ) -> Option<Route> {
+        self.find_safe_route_with_forecast(
+            from,
+            geometry,
+            &CrowdForecast::for_geometry(geometry),
+            self.agent_radius,
+        )
+    }
+
+    pub(super) fn find_safe_route_with_forecast(
+        &self,
+        from: Point,
+        geometry: &Geometry<'_>,
+        occupants: &CrowdForecast,
+        radius: f64,
+    ) -> Option<Route> {
+        self.search(from, geometry, occupants, radius, true)
+    }
+
+    fn search(
+        &self,
+        from: Point,
+        geometry: &Geometry<'_>,
+        occupants: &CrowdForecast,
+        radius: f64,
+        avoid_danger: bool,
+    ) -> Option<Route> {
         if !geometry.can_stand_at(from) {
             return None;
         }
@@ -333,7 +367,9 @@ impl Navigation {
         // Treat the agent position as a temporary node connected to every
         // visible waypoint. The shared graph itself stays unchanged.
         for (node, &point) in self.points.iter().enumerate() {
-            if geometry.can_move(from, point) {
+            if geometry.can_move(from, point)
+                && (!avoid_danger || geometry.avoids_known_danger(from, point))
+            {
                 let distance =
                     math::distance_to_point(from, point) + occupants.cost(from, point, radius);
                 distances[node] = distance;
@@ -354,7 +390,9 @@ impl Navigation {
                 } else {
                     math::closest_point_on_segment(start, exit.start, exit.end)
                 };
-                if geometry.can_move(start, target) {
+                if geometry.can_move(start, target)
+                    && (!avoid_danger || geometry.avoids_known_danger(start, target))
+                {
                     let cost = distance
                         + math::distance_to_point(start, target)
                         + occupants.cost(start, target, radius);
@@ -375,6 +413,11 @@ impl Navigation {
             }
             best_cost = consider(self.points[node], distance, Some(node));
             for edge in &self.connections[node] {
+                if avoid_danger
+                    && !geometry.avoids_known_danger(self.points[node], self.points[edge.to])
+                {
+                    continue;
+                }
                 let candidate = distance
                     + edge.distance
                     + occupants.cost(self.points[node], self.points[edge.to], radius);

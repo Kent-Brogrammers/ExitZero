@@ -87,6 +87,48 @@ fn building() -> Value {
 }
 
 #[tokio::test]
+async fn recorded_chat_reaches_api_as_actual_discovery_grouped_share_and_later_relay() {
+    // Tiny spawn areas make the sight/range relationships deterministic. This
+    // tests the real simulator and HTTP serialization, not a message fixture.
+    let mut scenario = json!({
+        "width":20,"height":12,
+        "walls":[{"id":"north","start":{"x":0,"y":0},"end":{"x":20,"y":0},"thickness":0.2}],
+        "doors":[],
+        "exits":[
+            {"id":"left","wall_id":"north","offset":1,"width":2},
+            {"id":"right","wall_id":"north","offset":17,"width":2}
+        ],
+        "spawn_zones":[
+            {"id":"a","x":1.9,"y":0.9,"width":0.2,"height":0.2,"count":1},
+            {"id":"b","x":1.9,"y":2.9,"width":0.2,"height":0.2,"count":1},
+            {"id":"c","x":2.9,"y":2.4,"width":0.2,"height":0.2,"count":1},
+            {"id":"d","x":1.9,"y":4.9,"width":0.2,"height":0.2,"count":1}
+        ],
+        "blocked_exit_ids":["left"],"obstructions":[],"agent_radius":0.1,
+        "time_step_seconds":0.1,"seed":42,"max_steps":500,
+        "awareness":{"sight_range_metres":1.5,"communication_range_metres":2.1}
+    });
+    let (status, body) = request("/api/simulate", Some(scenario.clone())).await;
+    assert_eq!(status, StatusCode::OK);
+    serde_json::from_value::<SimulationResult>(body.clone())
+        .unwrap()
+        .validate()
+        .unwrap();
+    assert_eq!(
+        body["communication_events"],
+        json!([
+            {"step":0,"event_type":"discovery","sender_id":0,"recipient_ids":[],"opening_id":"left","blocked":true},
+            {"step":0,"event_type":"shared","sender_id":0,"recipient_ids":[1,2],"opening_id":"left","blocked":true},
+            {"step":1,"event_type":"shared","sender_id":1,"recipient_ids":[3],"opening_id":"left","blocked":true}
+        ])
+    );
+    scenario["blocked_exit_ids"] = json!([]);
+    let (status, normal) = request("/api/simulate", Some(scenario)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(normal["communication_events"], json!([]));
+}
+
+#[tokio::test]
 async fn health_returns_expected_contract() {
     let (status, body) = request("/api/health", None).await;
     assert_eq!(status, StatusCode::OK);

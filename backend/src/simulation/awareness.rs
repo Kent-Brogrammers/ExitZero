@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::perception::{self, WallKnowledge};
 use super::{Emergency, agent::Agent, geometry::Geometry, math, navigation::Navigation};
-use crate::models::{BuildingScenario, Opening, Point};
+use crate::models::{BuildingScenario, CommunicationEventType};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Observation {
@@ -73,7 +73,7 @@ impl Report {
         }
     }
 
-    fn share_with(&self, agent: &mut Agent) -> bool {
+    fn share_with(&self, agent: &mut Agent, mut record: impl FnMut(u32, &str, bool)) -> bool {
         let mut changed = self.knows_disaster && !agent.knows_disaster;
         agent.knows_disaster |= self.knows_disaster;
         for (&id, area) in &self.hazards {
@@ -87,7 +87,12 @@ impl Report {
             }
         }
         for (id, &observation) in &self.openings {
-            changed |= learn(agent, id, observation);
+            let previous_blocked = agent.knowledge.get(id).is_some_and(|known| known.blocked);
+            let learned = learn(agent, id, observation);
+            changed |= learned;
+            if learned && previous_blocked != observation.blocked {
+                record(agent.id, id, observation.blocked);
+            }
         }
         let before = (
             agent.known_emergencies.len(),
@@ -269,19 +274,6 @@ impl<'a> OpeningStates<'a> {
     }
 }
 
-fn center(scenario: &BuildingScenario, opening: &Opening) -> Point {
-    let wall = scenario
-        .walls
-        .iter()
-        .find(|w| w.id == opening.wall_id)
-        .unwrap();
-    math::interpolate(
-        wall.start,
-        wall.end,
-        (opening.offset + opening.width / 2.0) / wall.length(),
-    )
-}
-
 fn learn(agent: &mut Agent, id: &str, observation: Observation) -> bool {
     if agent
         .knowledge
@@ -302,6 +294,7 @@ pub(super) fn update_knowledge(
     evacuated: &[bool],
     world: &OpeningStates<'_>,
     geometry: &Geometry<'_>,
+    mut record: impl FnMut(CommunicationEventType, u32, &str, bool, Vec<u32>),
 ) -> (Vec<bool>, bool) {
     let scenario = world.scenario;
     let before: Vec<_> = agents.iter().map(BeliefKey::for_agent).collect();
@@ -340,11 +333,29 @@ pub(super) fn update_knowledge(
             );
             informed |= perception::remember(&mut agent.known_walls, &visible);
             for opening in scenario.doors.iter().chain(&scenario.exits) {
-                if math::distance_to_point(agent.position, center(scenario, opening))
-                    <= scenario.awareness.sight_range_metres
-                    && geometry.can_see_opening(agent.position, opening)
-                {
-                    informed |= learn(agent, &opening.id, world.states[&opening.id]);
+                if geometry.can_see_opening(
+                    agent.position,
+                    opening,
+                    scenario.awareness.sight_range_metres,
+                ) {
+                    let observation = world.states[&opening.id];
+                    let previous_blocked = agent
+                        .knowledge
+                        .get(&opening.id)
+                        .is_some_and(|known| known.blocked);
+                    let learned = learn(agent, &opening.id, observation);
+                    informed |= learned;
+                    // Agents already assume open. Only accepted state changes
+                    // are activity, not routine confirmations on every tick.
+                    if learned && previous_blocked != observation.blocked {
+                        record(
+                            CommunicationEventType::Discovery,
+                            agent.id,
+                            &opening.id,
+                            observation.blocked,
+                            Vec::new(),
+                        );
+                    }
                 }
             }
             // See a nearby surface, not a hazard's potentially distant centre.
@@ -382,6 +393,7 @@ pub(super) fn update_knowledge(
     }
     if scenario.awareness.communication_range_metres > 0.0 {
         let snapshot: Vec<_> = agents.iter().map(Report::from_agent).collect();
+        let mut shared: BTreeMap<(u32, String, bool), BTreeSet<u32>> = BTreeMap::new();
         for i in 0..agents.len() {
             if evacuated[i] {
                 continue;
@@ -394,9 +406,32 @@ pub(super) fn update_knowledge(
                 {
                     continue;
                 }
-                informed |= snapshot[i].share_with(&mut agents[j]);
-                informed |= snapshot[j].share_with(&mut agents[i]);
+                let sender = agents[i].id;
+                informed |=
+                    snapshot[i].share_with(&mut agents[j], |recipient, opening, blocked| {
+                        shared
+                            .entry((sender, opening.to_owned(), blocked))
+                            .or_default()
+                            .insert(recipient);
+                    });
+                let sender = agents[j].id;
+                informed |=
+                    snapshot[j].share_with(&mut agents[i], |recipient, opening, blocked| {
+                        shared
+                            .entry((sender, opening.to_owned(), blocked))
+                            .or_default()
+                            .insert(recipient);
+                    });
             }
+        }
+        for ((sender, opening, blocked), recipients) in shared {
+            record(
+                CommunicationEventType::Shared,
+                sender,
+                &opening,
+                blocked,
+                recipients.into_iter().collect(),
+            );
         }
     }
     (
@@ -466,7 +501,16 @@ impl<'a> BeliefMaps<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{OpeningStateChange, Wall};
+    use crate::models::{Opening, OpeningStateChange, Point, Wall};
+
+    fn update_knowledge(
+        agents: &mut [Agent],
+        evacuated: &[bool],
+        world: &OpeningStates<'_>,
+        geometry: &Geometry<'_>,
+    ) -> (Vec<bool>, bool) {
+        super::update_knowledge(agents, evacuated, world, geometry, |_, _, _, _, _| {})
+    }
 
     fn scenario() -> BuildingScenario {
         let mut b: BuildingScenario =
@@ -503,6 +547,437 @@ mod tests {
 
     fn at(id: u32, x: f64, y: f64) -> Agent {
         Agent::new(id, Point { x, y })
+    }
+
+    fn recorded_tick(
+        agents: &mut [Agent],
+        evacuated: &[bool],
+        world: &OpeningStates<'_>,
+        geometry: &Geometry<'_>,
+        step: u32,
+    ) -> Vec<crate::models::CommunicationEvent> {
+        let mut events = Vec::new();
+        super::update_knowledge(
+            agents,
+            evacuated,
+            world,
+            geometry,
+            |event_type, sender_id, opening_id, blocked, recipient_ids| {
+                events.push(crate::models::CommunicationEvent {
+                    step,
+                    event_type,
+                    sender_id,
+                    opening_id: opening_id.to_owned(),
+                    blocked,
+                    recipient_ids,
+                });
+            },
+        );
+        events
+    }
+
+    #[test]
+    fn recorded_shares_group_actual_recipients_and_do_not_repeat() {
+        let b = scenario();
+        let world = OpeningStates::new(&b);
+        let geometry = Geometry::new(&b);
+        let mut agents = vec![at(0, 2.0, 1.0), at(7, 2.0, 3.0), at(9, 3.0, 2.5)];
+        let events = recorded_tick(&mut agents, &[false; 3], &world, &geometry, 4);
+        assert_eq!(
+            events,
+            vec![
+                crate::models::CommunicationEvent {
+                    step: 4,
+                    event_type: CommunicationEventType::Discovery,
+                    sender_id: 0,
+                    recipient_ids: vec![],
+                    opening_id: "left".into(),
+                    blocked: true,
+                },
+                crate::models::CommunicationEvent {
+                    step: 4,
+                    event_type: CommunicationEventType::Shared,
+                    sender_id: 0,
+                    recipient_ids: vec![7, 9],
+                    opening_id: "left".into(),
+                    blocked: true,
+                },
+            ]
+        );
+        assert!(recorded_tick(&mut agents, &[false; 3], &world, &geometry, 5).is_empty());
+        assert!(
+            agents
+                .iter()
+                .all(|agent| blocked_ids(agent).contains("left"))
+        );
+    }
+
+    #[test]
+    fn recorded_relays_preserve_the_existing_one_hop_per_tick_rule() {
+        let b = scenario();
+        let world = OpeningStates::new(&b);
+        let geometry = Geometry::new(&b);
+        let mut agents = vec![at(0, 2.0, 1.0), at(1, 2.0, 3.0), at(2, 2.0, 5.0)];
+        let first = recorded_tick(&mut agents, &[false; 3], &world, &geometry, 0);
+        assert_eq!(first.len(), 2);
+        assert_eq!(first[0].event_type, CommunicationEventType::Discovery);
+        assert_eq!(first[1].event_type, CommunicationEventType::Shared);
+        assert_eq!((first[1].sender_id, &first[1].recipient_ids), (0, &vec![1]));
+        assert!(!agents[2].knowledge.contains_key("left"));
+        let relay = recorded_tick(&mut agents, &[false; 3], &world, &geometry, 1);
+        assert_eq!(relay.len(), 1);
+        assert_eq!(relay[0].event_type, CommunicationEventType::Shared);
+        assert_eq!(
+            (relay[0].step, relay[0].sender_id, &relay[0].recipient_ids),
+            (1, 1, &vec![2])
+        );
+    }
+
+    #[test]
+    fn recorded_door_updates_come_from_actual_closed_door_observations() {
+        let mut b = scenario();
+        b.doors.push(Opening {
+            id: "door".into(),
+            name: None,
+            wall_id: "north".into(),
+            offset: 4.0,
+            width: 1.0,
+        });
+        b.opening_events.push(OpeningStateChange {
+            step: 0,
+            opening_id: "door".into(),
+            blocked: true,
+        });
+        let mut world = OpeningStates::new(&b);
+        assert!(world.apply(0, &[], &[]));
+        let geometry = Geometry::with_blocked_openings(&b, &[], world.blocked());
+        let mut agents = vec![at(0, 4.5, 1.0), at(1, 4.5, 3.0)];
+        let events = recorded_tick(&mut agents, &[false; 2], &world, &geometry, 0);
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].opening_id, "door");
+        assert_eq!(events[0].event_type, CommunicationEventType::Discovery);
+        assert!(events[0].recipient_ids.is_empty());
+        assert!(events[0].blocked);
+        assert_eq!(events[1].event_type, CommunicationEventType::Shared);
+        assert_eq!(events[1].opening_id, "door");
+        assert_eq!(events[1].recipient_ids, vec![1]);
+    }
+
+    #[test]
+    fn independent_discoveries_are_recorded_without_inventing_transfers() {
+        let b = scenario();
+        let world = OpeningStates::new(&b);
+        let geometry = Geometry::new(&b);
+        let mut agents = vec![at(0, 2.0, 1.0), at(1, 2.0, 1.2)];
+        let events = recorded_tick(&mut agents, &[false; 2], &world, &geometry, 0);
+        assert_eq!(events.len(), 2);
+        assert_eq!((events[0].sender_id, events[1].sender_id), (0, 1));
+        assert!(events.iter().all(|event| {
+            event.event_type == CommunicationEventType::Discovery && event.recipient_ids.is_empty()
+        }));
+        assert!(recorded_tick(&mut agents, &[false; 2], &world, &geometry, 1).is_empty());
+        assert!(
+            agents
+                .iter()
+                .all(|agent| blocked_ids(agent).contains("left"))
+        );
+    }
+
+    #[test]
+    fn no_transfers_when_disabled_out_of_range_evacuated_or_occluded() {
+        for case in ["disabled", "range", "evacuated", "wall"] {
+            let mut b = scenario();
+            let mut positions = vec![at(0, 2.0, 1.0), at(1, 2.0, 3.0)];
+            let mut gone = [false; 2];
+            match case {
+                "disabled" => b.awareness.communication_range_metres = 0.0,
+                "range" => positions[1].position.y = 9.0,
+                "evacuated" => gone[0] = true,
+                "wall" => {
+                    b.walls.push(Wall {
+                        id: "divider".into(),
+                        name: None,
+                        start: Point { x: 5.0, y: 0.0 },
+                        end: Point { x: 5.0, y: 20.0 },
+                        thickness: 0.2,
+                    });
+                    b.awareness.sight_range_metres = 30.0;
+                    b.awareness.communication_range_metres = 4.0;
+                    positions = vec![at(0, 4.0, 3.0), at(1, 6.0, 3.0)];
+                }
+                _ => unreachable!(),
+            }
+            let world = OpeningStates::new(&b);
+            let geometry = Geometry::new(&b);
+            assert!(
+                recorded_tick(&mut positions, &gone, &world, &geometry, 0)
+                    .iter()
+                    .all(|event| event.event_type == CommunicationEventType::Discovery),
+                "{case}"
+            );
+            assert!(!positions[1].knowledge.contains_key("left"), "{case}");
+        }
+    }
+
+    #[test]
+    fn recorded_chat_includes_reopenings_but_not_stale_or_routine_open_confirmations() {
+        let mut b = scenario();
+        b.opening_events = vec![OpeningStateChange {
+            step: 2,
+            opening_id: "left".into(),
+            blocked: false,
+        }];
+        let mut world = OpeningStates::new(&b);
+        let mut agents = vec![at(0, 2.0, 1.0), at(1, 2.0, 3.0)];
+        let geometry = Geometry::new(&b);
+        assert_eq!(
+            recorded_tick(&mut agents, &[false; 2], &world, &geometry, 0).len(),
+            2
+        );
+        assert!(world.apply(2, &agents, &[false; 2]));
+        let geometry = Geometry::with_blocked_openings(&b, &[], world.blocked());
+        let events = recorded_tick(&mut agents, &[false; 2], &world, &geometry, 2);
+        assert_eq!(events.len(), 2);
+        assert!(!events[0].blocked);
+        assert_eq!(events[0].event_type, CommunicationEventType::Discovery);
+        assert!(events[0].recipient_ids.is_empty());
+        assert!(!events[1].blocked);
+        assert_eq!(events[1].event_type, CommunicationEventType::Shared);
+        assert_eq!(events[1].recipient_ids, vec![1]);
+        assert!(recorded_tick(&mut agents, &[false; 2], &world, &geometry, 3).is_empty());
+        agents[0].knowledge.insert(
+            "left".into(),
+            Observation {
+                blocked: true,
+                revision: 0,
+            },
+        );
+        agents[0].position = Point { x: 2.0, y: 10.0 };
+        agents[1].position = Point { x: 2.0, y: 12.0 };
+        // Only the newer reopening can be accepted; the stale blocked report cannot win.
+        let events = recorded_tick(&mut agents, &[false; 2], &world, &geometry, 4);
+        assert!(
+            events
+                .iter()
+                .all(|event| !event.blocked && event.sender_id == 1)
+        );
+    }
+
+    #[test]
+    fn ordinary_open_scenario_records_no_new_information() {
+        let mut b = scenario();
+        b.blocked_exit_ids.clear();
+        let world = OpeningStates::new(&b);
+        let geometry = Geometry::new(&b);
+        let mut agents = vec![at(0, 2.0, 1.0), at(1, 2.0, 3.0)];
+        for step in 0..3 {
+            assert!(recorded_tick(&mut agents, &[false; 2], &world, &geometry, step).is_empty());
+        }
+    }
+
+    #[test]
+    fn seeing_the_near_edge_of_a_closed_exit_is_enough_to_warn_the_group() {
+        let mut b = scenario();
+        b.exits[0].offset = 1.0;
+        b.exits[0].width = 8.0;
+        b.awareness.sight_range_metres = 0.75;
+        b.awareness.communication_range_metres = 2.1;
+        let world = OpeningStates::new(&b);
+        let geometry = Geometry::new(&b);
+        let mut agents = vec![at(0, 1.5, 0.5), at(1, 1.5, 2.5), at(2, 1.5, 4.5)];
+        let (changed, _) = update_knowledge(&mut agents, &[false; 3], &world, &geometry);
+        assert!(
+            agents[0]
+                .knowledge
+                .get("left")
+                .is_some_and(|state| state.blocked)
+        );
+        assert!(
+            agents[1]
+                .knowledge
+                .get("left")
+                .is_some_and(|state| state.blocked)
+        );
+        assert!(
+            !agents[2].knowledge.contains_key("left"),
+            "no same-tick chain broadcast"
+        );
+        assert!(changed[0] && changed[1]);
+        update_knowledge(&mut agents, &[false; 3], &world, &geometry);
+        assert!(
+            agents[2]
+                .knowledge
+                .get("left")
+                .is_some_and(|state| state.blocked)
+        );
+        let mut maps = BeliefMaps::new(&b, &[]);
+        let (map, navigation) = maps.for_agent(&agents[2]);
+        assert_eq!(
+            navigation
+                .find_route(agents[2].position, map)
+                .unwrap()
+                .exit_id,
+            "right"
+        );
+    }
+
+    #[test]
+    fn reported_fire_and_gas_rule_out_an_exit_before_the_recipient_can_see_it() {
+        use crate::models::{Disaster, DisasterKind};
+        for kind in [DisasterKind::Fire, DisasterKind::GasLeak] {
+            let mut b = scenario();
+            b.blocked_exit_ids.clear();
+            b.awareness.sight_range_metres = 0.6;
+            b.disaster = Some(Disaster {
+                kind,
+                center: Point { x: 2.0, y: 0.2 },
+                radius: 0.2,
+                dynamics: None,
+            });
+            let world = OpeningStates::new(&b);
+            let geometry = Geometry::new(&b);
+            let mut agents = vec![
+                at(0, 2.0, 1.0),
+                at(1, 2.0, 3.0),
+                at(2, 2.0, 5.0),
+                at(3, 2.0, 9.0),
+            ];
+            let mut maps = BeliefMaps::new(&b, &[]);
+            let (changed, _) = update_knowledge(&mut agents, &[false; 4], &world, &geometry);
+            assert!(changed[0] && changed[1]);
+            assert!(
+                !agents[1].knowledge.contains_key("left"),
+                "the receiver cannot see the exit"
+            );
+            assert!(
+                agents[1].known_hazards.contains_key(&0),
+                "the witness reports the hazard's location"
+            );
+            let (map, navigation) = maps.for_agent(&agents[1]);
+            assert!(
+                map.opening_is_unsafe("left"),
+                "{kind:?} makes that destination unsafe"
+            );
+            assert_eq!(
+                navigation
+                    .find_route(agents[1].position, map)
+                    .unwrap()
+                    .exit_id,
+                "right"
+            );
+            let (map, navigation) = maps.for_agent(&agents[2]);
+            assert!(!map.opening_is_unsafe("left"), "no instantaneous relay");
+            assert_eq!(
+                navigation
+                    .find_route(agents[2].position, map)
+                    .unwrap()
+                    .exit_id,
+                "left"
+            );
+            update_knowledge(&mut agents, &[false; 4], &world, &geometry);
+            assert!(
+                maps.geometry_for_agent(&agents[2])
+                    .opening_is_unsafe("left")
+            );
+            assert!(
+                !maps
+                    .geometry_for_agent(&agents[3])
+                    .opening_is_unsafe("left"),
+                "out-of-range groups remain unaware"
+            );
+        }
+    }
+
+    #[test]
+    fn a_closed_door_blocks_fire_reports_until_there_is_a_clear_path() {
+        let mut b = scenario();
+        b.awareness.sight_range_metres = 0.6;
+        b.disaster = Some(crate::models::Disaster {
+            kind: crate::models::DisasterKind::Fire,
+            center: Point { x: 2.0, y: 0.2 },
+            radius: 0.2,
+            dynamics: None,
+        });
+        b.walls.push(Wall {
+            id: "divider".into(),
+            name: None,
+            start: Point { x: 0.0, y: 2.0 },
+            end: Point { x: 20.0, y: 2.0 },
+            thickness: 0.2,
+        });
+        b.doors.push(Opening {
+            id: "door".into(),
+            name: None,
+            wall_id: "divider".into(),
+            offset: 1.0,
+            width: 2.0,
+        });
+        b.opening_events = vec![
+            OpeningStateChange {
+                step: 0,
+                opening_id: "door".into(),
+                blocked: true,
+            },
+            OpeningStateChange {
+                step: 1,
+                opening_id: "door".into(),
+                blocked: false,
+            },
+        ];
+        let mut world = OpeningStates::new(&b);
+        let mut agents = vec![at(0, 2.0, 1.0), at(1, 2.0, 3.0)];
+        world.apply(0, &agents, &[false; 2]);
+        let geometry = Geometry::with_blocked_openings(&b, &[], world.blocked());
+        update_knowledge(&mut agents, &[false; 2], &world, &geometry);
+        assert!(agents[0].known_hazards.contains_key(&0));
+        assert!(agents[1].known_hazards.is_empty());
+        world.apply(1, &agents, &[false; 2]);
+        let geometry = Geometry::with_blocked_openings(&b, &[], world.blocked());
+        update_knowledge(&mut agents, &[false; 2], &world, &geometry);
+        assert!(agents[1].known_hazards.contains_key(&0));
+        assert!(
+            BeliefMaps::new(&b, &[])
+                .geometry_for_agent(&agents[1])
+                .opening_is_unsafe("left")
+        );
+    }
+
+    #[test]
+    fn a_reported_hazard_does_not_create_solid_wall_inside_an_occupied_doorway() {
+        let mut b = scenario();
+        b.blocked_exit_ids.clear();
+        b.disaster = Some(crate::models::Disaster {
+            kind: crate::models::DisasterKind::GasLeak,
+            center: Point { x: 2.0, y: 2.0 },
+            radius: 0.1,
+            dynamics: Some(crate::models::DisasterDynamics {
+                growth_rate: 0.2,
+                max_radius: 1.5,
+                max_patches: 1,
+                ..Default::default()
+            }),
+        });
+        let mut world = OpeningStates::new(&b);
+        let mut agents = vec![at(0, 2.0, 0.1)];
+        world.apply(60, &agents, &[false]);
+        assert!(
+            !world.states["left"].blocked,
+            "closure waits for the occupant to clear"
+        );
+        let mut geometry = Geometry::with_blocked_openings(&b, &[], world.blocked());
+        geometry.hazard_areas = world.disaster_state().unwrap().areas.clone();
+        update_knowledge(&mut agents, &[false], &world, &geometry);
+        let mut maps = BeliefMaps::new(&b, &[]);
+        let (map, navigation) = maps.for_agent(&agents[0]);
+        assert!(map.opening_is_unsafe("left"));
+        assert!(map.can_stand_at(agents[0].position));
+        assert_eq!(
+            navigation
+                .find_route(agents[0].position, map)
+                .unwrap()
+                .exit_id,
+            "right"
+        );
     }
 
     #[test]

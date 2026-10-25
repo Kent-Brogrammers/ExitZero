@@ -23,6 +23,82 @@ fn example() -> BuildingScenario {
 }
 
 #[test]
+fn recorded_communications_are_optional_and_validate_real_agent_ids_and_times() {
+    let mut result: SimulationResult =
+        serde_json::from_str(include_str!("../../shared/examples/simulation.mock.json")).unwrap();
+    assert!(result.communication_events.is_none());
+    assert!(
+        serde_json::to_value(&result)
+            .unwrap()
+            .get("communication_events")
+            .is_none()
+    );
+    let event = CommunicationEvent {
+        step: 0,
+        event_type: CommunicationEventType::Shared,
+        sender_id: result.frames[0].agents[0].id,
+        recipient_ids: vec![result.frames[0].agents[1].id],
+        opening_id: "exit".into(),
+        blocked: true,
+    };
+    result.communication_events = Some(vec![event.clone()]);
+    result.validate().unwrap();
+    let restored: SimulationResult =
+        serde_json::from_value(serde_json::to_value(&result).unwrap()).unwrap();
+    assert_eq!(restored.communication_events, result.communication_events);
+    let mut legacy_share = serde_json::to_value(&event).unwrap();
+    legacy_share.as_object_mut().unwrap().remove("event_type");
+    assert_eq!(
+        serde_json::from_value::<CommunicationEvent>(legacy_share).unwrap(),
+        event
+    );
+    let discovery = CommunicationEvent {
+        event_type: CommunicationEventType::Discovery,
+        recipient_ids: vec![],
+        ..event.clone()
+    };
+    result.communication_events = Some(vec![discovery.clone(), event.clone()]);
+    result.validate().unwrap();
+    for invalid in [
+        CommunicationEvent {
+            recipient_ids: event.recipient_ids.clone(),
+            ..discovery
+        },
+        CommunicationEvent {
+            recipient_ids: vec![],
+            ..event.clone()
+        },
+        CommunicationEvent {
+            recipient_ids: vec![event.sender_id],
+            ..event.clone()
+        },
+        CommunicationEvent {
+            recipient_ids: vec![u32::MAX],
+            ..event.clone()
+        },
+        CommunicationEvent {
+            recipient_ids: vec![event.recipient_ids[0], event.recipient_ids[0]],
+            ..event.clone()
+        },
+        CommunicationEvent {
+            step: 100000,
+            ..event.clone()
+        },
+    ] {
+        result.communication_events = Some(vec![invalid]);
+        assert!(result.validate().is_err());
+    }
+    result.communication_events = Some(vec![
+        CommunicationEvent {
+            step: result.frames.last().unwrap().step,
+            ..event.clone()
+        },
+        event,
+    ]);
+    assert!(result.validate().is_err());
+}
+
+#[test]
 fn awareness_ranges_and_opening_events_are_validated_and_round_trip() {
     use exitzero::models::OpeningStateChange;
     let mut b = example();
@@ -217,11 +293,8 @@ fn continuous_simulation_fixture_round_trips_and_validates() {
 #[test]
 fn severity_prioritizes_occupants_and_handles_null_clearance() {
     let complete = SimulationMetrics {
-<<<<<<< HEAD
         evacuated_by_route: None,
-=======
         sheltered: 0,
->>>>>>> connor/catastrophes
         status: SimulationStatus::Completed,
         total_population: 2,
         evacuated: 2,
@@ -230,11 +303,8 @@ fn severity_prioritizes_occupants_and_handles_null_clearance() {
         clearance_steps: Some(1000),
     };
     let incomplete = SimulationMetrics {
-<<<<<<< HEAD
         evacuated_by_route: None,
-=======
         sheltered: 0,
->>>>>>> connor/catastrophes
         status: SimulationStatus::Incomplete,
         total_population: 2,
         evacuated: 1,

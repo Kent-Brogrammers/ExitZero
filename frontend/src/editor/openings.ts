@@ -3,11 +3,42 @@ import type {
   Point,
   Wall,
   WindowFrameState,
+  WindowOpening,
 } from "../types/simulation";
 import { openingSegment, wallLength, project, distance } from "./geometry";
 
 // Match Rust and the shared opening bounds/overlap tolerance, in metres.
 const OPENING_EPSILON = 1e-8;
+
+/** Suggest an exterior only when all occupied spawn rectangles lie on one side.
+ * This is a setup hint, not a topology or outdoor-clearance check. */
+export function suggestedWindowExterior(
+  building: BuildingScenario,
+  pane: WindowOpening,
+): -1 | 1 | null {
+  const wall = building.walls.find((w) => w.id === pane.wall_id);
+  if (!wall) return null;
+  const length = wallLength(wall);
+  if (length <= 0) return null;
+  const nx = -(wall.end.y - wall.start.y) / length,
+    ny = (wall.end.x - wall.start.x) / length;
+  let occupiedSide = 0;
+  for (const zone of building.spawn_zones.filter((z) => z.count > 0)) {
+    for (const x of [zone.x, zone.x + zone.width]) {
+      for (const y of [zone.y, zone.y + zone.height]) {
+        const distance = (x - wall.start.x) * nx + (y - wall.start.y) * ny;
+        const side = Math.sign(distance);
+        if (
+          Math.abs(distance) <= wall.thickness / 2 ||
+          (occupiedSide && side !== occupiedSide)
+        )
+          return null;
+        occupiedSide = side;
+      }
+    }
+  }
+  return occupiedSide ? (occupiedSide > 0 ? -1 : 1) : null;
+}
 
 /** Same interval sweep as Rust: touching gaps are continuous; blocked exits stay solid. */
 export function solidWallSegments(

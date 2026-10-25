@@ -15,12 +15,9 @@ pub(super) struct Geometry<'a> {
     blocked_openings: BTreeSet<String>,
     partial_knowledge: bool,
     observed_openings: BTreeSet<String>,
-<<<<<<< HEAD
     service_apertures: Vec<Opening>,
-=======
     pub(super) disaster: Option<crate::models::Disaster>,
     pub(super) hazard_areas: Vec<crate::models::HazardArea>,
->>>>>>> connor/catastrophes
 }
 
 // Create geometry operations for a borrowed building scenario.
@@ -131,14 +128,11 @@ impl<'a> Geometry<'a> {
             blocked_openings,
             partial_knowledge,
             observed_openings,
-<<<<<<< HEAD
             service_apertures: Vec::new(),
-=======
             disaster: scenario.disaster,
             hazard_areas: scenario
                 .disaster
                 .map_or_else(Vec::new, |d| crate::models::DisasterState::initial(d).areas),
->>>>>>> connor/catastrophes
         };
         // Match the rounded-wall clearance used by playback and integration
         // checks. Cache the pieces rather than rebuilding them for every move.
@@ -317,6 +311,43 @@ impl<'a> Geometry<'a> {
         self.blocked_openings.contains(id)
     }
 
+    /// Sighted or reported danger rules out a destination even before its
+    /// closure is visible. Do not invent solid wall inside someone already in
+    /// the doorway: the actual opening state still controls collision geometry.
+    pub(super) fn opening_is_unsafe(&self, id: &str) -> bool {
+        self.opening_is_blocked(id)
+            || self.disaster.is_some()
+                && self
+                    .scenario
+                    .doors
+                    .iter()
+                    .chain(&self.scenario.exits)
+                    .find(|opening| opening.id == id)
+                    .is_some_and(|opening| {
+                        super::catastrophe::areas_block_opening(
+                            self.scenario,
+                            opening,
+                            &self.hazard_areas,
+                        )
+                    })
+    }
+
+    /// Planning may avoid known danger even though the physics permits escape
+    /// from inside it. Someone already exposed can move outward; a route from
+    /// outside cannot enter the footprint. This never consults unknown patches.
+    pub(super) fn avoids_known_danger(&self, from: Point, to: Point) -> bool {
+        self.disaster.is_none_or(|disaster| {
+            self.hazard_areas.iter().all(|area| {
+                let mut footprint = disaster;
+                footprint.radius = area.radius;
+                let clearance = footprint.exposure_radius() + self.scenario.agent_radius;
+                let initial = math::distance_to_point(from, area.center);
+                math::distance_to_segment(area.center, from, to) + math::EPSILON
+                    >= clearance.min(initial)
+            })
+        })
+    }
+
     fn opening_center(scenario: &BuildingScenario, opening: &Opening) -> Point {
         let wall = scenario
             .walls
@@ -457,7 +488,12 @@ impl<'a> Geometry<'a> {
         self.ray_is_clear(from, surface, &[], Some(&obstacle.id))
     }
 
-    pub(super) fn can_see_opening(&self, from: Point, opening: &crate::models::Opening) -> bool {
+    pub(super) fn can_see_opening(
+        &self,
+        from: Point,
+        opening: &crate::models::Opening,
+        range: f64,
+    ) -> bool {
         let (wall_index, wall) = self
             .scenario
             .walls
@@ -465,44 +501,62 @@ impl<'a> Geometry<'a> {
             .enumerate()
             .find(|(_, wall)| wall.id == opening.wall_id)
             .unwrap();
-        let target = math::interpolate(
+        let start = math::interpolate(wall.start, wall.end, opening.offset / wall.length());
+        let end = math::interpolate(
             wall.start,
             wall.end,
-            (opening.offset + opening.width / 2.0) / wall.length(),
+            (opening.offset + opening.width) / wall.length(),
         );
-        if !self.opening_is_blocked(&opening.id) {
-            return self.has_line_of_sight(from, target);
+        if range <= 0.0 || math::distance_to_segment(from, start, end) > range {
+            return false;
         }
-        // A closed opening must be observable without occluding itself. Test
-        // the full ray against every other barrier, then the supporting wall
-        // with only this opening revealed. Never trim away part of the ray or
-        // ignore adjacent solid portions of the supporting wall.
+        // Seeing any certified portion is enough to identify the opening's
+        // state. The centre can be out of range or behind a narrow screen.
+        // Only the closure itself is removed from this visibility query;
+        // adjacent material and every intervening barrier remain opaque.
         let revealed: Vec<_> = self
             .scenario
             .walls
             .iter()
             .enumerate()
             .filter(|(index, candidate)| {
-                *index == wall_index || self.covering_wall_gap(candidate, opening).is_some()
+                self.opening_is_blocked(&opening.id)
+                    && (*index == wall_index
+                        || self.covering_wall_gap(candidate, opening).is_some())
             })
             .map(|(index, _)| index)
             .collect();
-        self.ray_is_clear(from, target, &revealed, None)
-            && revealed.iter().all(|&index| {
-                let wall = &self.scenario.walls[index];
-                !self
-                    .wall_segments_with_visible_opening(wall, Some(&opening.id))
-                    .iter()
-                    .any(|&(a, b)| {
-                        math::distance_between_segments(from, target, a, b) <= wall.thickness / 2.0
-                    })
-            })
+        let mut occluders: Vec<_> = self
+            .solid_walls
+            .iter()
+            .filter(|(_, _, _, index)| !revealed.contains(index))
+            .map(|&(start, end, radius, _)| Occluder::Capsule { start, end, radius })
+            .collect();
+        for &index in &revealed {
+            let wall = &self.scenario.walls[index];
+            occluders.extend(
+                self.wall_segments_with_visible_opening(wall, Some(&opening.id))
+                    .into_iter()
+                    .map(|(start, end)| Occluder::Capsule {
+                        start,
+                        end,
+                        radius: wall.thickness / 2.0,
+                    }),
+            );
+        }
+        occluders.extend(self.obstructions.iter().map(|o| Occluder::Rectangle {
+            x: o.x,
+            y: o.y,
+            width: o.width,
+            height: o.height,
+        }));
+        !perception::visible_intervals(from, start, end, range, &occluders).is_empty()
     }
 
     /// Usable centre positions on the exit plane, inset from rounded jambs.
     /// Other obstacles are still checked by can_move/can_stand_at.
     pub(super) fn exit_segment(&self, exit_id: &str) -> Option<(Point, Point)> {
-        if self.opening_is_blocked(exit_id) {
+        if self.opening_is_unsafe(exit_id) {
             return None;
         }
         let exit = self.scenario.exits.iter().find(|exit| exit.id == exit_id)?;

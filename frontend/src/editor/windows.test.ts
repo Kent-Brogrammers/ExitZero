@@ -7,7 +7,11 @@ import {
   translateElement,
   removeElement,
 } from "./geometry";
-import { hitOpening, solidWallSegments } from "./openings";
+import {
+  hitOpening,
+  solidWallSegments,
+  suggestedWindowExterior,
+} from "./openings";
 import { mergeEditedOpenings } from "./doorEditing";
 import { renameObject, nextObjectName } from "./names";
 import {
@@ -57,6 +61,30 @@ function draft(): BuildingScenario {
 const selected = { kind: "windows", id: "pane" } as const;
 
 describe("persistent wall-attached windows", () => {
+  it("suggests an exterior away from occupied zones without guessing when both sides are occupied", () => {
+    const b = draft();
+    b.walls[0] = {
+      id: "wall",
+      start: { x: 18, y: 2 },
+      end: { x: 18, y: 14 },
+      thickness: 0.2,
+    };
+    b.spawn_zones = [
+      { id: "inside", x: 10, y: 5, width: 2, height: 2, count: 1 },
+    ];
+    expect(suggestedWindowExterior(b, b.windows![0]!)).toBe(-1);
+    b.spawn_zones.push({
+      id: "other",
+      x: 20,
+      y: 5,
+      width: 2,
+      height: 2,
+      count: 1,
+    });
+    expect(suggestedWindowExterior(b, b.windows![0]!)).toBeNull();
+    b.spawn_zones = [];
+    expect(suggestedWindowExterior(b, b.windows![0]!)).toBeNull();
+  });
   it("round-trips optional config, names and stable IDs while legacy JSON still validates", () => {
     const b = draft();
     expect(buildingError(b, false)).toBeNull();

@@ -241,11 +241,8 @@ impl BuildingScenario {
             || self.spawn_zones.len() > 100
             || self.obstructions.len() > 100
             || self.stair_areas.len() > 100
-<<<<<<< HEAD
             || self.windows.len() > 100
-=======
             || self.tornado_zones.len() > 100
->>>>>>> connor/catastrophes
         {
             return Err("require 1–1000 exits and 1–100 spawn zones; limits are 500 walls, 1000 doors, 100 obstructions, and 100 stair areas".into());
         }
@@ -334,17 +331,16 @@ impl BuildingScenario {
             }
             intervals.push((opening.offset, end));
         }
-        if let Some(context) = &self.window_escape_context {
-            if !context.floor_elevation_metres.is_finite()
+        if let Some(context) = &self.window_escape_context
+            && (!context.floor_elevation_metres.is_finite()
                 || !(0.0..=1000.0).contains(&context.floor_elevation_metres)
-                || !positive(context.required_clear_height_metres, 1000.0)
-            {
-                return Err("window escape context needs a finite nonnegative elevation and positive required height".into());
-            }
+                || !positive(context.required_clear_height_metres, 1000.0))
+        {
+            return Err("window escape context needs a finite nonnegative elevation and positive required height".into());
         }
         for window in &self.windows {
-            if let Some(escape) = &window.emergency_escape {
-                if !positive(escape.clear_width_metres, window.width)
+            if let Some(escape) = &window.emergency_escape
+                && (!positive(escape.clear_width_metres, window.width)
                     || !positive(escape.clear_height_metres, 1000.0)
                     || !escape.preparation_seconds.is_finite()
                     || !(0.0..=100000.0).contains(&escape.preparation_seconds)
@@ -353,10 +349,9 @@ impl BuildingScenario {
                         > f64::from(u32::MAX - 100_000)
                     || (escape.traversal_seconds / self.time_step_seconds).ceil()
                         > f64::from(u32::MAX - 100_000)
-                    || ![-1, 1].contains(&escape.exterior_side)
-                {
-                    return Err("invalid window escape dimensions, timing or exterior side".into());
-                }
+                    || ![-1, 1].contains(&escape.exterior_side))
+            {
+                return Err("invalid window escape dimensions, timing or exterior side".into());
             }
         }
         let exit_ids: HashSet<_> = self.exits.iter().map(|exit| &exit.id).collect();

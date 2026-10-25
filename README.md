@@ -41,6 +41,16 @@ Wall memory records only observed portions within sight range and clear sight li
 
 Rectangular obstructions and circular emergency zones also enter each person's route map only after discovery. Visibility uses the nearest surface of an obstruction or hazard, so a large hazard can be noticed without seeing its centre. Yelling requires both range and a clear path: walls, closed doors, and obstructions block reports. Reports travel one hop per physics tick, and newer opening-state reports supersede stale ones. Dijkstra searches each person's belief map again when new information changes it. Actual collision checks always enforce the real world, even for an unseen blockage.
 
+A visible portion of a door or exit is enough to learn its open/closed state;
+its midpoint need not be visible or within sight range. Fire/gas reports include
+the observed footprint and its revision. Recipients rule out exits covered by
+that known danger and immediately replan an affected route, even before seeing
+the opening themselves. Unknown hazards and unseen growth remain unknown.
+An unsafe destination does not create a solid barrier inside an occupant;
+physical closures still wait for people to clear the doorway.
+
+Simulation mode offers **Show Agent Numbers** and **Show Agent Chat**, both off by default. Numbers display stable agent IDs plus one. Recorded results optionally include `communication_events`: `{step, event_type, sender_id, recipient_ids, opening_id, blocked}`. A `discovery` records an observer learning a changed state, with no recipients; `shared` records successful new information accepted under the existing local sharing rules, grouped per sender/opening/tick. Missing types in earlier share-only recordings mean `shared`. Repeated states and routine initial open confirmations are omitted, so an ordinary run with no changed opening information correctly has an empty log. Chat follows simulated time and rewinds with playback; older recordings (including the saved office demo) show an unavailable state. Live chat updates are deferred; the completed live recording includes these events.
+
 Agents reassess routes every two simulated seconds, with checks staggered across the crowd. Each observer estimates nearby people's motion from consecutive visible positions, smoothing speed and direction over roughly 0.6 seconds. As confidence builds over the first second of observation, routing blends current congestion with one-, two-, and three-second motion forecasts. Traffic flowing along the route costs less than slow or stopped traffic; opposing traffic receives no flow discount. Forecasts stop at remembered obstacles and remove predicted arrivals through believed available exits. Losing sight discards the motion estimate, and forecasts never alter real movement or population counts.
 
 A congestion detour must remain materially better across repeated assessments before an agent switches. The saving must exceed 12% of current estimated cost and at least one agent diameter; turning back adds a further 1.75 seconds of walking cost. After changing routes, the agent commits for three simulated seconds before considering another congestion detour. Newly learned blockages or other geometry that invalidates the current route bypass this delay immediately. Newly available alternatives follow the normal confirmation rule. Waypoint shortcuts use the same forecast cost so they preserve useful detours. These are short-term motion estimates, not exact queue waiting-time predictions.
@@ -217,15 +227,22 @@ height. The inspector's initial 5 s / 3 s timings and 1.2 m / 1 m height inputs
 are editable modeling examples, **not validated safety estimates**. Glazing is
 opaque; ordinary/disabled windows remain solid.
 
-For this conservative MVP, Rust considers fallback windows **only when every
-normal exit is physically blocked**. Failed sampled navigation is not proof that
-normal exits are unreachable. An isolated room with an unblocked exit elsewhere
-therefore does not yet activate fallback. In this fallback phase, the model uses
+Agents try fallback windows when every normal exit is physically blocked, or
+when their own learned layout and danger reports yield no normal route avoiding
+fire/gas. A gas barrier can trigger fallback while the exit itself stays open.
+Each occupant first searches for a normal detour; people with a clear exit route
+continue using it while cut-off groups try eligible windows. Failed sampled
+navigation justifies trying another escape option, not classifying people as
+trapped. Window approach routing also avoids hazard footprints, allowing someone
+already exposed to move outward. In this fallback phase, the model still uses
 global window locations and actual geometry; it does not model individual window
-discovery, hesitation, injuries, climbing ability differences or multiple floors.
+discovery, hesitation, climbing ability differences or multiple floors.
 
 Exterior side is the sign of `(-dy/L, dx/L)` from the parent wall's start/end.
 The user must identify the exterior; workspace boundaries do not establish it.
+Properties labels each direction as left/right/up/down and warns if the arrow
+points toward every occupied spawn rectangle. The suggested direction is a setup
+hint, not a topology check; it leaves existing selections unchanged until chosen.
 Both approach and landing discs must fit inside the drawing workspace, and Rust
 checks the entire crossing against walls, obstructions and hazards. Leave drawing
 space outside exterior walls. Usable width creates a centered aperture with jamb
@@ -250,9 +267,23 @@ and perception retain the opaque wall model at windows, including prepared ones;
 glass transparency and individual discovery are future modeling work. At least
 one normal exit remains required by building validation.
 
+Fire or gas closing the last normal exit also activates fallback. Window service
+rechecks the current hazard footprints before starting a crossing. If a growing
+hazard covers the service lane or landing, approaching and queued occupants are
+released to choose another eligible window. An occupant already crossing
+continues without teleporting; exposure and injury still accumulate. Injury
+speed limits apply while approaching and traversing windows. Tornado response
+uses shelter zones and never activates emergency window escape.
+
 `window_states` records physical phases, FIFO IDs and active traversal/deadlines
 in live and saved frames. Playback uses these states, never a frontend escape
 animation. Amber rings indicate queue members; green rings indicate a traverser.
+The readout also counts assigned people still approaching and displays backend
+rejection reasons: disabled escape, missing capability assumptions, blocked or
+out-of-bounds landings, hazards, and unreachable indoor approaches. Older
+recordings omit these optional diagnostics. A corrected two-room layout with
+outward-facing windows is available in `shared/examples/window-escape.json`;
+import it and block the normal exit or add a hazard to test window fallback.
 Per-agent `escape_route` and optional `evacuated_by_route` distinguish normal exits
 from windows; `exit_id` retains its normal-exit meaning. Legacy recordings have no
 invented route breakdown. Remaining/trapped accounting and severity order are

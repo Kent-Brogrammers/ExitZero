@@ -14,12 +14,29 @@ export function WindowReadout({
         Window service state is unavailable in this recording.
       </p>
     ) : null;
+  const hasApproachCounts = states.every(
+    (s) => s.approaching_agent_ids !== undefined,
+  );
   return (
-    <details className="window-readout">
+    <details
+      className="window-readout"
+      open={states.some((s) => !!s.unavailable_reason)}
+    >
       <summary>
         Window service ·{" "}
+        {hasApproachCounts && (
+          <>
+            {states.reduce(
+              (n, s) => n + (s.approaching_agent_ids?.length ?? 0),
+              0,
+            )}{" "}
+            approaching ·{" "}
+          </>
+        )}
         {states.reduce((n, s) => n + s.queue_agent_ids.length, 0)} waiting ·{" "}
         {states.filter((s) => s.traversing_agent_id !== null).length} traversing
+        {states.some((s) => !!s.unavailable_reason) &&
+          ` · ${states.filter((s) => !!s.unavailable_reason).length} unavailable`}
       </summary>
       <p className="note">
         Amber rings: recorded queue members. Green rings: the active traverser.
@@ -34,9 +51,15 @@ export function WindowReadout({
             </dt>
             <dd>
               {s.state} · {s.queue_agent_ids.length} waiting
+              {s.approaching_agent_ids !== undefined
+                ? ` · ${s.approaching_agent_ids.length} approaching`
+                : ""}
               {s.traversing_agent_id !== null
                 ? ` · occupant ${s.traversing_agent_id} traversing`
                 : ""}
+              {s.unavailable_reason && (
+                <p className="note">{s.unavailable_reason}</p>
+              )}
             </dd>
           </div>
         ))}
