@@ -90,6 +90,12 @@ pub struct AgentPosition {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AnimationFrame {
+    #[serde(
+        default,
+        deserialize_with = "super::windows::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub pursuit: Option<super::PursuitFrame>,
     pub step: u32,
     pub agents: Vec<AgentPosition>,
     /// Physical state at this frame; absent in legacy recordings.
@@ -292,7 +298,45 @@ impl SimulationResult {
             return Err("invalid workspace, time step, or continuous traffic samples".into());
         }
         let mut previous_step = None;
+        let pursuit_mode = self.frames.first().is_some_and(|f| f.pursuit.is_some());
+        let mut previous_caught = std::collections::HashMap::new();
+        let mut previous_escaped = 0;
         for frame in &self.frames {
+            if frame.pursuit.is_some() != pursuit_mode {
+                return Err("pursuit state must be present consistently in the recording".into());
+            }
+            if let Some(pursuit) = &frame.pursuit {
+                let records: std::collections::HashMap<_, _> = pursuit
+                    .caught
+                    .iter()
+                    .map(|c| (c.agent_id, c.step))
+                    .collect();
+                let caught: std::collections::HashSet<_> =
+                    pursuit.caught.iter().map(|c| c.agent_id).collect();
+                if !self.in_bounds(pursuit.stalker.x, pursuit.stalker.y)
+                    || previous_caught
+                        .iter()
+                        .any(|(id, step)| records.get(id) != Some(step))
+                    || pursuit.escaped < previous_escaped
+                    || caught.len() != pursuit.caught.len()
+                    || pursuit
+                        .caught
+                        .iter()
+                        .any(|c| c.agent_id >= self.metrics.total_population || c.step > frame.step)
+                    || frame
+                        .agents
+                        .iter()
+                        .any(|a| a.id >= self.metrics.total_population || caught.contains(&a.id))
+                    || u64::from(pursuit.escaped) + caught.len() as u64 + frame.agents.len() as u64
+                        != u64::from(self.metrics.total_population)
+                {
+                    return Err(
+                        "invalid pursuit actor, capture records or survivor accounting".into(),
+                    );
+                }
+                previous_caught = records;
+                previous_escaped = pursuit.escaped;
+            }
             if frame.step > 100_000 || previous_step.is_some_and(|step| step >= frame.step) {
                 return Err("frame steps must be at most 100000 and strictly increasing".into());
             }
@@ -363,6 +407,9 @@ impl SimulationResult {
                     return Err("invalid window state or queue membership in frame".into());
                 }
             }
+        }
+        if pursuit_mode && previous_escaped != self.metrics.evacuated {
+            return Err("pursuit escapes disagree with final metrics".into());
         }
         if let Some(events) = &self.communication_events {
             let ids: std::collections::HashSet<_> = self

@@ -1,0 +1,780 @@
+{
+  "width": 27,
+  "height": 23,
+  "walls": [
+    {
+      "id": "haunt-outer-0",
+      "name": "House perimeter 1",
+      "start": {
+        "x": 2,
+        "y": 2
+      },
+      "end": {
+        "x": 20,
+        "y": 2
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "haunt-outer-1",
+      "name": "House perimeter 2",
+      "start": {
+        "x": 20,
+        "y": 2
+      },
+      "end": {
+        "x": 20,
+        "y": 10
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "haunt-outer-2",
+      "name": "House perimeter 3",
+      "start": {
+        "x": 20,
+        "y": 10
+      },
+      "end": {
+        "x": 25,
+        "y": 10
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "haunt-outer-3",
+      "name": "House perimeter 4",
+      "start": {
+        "x": 25,
+        "y": 10
+      },
+      "end": {
+        "x": 25,
+        "y": 19
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "haunt-outer-4",
+      "name": "House perimeter 5",
+      "start": {
+        "x": 25,
+        "y": 19
+      },
+      "end": {
+        "x": 13,
+        "y": 19
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "haunt-outer-5",
+      "name": "House perimeter 6",
+      "start": {
+        "x": 13,
+        "y": 19
+      },
+      "end": {
+        "x": 13,
+        "y": 20
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "haunt-outer-6",
+      "name": "House perimeter 7",
+      "start": {
+        "x": 13,
+        "y": 20
+      },
+      "end": {
+        "x": 7,
+        "y": 20
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "haunt-outer-7",
+      "name": "House perimeter 8",
+      "start": {
+        "x": 7,
+        "y": 20
+      },
+      "end": {
+        "x": 7,
+        "y": 19
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "haunt-outer-8",
+      "name": "House perimeter 9",
+      "start": {
+        "x": 7,
+        "y": 19
+      },
+      "end": {
+        "x": 2,
+        "y": 19
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "haunt-outer-9",
+      "name": "House perimeter 10",
+      "start": {
+        "x": 2,
+        "y": 19
+      },
+      "end": {
+        "x": 2,
+        "y": 2
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "haunt-bed-divider",
+      "name": "Bedroom partition",
+      "start": {
+        "x": 8,
+        "y": 2
+      },
+      "end": {
+        "x": 8,
+        "y": 7.6
+      },
+      "thickness": 0.16
+    },
+    {
+      "id": "haunt-bath-divider",
+      "name": "Bathroom partition",
+      "start": {
+        "x": 14,
+        "y": 2
+      },
+      "end": {
+        "x": 14,
+        "y": 7.6
+      },
+      "thickness": 0.16
+    },
+    {
+      "id": "haunt-closet-divider",
+      "name": "Hall closet partition",
+      "start": {
+        "x": 17,
+        "y": 2
+      },
+      "end": {
+        "x": 17,
+        "y": 7.6
+      },
+      "thickness": 0.16
+    },
+    {
+      "id": "haunt-hall-north",
+      "name": "Bedroom corridor",
+      "start": {
+        "x": 2,
+        "y": 7.6
+      },
+      "end": {
+        "x": 20,
+        "y": 7.6
+      },
+      "thickness": 0.16
+    },
+    {
+      "id": "haunt-hall-south",
+      "name": "Living corridor",
+      "start": {
+        "x": 2,
+        "y": 9.4
+      },
+      "end": {
+        "x": 20,
+        "y": 9.4
+      },
+      "thickness": 0.16
+    },
+    {
+      "id": "haunt-living-east",
+      "name": "Living room / entry hall",
+      "start": {
+        "x": 9,
+        "y": 9.4
+      },
+      "end": {
+        "x": 9,
+        "y": 16.5
+      },
+      "thickness": 0.16
+    },
+    {
+      "id": "haunt-kitchen-west",
+      "name": "Kitchen / entry hall",
+      "start": {
+        "x": 11,
+        "y": 9.4
+      },
+      "end": {
+        "x": 11,
+        "y": 16.5
+      },
+      "thickness": 0.16
+    },
+    {
+      "id": "haunt-mudroom",
+      "name": "Mudroom partition",
+      "start": {
+        "x": 18,
+        "y": 9.4
+      },
+      "end": {
+        "x": 18,
+        "y": 19
+      },
+      "thickness": 0.16
+    },
+    {
+      "id": "haunt-laundry-north",
+      "name": "Laundry room partition",
+      "start": {
+        "x": 2,
+        "y": 16.5
+      },
+      "end": {
+        "x": 7,
+        "y": 16.5
+      },
+      "thickness": 0.16
+    },
+    {
+      "id": "haunt-laundry-east",
+      "name": "Laundry / foyer",
+      "start": {
+        "x": 7,
+        "y": 16.5
+      },
+      "end": {
+        "x": 7,
+        "y": 19
+      },
+      "thickness": 0.16
+    },
+    {
+      "id": "haunt-service-north",
+      "name": "Pantry and washroom",
+      "start": {
+        "x": 11,
+        "y": 16.5
+      },
+      "end": {
+        "x": 18,
+        "y": 16.5
+      },
+      "thickness": 0.16
+    },
+    {
+      "id": "haunt-pantry-west",
+      "name": "Pantry / foyer",
+      "start": {
+        "x": 13,
+        "y": 16.5
+      },
+      "end": {
+        "x": 13,
+        "y": 19
+      },
+      "thickness": 0.16
+    },
+    {
+      "id": "haunt-pantry-east",
+      "name": "Pantry / washroom",
+      "start": {
+        "x": 16,
+        "y": 16.5
+      },
+      "end": {
+        "x": 16,
+        "y": 19
+      },
+      "thickness": 0.16
+    },
+    {
+      "id": "haunt-garage",
+      "name": "Garage / mudroom",
+      "start": {
+        "x": 20,
+        "y": 10
+      },
+      "end": {
+        "x": 20,
+        "y": 19
+      },
+      "thickness": 0.2
+    }
+  ],
+  "doors": [
+    {
+      "id": "haunt-door-bed-west",
+      "name": "West bedroom",
+      "wall_id": "haunt-hall-north",
+      "offset": 4.2,
+      "width": 1.1
+    },
+    {
+      "id": "haunt-door-bed-east",
+      "name": "East bedroom",
+      "wall_id": "haunt-hall-north",
+      "offset": 8.5,
+      "width": 1.1
+    },
+    {
+      "id": "haunt-door-bath-north",
+      "name": "Family bathroom",
+      "wall_id": "haunt-hall-north",
+      "offset": 13.2,
+      "width": 0.9
+    },
+    {
+      "id": "haunt-door-closet",
+      "name": "Walk-in closet",
+      "wall_id": "haunt-hall-north",
+      "offset": 16.2,
+      "width": 0.9
+    },
+    {
+      "id": "haunt-door-living-north",
+      "name": "Living room hall door",
+      "wall_id": "haunt-hall-south",
+      "offset": 4,
+      "width": 1.2
+    },
+    {
+      "id": "haunt-door-entry-north",
+      "name": "Entry hallway",
+      "wall_id": "haunt-hall-south",
+      "offset": 7.1,
+      "width": 1.8
+    },
+    {
+      "id": "haunt-door-kitchen-north",
+      "name": "Kitchen hall door",
+      "wall_id": "haunt-hall-south",
+      "offset": 10,
+      "width": 1.2
+    },
+    {
+      "id": "haunt-door-mudroom-north",
+      "name": "Mudroom hall door",
+      "wall_id": "haunt-hall-south",
+      "offset": 16.5,
+      "width": 1
+    },
+    {
+      "id": "haunt-door-living-east",
+      "name": "Living room to foyer",
+      "wall_id": "haunt-living-east",
+      "offset": 4,
+      "width": 1.2
+    },
+    {
+      "id": "haunt-door-kitchen-west",
+      "name": "Kitchen to foyer",
+      "wall_id": "haunt-kitchen-west",
+      "offset": 4.4,
+      "width": 1.2
+    },
+    {
+      "id": "haunt-door-kitchen-east",
+      "name": "Kitchen to mudroom",
+      "wall_id": "haunt-mudroom",
+      "offset": 3.4,
+      "width": 1.1
+    },
+    {
+      "id": "haunt-door-laundry-north",
+      "name": "Laundry hall door",
+      "wall_id": "haunt-laundry-north",
+      "offset": 3.5,
+      "width": 1
+    },
+    {
+      "id": "haunt-door-laundry-east",
+      "name": "Laundry to foyer",
+      "wall_id": "haunt-laundry-east",
+      "offset": 1,
+      "width": 0.9
+    },
+    {
+      "id": "haunt-door-pantry-north",
+      "name": "Kitchen pantry",
+      "wall_id": "haunt-service-north",
+      "offset": 3,
+      "width": 1
+    },
+    {
+      "id": "haunt-door-bath-south",
+      "name": "Guest washroom",
+      "wall_id": "haunt-service-north",
+      "offset": 5.5,
+      "width": 1
+    },
+    {
+      "id": "haunt-door-pantry-west",
+      "name": "Pantry to foyer",
+      "wall_id": "haunt-pantry-west",
+      "offset": 1,
+      "width": 0.9
+    },
+    {
+      "id": "haunt-door-garage",
+      "name": "Garage access",
+      "wall_id": "haunt-garage",
+      "offset": 2,
+      "width": 1.1
+    }
+  ],
+  "exits": [
+    {
+      "id": "haunt-exit-front",
+      "name": "Front porch exit",
+      "wall_id": "haunt-outer-6",
+      "offset": 2.2,
+      "width": 1.5
+    },
+    {
+      "id": "haunt-exit-back",
+      "name": "Living room patio exit",
+      "wall_id": "haunt-outer-9",
+      "offset": 6.5,
+      "width": 1.4
+    },
+    {
+      "id": "haunt-exit-garage-side",
+      "name": "Garage side exit",
+      "wall_id": "haunt-outer-3",
+      "offset": 5.2,
+      "width": 1.4
+    }
+  ],
+  "windows": [
+    {
+      "id": "haunt-window-bed-west",
+      "name": "Bedroom sash window",
+      "wall_id": "haunt-outer-0",
+      "offset": 2,
+      "width": 1.4
+    },
+    {
+      "id": "haunt-window-bed-east",
+      "name": "East bedroom window",
+      "wall_id": "haunt-outer-0",
+      "offset": 7,
+      "width": 1.4
+    },
+    {
+      "id": "haunt-window-bath",
+      "name": "Frosted bathroom window",
+      "wall_id": "haunt-outer-0",
+      "offset": 13.2,
+      "width": 0.8
+    },
+    {
+      "id": "haunt-window-closet",
+      "name": "Closet side window",
+      "wall_id": "haunt-outer-1",
+      "offset": 2,
+      "width": 1
+    },
+    {
+      "id": "haunt-window-living",
+      "name": "Living picture window",
+      "wall_id": "haunt-outer-9",
+      "offset": 2.5,
+      "width": 1.4
+    },
+    {
+      "id": "haunt-window-garage",
+      "name": "Garage window",
+      "wall_id": "haunt-outer-3",
+      "offset": 1,
+      "width": 1.4
+    }
+  ],
+  "spawn_zones": [
+    {
+      "id": "haunt-spawn-closet",
+      "name": "Closet survivor",
+      "x": 17.5,
+      "y": 5.8,
+      "width": 0.65,
+      "height": 0.65,
+      "count": 1
+    },
+    {
+      "id": "haunt-spawn-west",
+      "name": "West bedroom",
+      "x": 3.6,
+      "y": 5.5,
+      "width": 1.5,
+      "height": 1.2,
+      "count": 2
+    },
+    {
+      "id": "haunt-spawn-east",
+      "name": "East bedroom",
+      "x": 11.1,
+      "y": 5.5,
+      "width": 1.7,
+      "height": 1.2,
+      "count": 2
+    },
+    {
+      "id": "haunt-spawn-living",
+      "name": "Living room",
+      "x": 4,
+      "y": 14.8,
+      "width": 2,
+      "height": 1.1,
+      "count": 2
+    },
+    {
+      "id": "haunt-spawn-kitchen",
+      "name": "Kitchen",
+      "x": 15.6,
+      "y": 12.5,
+      "width": 1.2,
+      "height": 1.3,
+      "count": 1
+    },
+    {
+      "id": "haunt-spawn-garage",
+      "name": "Garage",
+      "x": 22.9,
+      "y": 16.5,
+      "width": 1.2,
+      "height": 1.2,
+      "count": 1
+    },
+    {
+      "id": "haunt-spawn-laundry",
+      "name": "Laundry room",
+      "x": 3.4,
+      "y": 17.2,
+      "width": 1.2,
+      "height": 0.9,
+      "count": 1
+    }
+  ],
+  "obstructions": [
+    {
+      "id": "haunt-object-bed-west",
+      "name": "West bedroom bed",
+      "x": 2.7,
+      "y": 2.7,
+      "width": 2,
+      "height": 2.2
+    },
+    {
+      "id": "haunt-object-wardrobe-west",
+      "name": "Bedroom wardrobe",
+      "x": 6.6,
+      "y": 2.8,
+      "width": 0.7,
+      "height": 2
+    },
+    {
+      "id": "haunt-object-bed-east",
+      "name": "East bedroom bed",
+      "x": 8.7,
+      "y": 2.8,
+      "width": 2,
+      "height": 2.3
+    },
+    {
+      "id": "haunt-object-desk",
+      "name": "Bedroom desk",
+      "x": 12.1,
+      "y": 3.3,
+      "width": 1.4,
+      "height": 0.8
+    },
+    {
+      "id": "haunt-object-bath-vanity",
+      "name": "Family bathroom vanity",
+      "x": 14.7,
+      "y": 2.6,
+      "width": 1.5,
+      "height": 0.5
+    },
+    {
+      "id": "haunt-object-tub",
+      "name": "Bathtub",
+      "x": 16.1,
+      "y": 3.6,
+      "width": 0.5,
+      "height": 2
+    },
+    {
+      "id": "haunt-object-closet-shelves",
+      "name": "Closet shelving",
+      "x": 18.8,
+      "y": 2.4,
+      "width": 0.5,
+      "height": 3
+    },
+    {
+      "id": "haunt-object-sofa",
+      "name": "Living room sofa",
+      "x": 3,
+      "y": 12,
+      "width": 2.2,
+      "height": 0.8
+    },
+    {
+      "id": "haunt-object-coffee",
+      "name": "Coffee table",
+      "x": 5,
+      "y": 13.5,
+      "width": 1.3,
+      "height": 0.7
+    },
+    {
+      "id": "haunt-object-television",
+      "name": "TV cabinet",
+      "x": 2.4,
+      "y": 10.3,
+      "width": 0.5,
+      "height": 1.6
+    },
+    {
+      "id": "haunt-object-bookcase",
+      "name": "Living bookcase",
+      "x": 7.8,
+      "y": 10.4,
+      "width": 0.7,
+      "height": 1.7
+    },
+    {
+      "id": "haunt-object-chair",
+      "name": "Armchair",
+      "x": 7.3,
+      "y": 14.7,
+      "width": 0.8,
+      "height": 0.8
+    },
+    {
+      "id": "haunt-object-island",
+      "name": "Kitchen island",
+      "x": 13.1,
+      "y": 11.7,
+      "width": 1.2,
+      "height": 2
+    },
+    {
+      "id": "haunt-object-counter-east",
+      "name": "Kitchen counter",
+      "x": 16.4,
+      "y": 9.9,
+      "width": 1,
+      "height": 2.1
+    },
+    {
+      "id": "haunt-object-counter-north",
+      "name": "Kitchen worktop",
+      "x": 12,
+      "y": 10,
+      "width": 2.6,
+      "height": 0.5
+    },
+    {
+      "id": "haunt-object-dining",
+      "name": "Dining table",
+      "x": 14.8,
+      "y": 14.4,
+      "width": 1.5,
+      "height": 1.1
+    },
+    {
+      "id": "haunt-object-pantry",
+      "name": "Pantry shelving",
+      "x": 13.5,
+      "y": 17,
+      "width": 0.5,
+      "height": 1.5
+    },
+    {
+      "id": "haunt-object-washroom-vanity",
+      "name": "Guest washroom vanity",
+      "x": 16.5,
+      "y": 17,
+      "width": 1,
+      "height": 0.45
+    },
+    {
+      "id": "haunt-object-toilet",
+      "name": "Guest washroom fixture",
+      "x": 17.1,
+      "y": 18,
+      "width": 0.5,
+      "height": 0.5
+    },
+    {
+      "id": "haunt-object-mudroom-rack",
+      "name": "Mudroom storage",
+      "x": 18.8,
+      "y": 14,
+      "width": 0.5,
+      "height": 2
+    },
+    {
+      "id": "haunt-object-car",
+      "name": "Parked car",
+      "x": 20.9,
+      "y": 14,
+      "width": 1.7,
+      "height": 3.8
+    },
+    {
+      "id": "haunt-object-workbench",
+      "name": "Garage workbench",
+      "x": 23.8,
+      "y": 10.6,
+      "width": 0.6,
+      "height": 2.4
+    },
+    {
+      "id": "haunt-object-garage-shelf",
+      "name": "Garage shelving",
+      "x": 20.8,
+      "y": 10.4,
+      "width": 2,
+      "height": 0.6
+    },
+    {
+      "id": "haunt-object-washer",
+      "name": "Laundry appliances",
+      "x": 2.5,
+      "y": 17,
+      "width": 0.5,
+      "height": 1.5
+    }
+  ],
+  "blocked_exit_ids": [],
+  "agent_radius": 0.22,
+  "time_step_seconds": 0.1,
+  "seed": 31,
+  "max_steps": 500,
+  "pursuit": {
+    "stalker_start": {
+      "x": 18.1,
+      "y": 4.9
+    },
+    "stalker_speed": 1.6,
+    "survivor_speed": 1.3,
+    "capture_radius": 0.5,
+    "avoidance_radius": 3
+  }
+}

@@ -27,6 +27,8 @@ import { SimulationSummary } from "./SimulationSummary";
 import { frameLayout } from "./frameLayout";
 import { SimulationDetails } from "./SimulationDetails";
 import { AgentChat } from "./AgentChat";
+import { RecordingExport } from "./ExportRecording";
+import { PursuitMetrics } from "./PursuitMetrics";
 import "./SimulationView.css";
 
 interface SimulationViewProps {
@@ -170,6 +172,7 @@ function Playback({
         {
           windowStates: agents?.window_states,
           disasterState: agents?.disaster_state,
+          showPursuitStart: false,
           underlay: (ctx) => {
             ctx.save();
             ctx.beginPath();
@@ -325,6 +328,14 @@ function Playback({
                   ))}
                 </select>
               </label>
+              <RecordingExport
+                building={building}
+                result={recording}
+                synthetic={synthetic}
+                active={active}
+                showAgentNumbers={showAgentNumbers}
+                onOpen={player.pause}
+              />
             </div>
             <div className="playback-timeline">
               <label htmlFor="playback-seek">Recording timeline</label>
@@ -368,38 +379,44 @@ function Playback({
                   )}
                 </dd>
               </div>
-              <div>
-                <dt>
-                  {building.disaster?.kind === "tornado"
-                    ? "Sheltered (final)"
-                    : "Evacuated (final)"}
-                </dt>
-                <dd>
-                  {building.disaster?.kind === "tornado"
-                    ? (recording?.sheltered ?? "—")
-                    : (recording?.evacuated ?? "—")}
-                  {building.disaster?.kind !== "tornado" &&
-                    (recording?.sheltered ?? 0) > 0 && (
-                      <> · {recording!.sheltered} sheltered</>
-                    )}
-                </dd>
-              </div>
-              <div>
-                <dt>Remaining (final)</dt>
-                <dd>{recording?.remaining ?? "—"}</dd>
-              </div>
-              <div>
-                <dt>Status (final)</dt>
-                <dd role="status">
-                  {recording
-                    ? recording.status === "completed"
-                      ? "Completed"
-                      : recording.status === "timeout"
-                        ? "Step limit reached"
-                        : "Incomplete"
-                    : "Awaiting simulation"}
-                </dd>
-              </div>
+              {frame?.pursuit ? (
+                <PursuitMetrics frame={frame} final={atEnd} />
+              ) : (
+                <>
+                  <div>
+                    <dt>
+                      {building.disaster?.kind === "tornado"
+                        ? "Sheltered (final)"
+                        : "Evacuated (final)"}
+                    </dt>
+                    <dd>
+                      {building.disaster?.kind === "tornado"
+                        ? (recording?.sheltered ?? "—")
+                        : (recording?.evacuated ?? "—")}
+                      {building.disaster?.kind !== "tornado" &&
+                        (recording?.sheltered ?? 0) > 0 && (
+                          <> · {recording!.sheltered} sheltered</>
+                        )}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Remaining (final)</dt>
+                    <dd>{recording?.remaining ?? "—"}</dd>
+                  </div>
+                  <div>
+                    <dt>Status (final)</dt>
+                    <dd role="status">
+                      {recording
+                        ? recording.status === "completed"
+                          ? "Completed"
+                          : recording.status === "timeout"
+                            ? "Step limit reached"
+                            : "Incomplete"
+                        : "Awaiting simulation"}
+                    </dd>
+                  </div>
+                </>
+              )}
             </dl>
             {recording && (
               <SimulationDetails
@@ -624,6 +641,11 @@ export function SimulationView({
             />
             Show Agent Chat
           </label>
+          {building.pursuit && !preview && (
+            <span className="pursuit-legend">
+              Halloween pursuit · Orange: survivors · Red mask: stalker
+            </span>
+          )}
         </div>
         <button
           ref={analyticsButton}

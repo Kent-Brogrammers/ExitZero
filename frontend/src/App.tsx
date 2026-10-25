@@ -12,6 +12,7 @@ import { StudioWelcome } from "./studio/StudioWelcome";
 import { StudioAbout } from "./studio/StudioAbout";
 import { TemplatesPage } from "./templates/TemplatesPage";
 import { LayoutNameDialog } from "./templates/LayoutNameDialog";
+import { PursuitReport } from "./simulation/PursuitMetrics";
 import { storeLayout } from "./templates/layouts";
 import type { UserTemplate } from "./templates/templates";
 import { loadOfficeDemo, officeDemoBuilding } from "./studio/officeDemo";
@@ -362,7 +363,10 @@ export default function App() {
   }
 
   return (
-    <div className={`workspace-app${view === "welcome" ? " is-welcome" : ""}`}>
+    <div
+      className={`workspace-app${view === "welcome" ? " is-welcome" : ""}`}
+      data-halloween={building.pursuit ? "true" : undefined}
+    >
       <div className="welcome-view" hidden={view !== "welcome"}>
         <StudioWelcome
           building={officeDemoBuilding}
@@ -648,7 +652,7 @@ export default function App() {
               result={result}
               live={live}
               replayTarget={replayTarget}
-              allowSyntheticPreview={!officeDemo}
+              allowSyntheticPreview={!officeDemo && !building.pursuit}
               disabled={busy}
               savedLayoutJson={savedLayoutJson}
               onSaved={markSaved}
@@ -678,13 +682,33 @@ export default function App() {
                 aria-label="Analysis actions"
               >
                 <button
-                  disabled={busy || connection !== "online" || !!layoutProblem}
+                  disabled={
+                    busy ||
+                    connection !== "online" ||
+                    !!layoutProblem ||
+                    !!building.pursuit
+                  }
+                  title={
+                    building.pursuit
+                      ? "Safety stress tests apply to ordinary evacuation modes."
+                      : undefined
+                  }
                   onClick={() => void run("stress")}
                 >
                   Stress Test
                 </button>
                 <button
-                  disabled={busy || connection !== "online" || !!layoutProblem}
+                  disabled={
+                    busy ||
+                    connection !== "online" ||
+                    !!layoutProblem ||
+                    !!building.pursuit
+                  }
+                  title={
+                    building.pursuit
+                      ? "Safety optimization applies to ordinary evacuation modes."
+                      : undefined
+                  }
                   onClick={() => void run("optimize")}
                 >
                   Optimize
@@ -692,28 +716,35 @@ export default function App() {
               </div>
             </div>
             <Suspense fallback={<p role="status">Loading analytics…</p>}>
-              <AnalyticsDashboard
-                onViewInSimulation={(step) => {
-                  if (
-                    !result ||
-                    busy ||
-                    !result.frames.some((frame) => frame.step === step)
-                  )
-                    return;
-                  setReplayTarget((previous) => ({
-                    source: result,
-                    step,
-                    request: (previous?.request ?? 0) + 1,
-                  }));
-                  navigate("simulation");
-                }}
-                result={result}
-                stressResult={stressResult}
-                building={building}
-                optimization={optimization}
-                onApply={applyCandidate}
-                disabled={busy}
-              />
+              {result?.frames.at(-1)?.pursuit ? (
+                <PursuitReport
+                  result={result}
+                  onReplay={() => navigate("simulation")}
+                />
+              ) : (
+                <AnalyticsDashboard
+                  onViewInSimulation={(step) => {
+                    if (
+                      !result ||
+                      busy ||
+                      !result.frames.some((frame) => frame.step === step)
+                    )
+                      return;
+                    setReplayTarget((previous) => ({
+                      source: result,
+                      step,
+                      request: (previous?.request ?? 0) + 1,
+                    }));
+                    navigate("simulation");
+                  }}
+                  result={result}
+                  stressResult={stressResult}
+                  building={building}
+                  optimization={optimization}
+                  onApply={applyCandidate}
+                  disabled={busy}
+                />
+              )}
             </Suspense>
           </section>
         </main>

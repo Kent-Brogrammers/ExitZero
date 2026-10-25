@@ -1,6 +1,7 @@
 import { formatDimensions } from "../utils/units";
 import { useEffect, useRef } from "react";
 import { SimulationDetails } from "./SimulationDetails";
+import { PursuitMetrics } from "./PursuitMetrics";
 import type {
   AnimationFrame,
   BuildingScenario,
@@ -100,6 +101,7 @@ export function LiveSimulationView({
         {
           windowStates: frame?.window_states,
           disasterState: frame?.disaster_state,
+          showPursuitStart: false,
           underlay: (ctx) => {
             const layer = heatLayer.current;
             if (!layer) return;
@@ -154,7 +156,9 @@ export function LiveSimulationView({
               {frame
                 ? building.disaster
                   ? `Alarm: ${building.disaster.kind.replace("_", " ")} · live`
-                  : "Live · recording"
+                  : building.pursuit
+                    ? "Halloween — The Pursuit · live"
+                    : "Live · recording"
                 : "Preparing simulation…"}
             </span>
           </div>
@@ -170,30 +174,36 @@ export function LiveSimulationView({
                     : "—"}
                 </dd>
               </div>
-              <div>
-                <dt>Remaining</dt>
-                <dd>{frame?.agents.length ?? "—"}</dd>
-              </div>
-              <div>
-                <dt>
-                  {building.disaster?.kind === "tornado"
-                    ? "Sheltered"
-                    : "Evacuated"}
-                </dt>
-                <dd>
-                  {frame
-                    ? building.disaster?.kind === "tornado"
-                      ? (frame.sheltered ?? 0)
-                      : population -
-                        frame.agents.length -
-                        (frame.sheltered ?? 0)
-                    : "—"}
-                </dd>
-              </div>
-              <div>
-                <dt>Status</dt>
-                <dd role="status">{frame ? "Live" : "Starting…"}</dd>
-              </div>
+              {frame?.pursuit ? (
+                <PursuitMetrics frame={frame} />
+              ) : (
+                <>
+                  <div>
+                    <dt>Remaining</dt>
+                    <dd>{frame?.agents.length ?? "—"}</dd>
+                  </div>
+                  <div>
+                    <dt>
+                      {building.disaster?.kind === "tornado"
+                        ? "Sheltered"
+                        : "Evacuated"}
+                    </dt>
+                    <dd>
+                      {frame
+                        ? building.disaster?.kind === "tornado"
+                          ? (frame.sheltered ?? 0)
+                          : population -
+                            frame.agents.length -
+                            (frame.sheltered ?? 0)
+                        : "—"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Status</dt>
+                    <dd role="status">{frame ? "Live" : "Starting…"}</dd>
+                  </div>
+                </>
+              )}
             </dl>
             {frame && (
               <SimulationDetails

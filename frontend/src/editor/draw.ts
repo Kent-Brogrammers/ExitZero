@@ -1,4 +1,5 @@
 import { formatDimensions } from "../utils/units";
+import { drawStalker } from "./drawPursuit";
 import type {
   BuildingScenario,
   Point,
@@ -35,6 +36,7 @@ export function drawLayout(
     underlay?: (ctx: CanvasRenderingContext2D) => void;
     showDimensions?: boolean;
     showLabels?: boolean;
+    showPursuitStart?: boolean;
     windowStates?: readonly WindowFrameState[];
     disasterState?: import("../types/simulation").DisasterState;
   },
@@ -64,6 +66,22 @@ export function drawLayout(
       ctx.fillRect(zone.x, zone.y, zone.width, zone.height);
   }
   options?.underlay?.(ctx);
+  if (building.pursuit && options?.showPursuitStart !== false) {
+    drawStalker(
+      ctx,
+      building.pursuit.stalker_start,
+      Math.max(building.agent_radius, 10 * px),
+    );
+    if (options?.showLabels !== false) {
+      ctx.fillStyle = palette.wall;
+      ctx.font = `${11 * px}px system-ui`;
+      ctx.fillText(
+        "Stalker start",
+        building.pursuit.stalker_start.x + 14 * px,
+        building.pursuit.stalker_start.y,
+      );
+    }
+  }
   if (options?.grid)
     drawGrid(ctx, building, { scale, x, y }, ratio, options.grid, palette);
   if (building.disaster) {

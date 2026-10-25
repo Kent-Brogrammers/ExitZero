@@ -1,4 +1,5 @@
 import type { SimulationResult } from "../types/simulation";
+import { PursuitMetrics } from "./PursuitMetrics";
 
 interface SimulationSummaryProps {
   result: SimulationResult | null;
@@ -16,6 +17,9 @@ export function SimulationSummary({
   onClose,
   onOpenAnalytics,
 }: SimulationSummaryProps) {
+  const pursuitFrame = result?.frames.at(-1)?.pursuit
+    ? result.frames.at(-1)!
+    : null;
   const runSeconds =
     result?.analytics?.simulated_seconds ??
     (result?.clearance_steps != null
@@ -62,76 +66,92 @@ export function SimulationSummary({
             </strong>
           </div>
           <h4>Final recorded outcome</h4>
-          <dl className="summary-values">
-            <div>
-              <dt>Status</dt>
-              <dd>
-                {result.status === "completed"
-                  ? "Completed"
-                  : result.status === "timeout"
-                    ? "Step limit reached"
-                    : "Incomplete"}
-              </dd>
-            </div>
-            <div>
-              <dt>Total occupants</dt>
-              <dd>{result.total_population}</dd>
-            </div>
-            <div>
-              <dt>Evacuated</dt>
-              <dd>{result.evacuated}</dd>
-            </div>
-            {(result.sheltered ?? 0) > 0 && (
-              <div>
-                <dt>Sheltered</dt>
-                <dd>{result.sheltered}</dd>
-              </div>
-            )}
-            <div>
-              <dt>Injured during run</dt>
-              <dd>
-                {result.analytics?.agents.filter((a) => (a.injury ?? 0) > 0)
-                  .length ?? "—"}
-              </dd>
-            </div>
-            <div>
-              <dt>Remaining</dt>
-              <dd>{result.remaining}</dd>
-            </div>
-            {result.evacuated_by_route && (
-              <>
+          {pursuitFrame ? (
+            <>
+              <dl className="summary-values">
+                <PursuitMetrics frame={pursuitFrame} final />
+              </dl>
+              <p className="summary-note">
+                {result.total_population} survivors ·{" "}
+                {(pursuitFrame.step * result.time_step_seconds).toFixed(2)} s.
+                Fictional Halloween pursuit. Caught survivors are separate from
+                active remaining survivors.
+              </p>
+            </>
+          ) : (
+            <>
+              <dl className="summary-values">
                 <div>
-                  <dt>Via normal exits</dt>
-                  <dd>{result.evacuated_by_route.normal_exit}</dd>
+                  <dt>Status</dt>
+                  <dd>
+                    {result.status === "completed"
+                      ? "Completed"
+                      : result.status === "timeout"
+                        ? "Step limit reached"
+                        : "Incomplete"}
+                  </dd>
                 </div>
                 <div>
-                  <dt>Via emergency windows</dt>
-                  <dd>{result.evacuated_by_route.emergency_window}</dd>
+                  <dt>Total occupants</dt>
+                  <dd>{result.total_population}</dd>
                 </div>
-              </>
-            )}
-            <div>
-              <dt>Trapped</dt>
-              <dd>{result.trapped}</dd>
-            </div>
-            <div>
-              <dt>Run simulation time</dt>
-              <dd>
-                {runSeconds === null
-                  ? "Unavailable"
-                  : `${runSeconds.toFixed(2)} s`}
-              </dd>
-            </div>
-          </dl>
-          <p className="summary-note">
-            Trapped occupants are included in remaining. Counts describe the
-            final outcome, not the playhead.
-          </p>
-          {runSeconds === null && (
-            <p className="summary-note">
-              The result does not include the full run time. The last animation
-              sample may precede the end of the run.
-            </p>
+                <div>
+                  <dt>Evacuated</dt>
+                  <dd>{result.evacuated}</dd>
+                </div>
+                {(result.sheltered ?? 0) > 0 && (
+                  <div>
+                    <dt>Sheltered</dt>
+                    <dd>{result.sheltered}</dd>
+                  </div>
+                )}
+                <div>
+                  <dt>Injured during run</dt>
+                  <dd>
+                    {result.analytics?.agents.filter((a) => (a.injury ?? 0) > 0)
+                      .length ?? "—"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Remaining</dt>
+                  <dd>{result.remaining}</dd>
+                </div>
+                {result.evacuated_by_route && (
+                  <>
+                    <div>
+                      <dt>Via normal exits</dt>
+                      <dd>{result.evacuated_by_route.normal_exit}</dd>
+                    </div>
+                    <div>
+                      <dt>Via emergency windows</dt>
+                      <dd>{result.evacuated_by_route.emergency_window}</dd>
+                    </div>
+                  </>
+                )}
+                <div>
+                  <dt>Trapped</dt>
+                  <dd>{result.trapped}</dd>
+                </div>
+                <div>
+                  <dt>Run simulation time</dt>
+                  <dd>
+                    {runSeconds === null
+                      ? "Unavailable"
+                      : `${runSeconds.toFixed(2)} s`}
+                  </dd>
+                </div>
+              </dl>
+              <p className="summary-note">
+                Trapped occupants are included in remaining. Counts describe the
+                final outcome, not the playhead.
+              </p>
+              {runSeconds === null && (
+                <p className="summary-note">
+                  The result does not include the full run time. The last
+                  animation sample may precede the end of the run.
+                </p>
+              )}
+            </>
           )}
           {synthetic && (
             <p className="summary-note summary-warning">

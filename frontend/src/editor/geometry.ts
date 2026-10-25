@@ -256,6 +256,21 @@ export function buildingError(
     population += zone.count;
   }
   if (population > 10000) return "Total population must not exceed 10,000.";
+  if (b.pursuit) {
+    const p = b.pursuit;
+    if (!inside(p.stalker_start))
+      return "Place the stalker start inside the workspace.";
+    if (b.disaster || population > 64)
+      return "Halloween pursuit supports up to 64 survivors without a simultaneous disaster.";
+    if (
+      p.capture_radius < b.agent_radius * 2 ||
+      p.capture_radius > b.agent_radius * 2 + 1 ||
+      p.avoidance_radius < p.capture_radius
+    )
+      return "Pursuit capture range must fit the agents' bodies, and avoidance range must be at least capture range.";
+    if (b.windows?.some((w) => w.emergency_escape?.enabled))
+      return "Halloween pursuit uses doors and exits. Switch to ordinary evacuation for emergency window service.";
+  }
   return null;
 }
 

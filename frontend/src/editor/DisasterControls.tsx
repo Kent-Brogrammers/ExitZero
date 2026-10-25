@@ -1,4 +1,5 @@
 import { defaultDynamics } from "./disasterDynamics";
+import { PursuitControls } from "./PursuitControls";
 import { useId } from "react";
 import { LengthInput } from "../ui/LengthInput";
 import { lengthFromInput, lengthInputValue, toFeet } from "../utils/units";
@@ -33,8 +34,10 @@ export function DisasterControls({
       });
   }
   function choose(value: DisasterKind | "") {
+    const ordinary = { ...building };
+    delete ordinary.pursuit;
     if (!value) {
-      const next = { ...building };
+      const next = ordinary;
       delete next.disaster;
       onChange(next);
       return;
@@ -47,7 +50,7 @@ export function DisasterControls({
           Math.hypot(wall.end.x - wall.start.x, wall.end.y - wall.start.y)
         : 0;
     onChange({
-      ...building,
+      ...ordinary,
       disaster: {
         kind: value,
         dynamics: defaultDynamics(
@@ -71,6 +74,7 @@ export function DisasterControls({
   }
   return (
     <div className="disaster-controls">
+      <PursuitControls building={building} onChange={onChange} />
       <fieldset className="scenario-picker">
         <legend>Scenario</legend>
         <div className="scenario-options">
@@ -113,7 +117,7 @@ export function DisasterControls({
                 name={pickerId}
                 value={kind}
                 aria-label={description}
-                checked={(disaster?.kind ?? "") === kind}
+                checked={!building.pursuit && (disaster?.kind ?? "") === kind}
                 onChange={() => choose(kind)}
               />
               <span className="scenario-choice">
