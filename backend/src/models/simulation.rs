@@ -14,6 +14,8 @@ pub struct SimulationMetrics {
     pub status: SimulationStatus,
     pub total_population: u32,
     pub evacuated: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub sheltered: u32,
     /// Trapped is a subset of remaining, not an additional population category.
     pub trapped: u32,
     pub remaining: u32,
@@ -35,7 +37,7 @@ impl SimulationMetrics {
         }
         if self.total_population == 0
             || self.total_population > 10_000
-            || u64::from(self.evacuated) + u64::from(self.remaining)
+            || u64::from(self.evacuated) + u64::from(self.sheltered) + u64::from(self.remaining)
                 != u64::from(self.total_population)
             || self.trapped > self.remaining
         {
@@ -81,6 +83,8 @@ pub struct AgentPosition {
     pub id: u32,
     pub x: f64,
     pub y: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub injury: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,6 +97,10 @@ pub struct AnimationFrame {
     pub blocked_opening_ids: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window_states: Option<Vec<super::WindowFrameState>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sheltered: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disaster_state: Option<super::DisasterState>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -124,6 +132,12 @@ pub struct AgentStatistics {
     pub escape_route: Option<super::EscapeRoute>,
     /// False means the sampled navigation graph found no route, not proven trapped.
     pub route_found: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shelter: Option<super::ShelterArrival>,
+    #[serde(default, skip_serializing_if = "is_zero_f64")]
+    pub injury: f64,
+    #[serde(default, skip_serializing_if = "is_zero_f64")]
+    pub exposure_seconds: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -194,6 +208,19 @@ impl SimulationResult {
                 || analytics.agents.iter().any(|agent| {
                     let did_evacuate = agent.evacuation_step.is_some();
                     !ids.insert(agent.id)
+                        || !agent.injury.is_finite()
+                        || !(0.0..=1.0).contains(&agent.injury)
+                        || !nonnegative(agent.exposure_seconds)
+                        || agent.exposure_seconds > agent.elapsed_seconds + 1e-6
+                        || agent.shelter.as_ref().is_some_and(|s| {
+                            did_evacuate
+                                || s.id.is_empty()
+                                || s.step > 100_000
+                                || !nonnegative(s.seconds)
+                                || (s.seconds - agent.elapsed_seconds).abs() > 1e-6
+                                || (s.seconds - f64::from(s.step) * self.time_step_seconds).abs()
+                                    > 1e-6
+                        })
                         || !nonnegative(agent.distance_metres)
                         || !nonnegative(agent.waiting_seconds)
                         || !nonnegative(agent.elapsed_seconds)
@@ -236,6 +263,12 @@ impl SimulationResult {
                     .filter(|agent| agent.evacuation_step.is_some())
                     .count()
                     != self.metrics.evacuated as usize
+                || analytics
+                    .agents
+                    .iter()
+                    .filter(|agent| agent.shelter.is_some())
+                    .count()
+                    != self.metrics.sheltered as usize
                 || analytics.median_evacuation_seconds.is_some() != (self.metrics.evacuated > 0)
             {
                 return Err("invalid per-agent analytics, times, or population accounting".into());
@@ -264,12 +297,31 @@ impl SimulationResult {
                 return Err("frame steps must be at most 100000 and strictly increasing".into());
             }
             previous_step = Some(frame.step);
+            if let Some(state) = &frame.disaster_state {
+                let mut area_ids = std::collections::HashSet::new();
+                if state.areas.is_empty()
+                    || state.areas.len() > 64
+                    || state.areas.iter().any(|area| {
+                        !area_ids.insert(area.id)
+                            || area.revision > frame.step
+                            || !self.in_bounds(area.center.x, area.center.y)
+                            || !area.radius.is_finite()
+                            || area.radius <= 0.0
+                            || area.radius > 1000.0
+                    })
+                {
+                    return Err("invalid disaster footprint in animation frame".into());
+                }
+            }
             let mut ids = std::collections::HashSet::new();
             if frame.agents.len() > self.metrics.total_population as usize
-                || frame
-                    .agents
-                    .iter()
-                    .any(|agent| !self.in_bounds(agent.x, agent.y) || !ids.insert(agent.id))
+                || frame.agents.iter().any(|agent| {
+                    !self.in_bounds(agent.x, agent.y)
+                        || !ids.insert(agent.id)
+                        || agent.injury.is_some_and(|injury| {
+                            !injury.is_finite() || !(0.0..=1.0).contains(&injury)
+                        })
+                })
             {
                 return Err("frames must contain unique agents with finite positions within building bounds".into());
             }
@@ -281,6 +333,12 @@ impl SimulationResult {
                         !windows.insert(&s.window_id)
                             || s.window_id.trim().is_empty()
                             || s.window_id.chars().count() > 64
+                            || s.unavailable_reason.as_ref().is_some_and(|reason| {
+                                reason.trim().is_empty() || reason.chars().count() > 240
+                            })
+                            || s.approaching_agent_ids
+                                .as_ref()
+                                .is_some_and(|ids| ids.len() > 10_000)
                             || matches!(
                                 s.state,
                                 super::WindowState::Opening | super::WindowState::Breaking
@@ -294,8 +352,10 @@ impl SimulationResult {
                                     s.state,
                                     super::WindowState::Open | super::WindowState::Broken
                                 )
-                            || s.queue_agent_ids
+                            || s.approaching_agent_ids
                                 .iter()
+                                .flatten()
+                                .chain(s.queue_agent_ids.iter())
                                 .chain(s.traversing_agent_id.iter())
                                 .any(|id| !ids.contains(id) || !participants.insert(*id))
                     })
@@ -350,4 +410,11 @@ impl SimulationResult {
         }
         Ok(())
     }
+}
+
+fn is_zero_u32(value: &u32) -> bool {
+    *value == 0
+}
+fn is_zero_f64(value: &f64) -> bool {
+    *value == 0.0
 }

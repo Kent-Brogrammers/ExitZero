@@ -68,6 +68,12 @@ pub struct WindowFrameState {
     pub queue_agent_ids: Vec<u32>,
     pub traversing_agent_id: Option<u32>,
     pub traversal_earliest_finish_step: Option<u32>,
+    /// Why new crossings cannot start; absent in legacy recordings or when usable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unavailable_reason: Option<String>,
+    /// Assigned occupants still walking toward the holding lane.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approaching_agent_ids: Option<Vec<u32>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

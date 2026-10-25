@@ -46,7 +46,8 @@ export class ApiError extends Error {
 
 function checkMetrics(metrics: SimulationMetrics): void {
   if (
-    metrics.evacuated + metrics.remaining !== metrics.total_population ||
+    metrics.evacuated + (metrics.sheltered ?? 0) + metrics.remaining !==
+      metrics.total_population ||
     metrics.trapped > metrics.remaining ||
     (metrics.evacuated_by_route &&
       metrics.evacuated_by_route.normal_exit +
@@ -148,6 +149,12 @@ function checkSimulation(
         frame.agents.length > result.total_population ||
         new Set(frame.agents.map((agent) => agent.id)).size !==
           frame.agents.length ||
+        frame.disaster_state?.areas.some(
+          (area) =>
+            area.center.x > result.width ||
+            area.center.y > result.height ||
+            area.revision > frame.step,
+        ) ||
         frame.agents.some(
           (agent) => agent.x > result.width || agent.y > result.height,
         ),
@@ -181,6 +188,7 @@ function validWindowStates(frame: AnimationFrame): boolean {
       return false;
     windows.add(s.window_id);
     return [
+      ...(s.approaching_agent_ids ?? []),
       ...s.queue_agent_ids,
       ...(s.traversing_agent_id === null ? [] : [s.traversing_agent_id]),
     ].every((id) => {

@@ -36,6 +36,8 @@ struct Prediction {
 #[derive(Default)]
 pub(super) struct CrowdForecast {
     people: Vec<Prediction>,
+    disaster: Option<crate::models::Disaster>,
+    hazard_areas: Vec<crate::models::HazardArea>,
 }
 
 impl CrowdMemory {
@@ -91,14 +93,27 @@ impl CrowdMemory {
             );
         }
         self.tracks.retain(|_, track| track.tick == tick);
-        CrowdForecast { people }
+        CrowdForecast {
+            people,
+            disaster: geometry.disaster,
+            hazard_areas: geometry.hazard_areas.clone(),
+        }
     }
 }
 
 impl CrowdForecast {
+    pub(super) fn for_geometry(geometry: &Geometry<'_>) -> Self {
+        Self {
+            people: vec![],
+            disaster: geometry.disaster,
+            hazard_areas: geometry.hazard_areas.clone(),
+        }
+    }
     #[cfg(test)]
     pub(super) fn stationary(positions: &[Point]) -> Self {
         Self {
+            disaster: None,
+            hazard_areas: vec![],
             people: positions
                 .iter()
                 .map(|&position| Prediction {
@@ -123,30 +138,58 @@ impl CrowdForecast {
             x: (end.x - start.x) / length,
             y: (end.y - start.y) / length,
         };
-        self.people
-            .iter()
-            .map(|person| {
-                let current = occupancy_cost(start, heading, length, person.position, radius);
-                if person.confidence == 0.0 {
-                    return current;
-                }
-                let forward_speed = (person.velocity.x * heading.x + person.velocity.y * heading.y)
-                    .clamp(0.0, WALKING_SPEED)
-                    / WALKING_SPEED;
-                let predicted = 0.2 * current
-                    + person
-                        .future
-                        .iter()
-                        .zip(FORECAST_WEIGHTS)
-                        .filter_map(|(position, weight)| {
-                            position
-                                .map(|p| weight * occupancy_cost(start, heading, length, p, radius))
-                        })
-                        .sum::<f64>();
-                (1.0 - person.confidence) * current
-                    + person.confidence * (1.0 - 0.7 * forward_speed) * predicted
-            })
-            .sum()
+        let danger_cost = self.disaster.map_or(0.0, |danger| {
+            self.hazard_areas
+                .iter()
+                .map(|area| {
+                    let mut footprint = danger;
+                    footprint.center = area.center;
+                    footprint.radius = area.radius;
+                    occupancy_cost(
+                        start,
+                        heading,
+                        length,
+                        area.center,
+                        (area.radius + radius) / 4.0,
+                    ) * 25.0
+                        + occupancy_cost(
+                            start,
+                            heading,
+                            length,
+                            area.center,
+                            (footprint.exposure_radius() + radius) / 4.0,
+                        ) * 5.0
+                })
+                .sum::<f64>()
+        });
+        danger_cost
+            + self
+                .people
+                .iter()
+                .map(|person| {
+                    let current = occupancy_cost(start, heading, length, person.position, radius);
+                    if person.confidence == 0.0 {
+                        return current;
+                    }
+                    let forward_speed = (person.velocity.x * heading.x
+                        + person.velocity.y * heading.y)
+                        .clamp(0.0, WALKING_SPEED)
+                        / WALKING_SPEED;
+                    let predicted = 0.2 * current
+                        + person
+                            .future
+                            .iter()
+                            .zip(FORECAST_WEIGHTS)
+                            .filter_map(|(position, weight)| {
+                                position.map(|p| {
+                                    weight * occupancy_cost(start, heading, length, p, radius)
+                                })
+                            })
+                            .sum::<f64>();
+                    (1.0 - person.confidence) * current
+                        + person.confidence * (1.0 - 0.7 * forward_speed) * predicted
+                })
+                .sum::<f64>()
     }
 }
 
