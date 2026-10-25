@@ -199,11 +199,6 @@
   color: var(--cad-text);
   padding-right: 4px;
 }
-.playback-status {
-  color: var(--cad-muted);
-  font-size: var(--text-small);
-  margin-left: 12px;
-}
 .playback-timeline {
   display: flex;
   align-items: center;
@@ -264,17 +259,17 @@
 .playback-duration {
   color: var(--cad-muted);
 }
-.recording-details {
+.simulation-details {
   position: relative;
   flex-shrink: 0;
 }
-.recording-details > summary {
+.simulation-details > summary {
   list-style: none;
 }
-.recording-details > summary::-webkit-details-marker {
+.simulation-details > summary::-webkit-details-marker {
   display: none;
 }
-.recording-popover {
+.simulation-details-popover {
   position: absolute;
   bottom: calc(100% + 8px);
   right: 0;
@@ -287,6 +282,22 @@
   border: 1px solid var(--cad-border);
   border-radius: var(--radius-control);
   box-shadow: 0 12px 36px #0006;
+}
+.simulation-details-popover h4 {
+  margin: 0 0 8px;
+  font-size: var(--text-control);
+  font-weight: 500;
+  color: var(--cad-text);
+}
+.simulation-details-popover .note {
+  margin: 8px 0 0;
+  font-size: var(--text-small);
+  line-height: 1.6;
+  color: var(--cad-muted);
+}
+.simulation-detail-section + .simulation-detail-section,
+.window-readout + .simulation-detail-section {
+  margin-top: 16px;
 }
 .playback-outcome {
   font-size: var(--text-control);
@@ -427,9 +438,6 @@
   .playback-dock {
     padding: 10px 12px;
   }
-  .playback-status {
-    display: none;
-  }
   .playback-speed {
     margin-left: 6px;
     gap: 4px;
@@ -444,7 +452,7 @@
   .playback-duration {
     display: none;
   }
-  .recording-details {
+  .simulation-details {
     margin-left: auto;
   }
   .summary-playhead {
@@ -454,44 +462,19 @@
     margin-bottom: 16px;
   }
 }
-.live-trails-note {
-  padding: 8px 16px;
-  margin: 0;
-  font-size: 12px;
-  color: var(--cad-muted);
-  background: var(--cad-surface);
-}
-
-.live-trails-note summary,
-.live-crowding-details summary {
-  cursor: pointer;
-  width: fit-content;
-}
-.live-trails-note summary:hover,
-.live-crowding-details summary:hover {
-  color: var(--cad-text);
-}
-.live-trails-note summary:focus-visible,
-.live-crowding-details summary:focus-visible {
-  outline: 2px solid var(--cad-accent);
-  outline-offset: 3px;
-}
-.live-trails-note p,
-.live-crowding-details p {
-  margin: var(--space-2) 0 0;
-  max-width: 85ch;
-  line-height: 1.5;
-}
 .window-readout {
-  margin-top: 8px;
   font-size: var(--text-small);
   color: var(--cad-muted);
 }
-.window-readout summary {
-  cursor: pointer;
-}
 .window-readout .playback-readout {
-  flex-wrap: wrap;
-  gap: 8px 20px;
+  display: grid;
+  gap: 12px;
   margin-top: 8px;
+}
+.window-readout .playback-readout > div {
+  display: block;
+}
+.window-readout dd {
+  margin-top: 4px;
+  line-height: 1.6;
 }

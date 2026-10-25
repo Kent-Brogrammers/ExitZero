@@ -1,0 +1,785 @@
+{
+  "width": 36,
+  "height": 26,
+  "walls": [
+    {
+      "id": "school-north",
+      "name": "North exterior",
+      "start": {
+        "x": 2,
+        "y": 2
+      },
+      "end": {
+        "x": 34,
+        "y": 2
+      },
+      "thickness": 0.24
+    },
+    {
+      "id": "school-east",
+      "name": "East exterior",
+      "start": {
+        "x": 34,
+        "y": 2
+      },
+      "end": {
+        "x": 34,
+        "y": 24
+      },
+      "thickness": 0.24
+    },
+    {
+      "id": "school-south",
+      "name": "South exterior",
+      "start": {
+        "x": 2,
+        "y": 24
+      },
+      "end": {
+        "x": 34,
+        "y": 24
+      },
+      "thickness": 0.24
+    },
+    {
+      "id": "school-west",
+      "name": "West exterior",
+      "start": {
+        "x": 2,
+        "y": 2
+      },
+      "end": {
+        "x": 2,
+        "y": 24
+      },
+      "thickness": 0.24
+    },
+    {
+      "id": "school-hall-north",
+      "name": "Classrooms A/B and office / hallway",
+      "start": {
+        "x": 2,
+        "y": 11
+      },
+      "end": {
+        "x": 34,
+        "y": 11
+      },
+      "thickness": 0.16
+    },
+    {
+      "id": "school-hall-south",
+      "name": "Classrooms C/D and restrooms / hallway",
+      "start": {
+        "x": 2,
+        "y": 15
+      },
+      "end": {
+        "x": 34,
+        "y": 15
+      },
+      "thickness": 0.16
+    },
+    {
+      "id": "school-north-partition-14",
+      "name": "Classroom / office partition",
+      "start": {
+        "x": 14,
+        "y": 2
+      },
+      "end": {
+        "x": 14,
+        "y": 11
+      },
+      "thickness": 0.16
+    },
+    {
+      "id": "school-south-partition-14",
+      "name": "Classroom / restroom partition",
+      "start": {
+        "x": 14,
+        "y": 15
+      },
+      "end": {
+        "x": 14,
+        "y": 24
+      },
+      "thickness": 0.16
+    },
+    {
+      "id": "school-north-partition-22",
+      "name": "Classroom / office partition",
+      "start": {
+        "x": 22,
+        "y": 2
+      },
+      "end": {
+        "x": 22,
+        "y": 11
+      },
+      "thickness": 0.16
+    },
+    {
+      "id": "school-south-partition-22",
+      "name": "Classroom / restroom partition",
+      "start": {
+        "x": 22,
+        "y": 15
+      },
+      "end": {
+        "x": 22,
+        "y": 24
+      },
+      "thickness": 0.16
+    },
+    {
+      "id": "school-restroom-divider",
+      "name": "Restroom partition",
+      "start": {
+        "x": 18,
+        "y": 15
+      },
+      "end": {
+        "x": 18,
+        "y": 24
+      },
+      "thickness": 0.16
+    },
+    {
+      "id": "school-a-refuge-north",
+      "name": "Classroom A interior refuge",
+      "start": {
+        "x": 10,
+        "y": 8
+      },
+      "end": {
+        "x": 14,
+        "y": 8
+      },
+      "thickness": 0.16
+    },
+    {
+      "id": "school-a-refuge-west",
+      "name": "Classroom A refuge entrance",
+      "start": {
+        "x": 10,
+        "y": 8
+      },
+      "end": {
+        "x": 10,
+        "y": 11
+      },
+      "thickness": 0.16
+    }
+  ],
+  "doors": [
+    {
+      "id": "school-a-refuge-door",
+      "name": "Classroom A refuge door",
+      "wall_id": "school-a-refuge-west",
+      "offset": 0.6,
+      "width": 1.5
+    },
+    {
+      "id": "school-a-door",
+      "name": "Classroom A hallway door",
+      "wall_id": "school-hall-north",
+      "offset": 5,
+      "width": 2
+    },
+    {
+      "id": "school-b-door",
+      "name": "Classroom B hallway door",
+      "wall_id": "school-hall-north",
+      "offset": 25,
+      "width": 2
+    },
+    {
+      "id": "school-c-door",
+      "name": "Classroom C hallway door",
+      "wall_id": "school-hall-south",
+      "offset": 5,
+      "width": 2
+    },
+    {
+      "id": "school-d-door",
+      "name": "Classroom D hallway door",
+      "wall_id": "school-hall-south",
+      "offset": 25,
+      "width": 2
+    },
+    {
+      "id": "school-office-door",
+      "name": "Office hallway door",
+      "wall_id": "school-hall-north",
+      "offset": 15,
+      "width": 1.6
+    },
+    {
+      "id": "school-restroom-west-door",
+      "name": "West restroom door",
+      "wall_id": "school-hall-south",
+      "offset": 13,
+      "width": 1.3
+    },
+    {
+      "id": "school-restroom-east-door",
+      "name": "East restroom door",
+      "wall_id": "school-hall-south",
+      "offset": 17,
+      "width": 1.3
+    }
+  ],
+  "exits": [
+    {
+      "id": "school-west-exit",
+      "name": "West hallway exit",
+      "wall_id": "school-west",
+      "offset": 10,
+      "width": 2
+    },
+    {
+      "id": "school-east-exit",
+      "name": "East hallway exit",
+      "wall_id": "school-east",
+      "offset": 10,
+      "width": 2
+    }
+  ],
+  "windows": [
+    {
+      "id": "school-a-window",
+      "name": "Classroom A emergency window",
+      "wall_id": "school-north",
+      "offset": 3.5,
+      "width": 1.6,
+      "emergency_escape": {
+        "enabled": true,
+        "preparation": "open",
+        "clear_width_metres": 1.4,
+        "clear_height_metres": 1.2,
+        "preparation_seconds": 4,
+        "traversal_seconds": 2,
+        "exterior_side": -1,
+        "exterior_available": true
+      }
+    },
+    {
+      "id": "school-b-window",
+      "name": "Classroom B emergency window",
+      "wall_id": "school-north",
+      "offset": 26,
+      "width": 1.6,
+      "emergency_escape": {
+        "enabled": true,
+        "preparation": "open",
+        "clear_width_metres": 1.4,
+        "clear_height_metres": 1.2,
+        "preparation_seconds": 4,
+        "traversal_seconds": 2,
+        "exterior_side": -1,
+        "exterior_available": true
+      }
+    },
+    {
+      "id": "school-c-window",
+      "name": "Classroom C emergency window",
+      "wall_id": "school-south",
+      "offset": 3.5,
+      "width": 1.6,
+      "emergency_escape": {
+        "enabled": true,
+        "preparation": "open",
+        "clear_width_metres": 1.4,
+        "clear_height_metres": 1.2,
+        "preparation_seconds": 4,
+        "traversal_seconds": 2,
+        "exterior_side": 1,
+        "exterior_available": true
+      }
+    },
+    {
+      "id": "school-d-window",
+      "name": "Classroom D emergency window",
+      "wall_id": "school-south",
+      "offset": 26,
+      "width": 1.6,
+      "emergency_escape": {
+        "enabled": true,
+        "preparation": "open",
+        "clear_width_metres": 1.4,
+        "clear_height_metres": 1.2,
+        "preparation_seconds": 4,
+        "traversal_seconds": 2,
+        "exterior_side": 1,
+        "exterior_available": true
+      }
+    }
+  ],
+  "window_escape_context": {
+    "floor_elevation_metres": 0,
+    "all_agents_can_traverse": true,
+    "required_clear_height_metres": 1
+  },
+  "spawn_zones": [
+    {
+      "id": "school-a-students",
+      "name": "Classroom A students",
+      "x": 3.2,
+      "y": 8,
+      "width": 5.2,
+      "height": 1.4,
+      "count": 8
+    },
+    {
+      "id": "school-a-teacher",
+      "name": "Classroom A teacher",
+      "x": 11.5,
+      "y": 2.8,
+      "width": 1.1,
+      "height": 1.1,
+      "count": 1
+    },
+    {
+      "id": "school-b-students",
+      "name": "Classroom B students",
+      "x": 23.2,
+      "y": 8,
+      "width": 5.2,
+      "height": 1.4,
+      "count": 8
+    },
+    {
+      "id": "school-b-teacher",
+      "name": "Classroom B teacher",
+      "x": 31.5,
+      "y": 2.8,
+      "width": 1.1,
+      "height": 1.1,
+      "count": 1
+    },
+    {
+      "id": "school-c-students",
+      "name": "Classroom C students",
+      "x": 3.2,
+      "y": 21,
+      "width": 5.2,
+      "height": 1.4,
+      "count": 8
+    },
+    {
+      "id": "school-c-teacher",
+      "name": "Classroom C teacher",
+      "x": 11.5,
+      "y": 15.8,
+      "width": 1.1,
+      "height": 1.1,
+      "count": 1
+    },
+    {
+      "id": "school-d-students",
+      "name": "Classroom D students",
+      "x": 23.2,
+      "y": 21,
+      "width": 5.2,
+      "height": 1.4,
+      "count": 8
+    },
+    {
+      "id": "school-d-teacher",
+      "name": "Classroom D teacher",
+      "x": 31.5,
+      "y": 15.8,
+      "width": 1.1,
+      "height": 1.1,
+      "count": 1
+    },
+    {
+      "id": "school-office-staff",
+      "name": "Office staff",
+      "x": 15.2,
+      "y": 7.5,
+      "width": 3.5,
+      "height": 1.5,
+      "count": 3
+    },
+    {
+      "id": "school-hall-staff",
+      "name": "Hallway staff",
+      "x": 24,
+      "y": 12,
+      "width": 2,
+      "height": 2,
+      "count": 2
+    }
+  ],
+  "blocked_exit_ids": [],
+  "obstructions": [
+    {
+      "id": "school-a-desk-1-1",
+      "name": "Classroom A desk 1-1",
+      "x": 4,
+      "y": 4,
+      "width": 1.5,
+      "height": 0.7
+    },
+    {
+      "id": "school-a-desk-1-2",
+      "name": "Classroom A desk 1-2",
+      "x": 7,
+      "y": 4,
+      "width": 1.5,
+      "height": 0.7
+    },
+    {
+      "id": "school-a-desk-1-3",
+      "name": "Classroom A desk 1-3",
+      "x": 10,
+      "y": 4,
+      "width": 1.5,
+      "height": 0.7
+    },
+    {
+      "id": "school-a-desk-2-1",
+      "name": "Classroom A desk 2-1",
+      "x": 4,
+      "y": 6.5,
+      "width": 1.5,
+      "height": 0.7
+    },
+    {
+      "id": "school-a-desk-2-2",
+      "name": "Classroom A desk 2-2",
+      "x": 7,
+      "y": 6.5,
+      "width": 1.5,
+      "height": 0.7
+    },
+    {
+      "id": "school-a-desk-2-3",
+      "name": "Classroom A desk 2-3",
+      "x": 10,
+      "y": 6.5,
+      "width": 1.5,
+      "height": 0.7
+    },
+    {
+      "id": "school-a-teacher-desk",
+      "name": "Classroom A teacher desk",
+      "x": 10.7,
+      "y": 5.15,
+      "width": 1.8,
+      "height": 0.8
+    },
+    {
+      "id": "school-a-bookshelf",
+      "name": "Classroom A bookshelf",
+      "x": 2.4,
+      "y": 3.3,
+      "width": 0.5,
+      "height": 3.5
+    },
+    {
+      "id": "school-b-desk-1-1",
+      "name": "Classroom B desk 1-1",
+      "x": 24,
+      "y": 4,
+      "width": 1.5,
+      "height": 0.7
+    },
+    {
+      "id": "school-b-desk-1-2",
+      "name": "Classroom B desk 1-2",
+      "x": 27,
+      "y": 4,
+      "width": 1.5,
+      "height": 0.7
+    },
+    {
+      "id": "school-b-desk-1-3",
+      "name": "Classroom B desk 1-3",
+      "x": 30,
+      "y": 4,
+      "width": 1.5,
+      "height": 0.7
+    },
+    {
+      "id": "school-b-desk-2-1",
+      "name": "Classroom B desk 2-1",
+      "x": 24,
+      "y": 6.5,
+      "width": 1.5,
+      "height": 0.7
+    },
+    {
+      "id": "school-b-desk-2-2",
+      "name": "Classroom B desk 2-2",
+      "x": 27,
+      "y": 6.5,
+      "width": 1.5,
+      "height": 0.7
+    },
+    {
+      "id": "school-b-desk-2-3",
+      "name": "Classroom B desk 2-3",
+      "x": 30,
+      "y": 6.5,
+      "width": 1.5,
+      "height": 0.7
+    },
+    {
+      "id": "school-b-teacher-desk",
+      "name": "Classroom B teacher desk",
+      "x": 30.7,
+      "y": 5.15,
+      "width": 1.8,
+      "height": 0.8
+    },
+    {
+      "id": "school-b-bookshelf",
+      "name": "Classroom B bookshelf",
+      "x": 22.4,
+      "y": 3.3,
+      "width": 0.5,
+      "height": 3.5
+    },
+    {
+      "id": "school-c-desk-1-1",
+      "name": "Classroom C desk 1-1",
+      "x": 4,
+      "y": 17,
+      "width": 1.5,
+      "height": 0.7
+    },
+    {
+      "id": "school-c-desk-1-2",
+      "name": "Classroom C desk 1-2",
+      "x": 7,
+      "y": 17,
+      "width": 1.5,
+      "height": 0.7
+    },
+    {
+      "id": "school-c-desk-1-3",
+      "name": "Classroom C desk 1-3",
+      "x": 10,
+      "y": 17,
+      "width": 1.5,
+      "height": 0.7
+    },
+    {
+      "id": "school-c-desk-2-1",
+      "name": "Classroom C desk 2-1",
+      "x": 4,
+      "y": 19.5,
+      "width": 1.5,
+      "height": 0.7
+    },
+    {
+      "id": "school-c-desk-2-2",
+      "name": "Classroom C desk 2-2",
+      "x": 7,
+      "y": 19.5,
+      "width": 1.5,
+      "height": 0.7
+    },
+    {
+      "id": "school-c-desk-2-3",
+      "name": "Classroom C desk 2-3",
+      "x": 10,
+      "y": 19.5,
+      "width": 1.5,
+      "height": 0.7
+    },
+    {
+      "id": "school-c-teacher-desk",
+      "name": "Classroom C teacher desk",
+      "x": 10.7,
+      "y": 18.15,
+      "width": 1.8,
+      "height": 0.8
+    },
+    {
+      "id": "school-c-bookshelf",
+      "name": "Classroom C bookshelf",
+      "x": 2.4,
+      "y": 16.3,
+      "width": 0.5,
+      "height": 3.5
+    },
+    {
+      "id": "school-d-desk-1-1",
+      "name": "Classroom D desk 1-1",
+      "x": 24,
+      "y": 17,
+      "width": 1.5,
+      "height": 0.7
+    },
+    {
+      "id": "school-d-desk-1-2",
+      "name": "Classroom D desk 1-2",
+      "x": 27,
+      "y": 17,
+      "width": 1.5,
+      "height": 0.7
+    },
+    {
+      "id": "school-d-desk-1-3",
+      "name": "Classroom D desk 1-3",
+      "x": 30,
+      "y": 17,
+      "width": 1.5,
+      "height": 0.7
+    },
+    {
+      "id": "school-d-desk-2-1",
+      "name": "Classroom D desk 2-1",
+      "x": 24,
+      "y": 19.5,
+      "width": 1.5,
+      "height": 0.7
+    },
+    {
+      "id": "school-d-desk-2-2",
+      "name": "Classroom D desk 2-2",
+      "x": 27,
+      "y": 19.5,
+      "width": 1.5,
+      "height": 0.7
+    },
+    {
+      "id": "school-d-desk-2-3",
+      "name": "Classroom D desk 2-3",
+      "x": 30,
+      "y": 19.5,
+      "width": 1.5,
+      "height": 0.7
+    },
+    {
+      "id": "school-d-teacher-desk",
+      "name": "Classroom D teacher desk",
+      "x": 30.7,
+      "y": 18.15,
+      "width": 1.8,
+      "height": 0.8
+    },
+    {
+      "id": "school-d-bookshelf",
+      "name": "Classroom D bookshelf",
+      "x": 22.4,
+      "y": 16.3,
+      "width": 0.5,
+      "height": 3.5
+    },
+    {
+      "id": "school-a-door-cabinet-1",
+      "name": "Classroom A door-side storage cabinet 1",
+      "x": 6.5,
+      "y": 10,
+      "width": 1.5,
+      "height": 0.92
+    },
+    {
+      "id": "school-a-door-cabinet-2",
+      "name": "Classroom A door-side storage cabinet 2",
+      "x": 8,
+      "y": 10,
+      "width": 1.5,
+      "height": 0.92
+    },
+    {
+      "id": "school-office-desk-1",
+      "name": "Office desk 1",
+      "x": 15.2,
+      "y": 3.5,
+      "width": 2,
+      "height": 0.8
+    },
+    {
+      "id": "school-office-desk-2",
+      "name": "Office desk 2",
+      "x": 18.5,
+      "y": 3.5,
+      "width": 2,
+      "height": 0.8
+    },
+    {
+      "id": "school-office-cabinet",
+      "name": "Office records cabinet",
+      "x": 20.8,
+      "y": 6,
+      "width": 0.7,
+      "height": 3
+    },
+    {
+      "id": "school-west-toilet-1",
+      "name": "West restroom fixture 1",
+      "x": 15,
+      "y": 19,
+      "width": 0.8,
+      "height": 1
+    },
+    {
+      "id": "school-west-toilet-2",
+      "name": "West restroom fixture 2",
+      "x": 15,
+      "y": 21,
+      "width": 0.8,
+      "height": 1
+    },
+    {
+      "id": "school-west-basin",
+      "name": "West restroom basin",
+      "x": 15,
+      "y": 22.8,
+      "width": 1.8,
+      "height": 0.5
+    },
+    {
+      "id": "school-east-toilet-1",
+      "name": "East restroom fixture 1",
+      "x": 19,
+      "y": 19,
+      "width": 0.8,
+      "height": 1
+    },
+    {
+      "id": "school-east-toilet-2",
+      "name": "East restroom fixture 2",
+      "x": 19,
+      "y": 21,
+      "width": 0.8,
+      "height": 1
+    },
+    {
+      "id": "school-east-basin",
+      "name": "East restroom basin",
+      "x": 19,
+      "y": 22.8,
+      "width": 1.8,
+      "height": 0.5
+    }
+  ],
+  "tornado_zones": [
+    {
+      "id": "school-hall-shelter",
+      "name": "Interior hallway shelter",
+      "x": 15,
+      "y": 11.6,
+      "width": 6,
+      "height": 2.8
+    },
+    {
+      "id": "school-a-refuge",
+      "name": "Classroom A interior refuge",
+      "x": 10.4,
+      "y": 9.1,
+      "width": 3.2,
+      "height": 1.5
+    }
+  ],
+  "agent_radius": 0.22,
+  "time_step_seconds": 0.1,
+  "seed": 42,
+  "max_steps": 1200
+}

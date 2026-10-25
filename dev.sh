@@ -44,8 +44,8 @@ ExitZero development checklist (wait for both servers to finish starting)
 
 1. Open the app:
    http://127.0.0.1:5173
-   Expected: dashboard and floor plan; header shows "Backend online".
-   If the backend is still compiling, click Retry once it starts.
+   Expected: ExitZero Studio welcome page. Open Studio to edit the floor plan.
+   Settings shows "Backend online". If it is still compiling, retry there once ready.
 
 2. Check the backend directly:
    http://127.0.0.1:3001/api/health
@@ -59,13 +59,19 @@ ExitZero development checklist (wait for both servers to finish starting)
 EOF
 printf '   curl -i http://127.0.0.1:5173/api/simulate -H '\''Content-Type: application/json'\'' --data-binary @%q\n' "$project_dir/shared/examples/building.json"
 cat <<'EOF'
-   Currently expected: HTTP 501 with code "not_implemented".
-   The simulation engine is still a stub.
+   Expected: HTTP 200 with computed metrics, animation frames, traffic, and analytics.
 
 Other API endpoints (POST JSON, not browser pages):
+   http://127.0.0.1:5173/api/simulate/live
+   Body: BuildingScenario. Streams live frames and the completed recording as NDJSON.
    http://127.0.0.1:5173/api/stress-test
+   Body: {"building": BuildingScenario, "config": {"max_scenarios": 10,
+          "block_each_exit": true, "obstruction_candidates": []}}
+   Expected: HTTP 200 with baseline metrics and ranked failure scenarios.
    http://127.0.0.1:5173/api/optimize
-   These also return 501 for valid requests until implemented.
+   Body: {"building": BuildingScenario, "max_candidates": 10}
+   Expected: HTTP 200 with baseline metrics and improving layout candidates.
+   BuildingScenario means the full building object, not a quoted string.
 
 Use port 5173 for the app. Port 3001 serves only API routes;
 opening http://127.0.0.1:3001/ returns "route not found".
@@ -74,4 +80,16 @@ Press Ctrl+C to stop both servers.
 
 EOF
 # If either server exits, stop the other and preserve the exit status.
-wait -n "${server_pids[@]}"
+# Poll because macOS ships Bash 3.2, which has no wait -n.
+while true; do
+    for pid in "${server_pids[@]}"; do
+        if ! kill -0 "$pid" 2>/dev/null; then
+            if wait "$pid"; then
+                exit 0
+            else
+                exit "$?"
+            fi
+        fi
+    done
+    sleep 0.2
+done

@@ -1,5 +1,5 @@
 import type { ReplayTarget } from "../simulation/replayTarget";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type Ref } from "react";
 import type {
   BuildingScenario,
   LiveSimulation,
@@ -7,7 +7,7 @@ import type {
   SimulationResult,
 } from "../types/simulation";
 import { SimulationView } from "../simulation/SimulationView";
-import { BuildingEditor } from "./BuildingEditor";
+import { BuildingEditor, type BuildingEditorHandle } from "./BuildingEditor";
 import "./BuildingWorkspace.css";
 
 type Mode = "edit" | "simulation";
@@ -19,12 +19,15 @@ interface BuildingWorkspaceProps {
   live?: LiveSimulation | null;
   replayTarget?: ReplayTarget | null;
   disabled?: boolean;
+  savedLayoutJson?: string;
+  onSaved?: (building: BuildingScenario) => void;
   mode?: Mode;
   active?: boolean;
   allowSyntheticPreview?: boolean;
   onOpenAnalytics?: () => void;
   onLiveSpeedChange?: (speed: LiveSpeedControl["speed"]) => void;
   onCancelLive?: () => void;
+  editorRef?: Ref<BuildingEditorHandle>;
 }
 
 export function BuildingWorkspace({
@@ -33,6 +36,8 @@ export function BuildingWorkspace({
   result,
   live,
   disabled,
+  savedLayoutJson,
+  onSaved,
   mode: controlledMode,
   active = true,
   allowSyntheticPreview = true,
@@ -40,6 +45,7 @@ export function BuildingWorkspace({
   replayTarget,
   onLiveSpeedChange,
   onCancelLive,
+  editorRef,
 }: BuildingWorkspaceProps) {
   const [localMode, setMode] = useState<Mode>(() =>
     typeof window !== "undefined" && window.location.hash === "#simulation"
@@ -74,9 +80,12 @@ export function BuildingWorkspace({
         hidden={mode !== "edit"}
       >
         <BuildingEditor
+          editorRef={editorRef}
           building={building}
           onChange={onChange}
           disabled={disabled}
+          savedLayoutJson={savedLayoutJson}
+          onSaved={onSaved}
         />
       </div>
       <div

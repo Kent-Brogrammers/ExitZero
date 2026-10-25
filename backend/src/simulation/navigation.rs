@@ -62,14 +62,16 @@ impl Navigation {
             .exits
             .iter()
             .filter(|exit| !geometry.opening_is_unsafe(&exit.id))
-            .filter_map(|exit| {
-                let (start, end) = geometry.exit_segment(&exit.id)?;
-                Some(ExitTarget {
-                    id: exit.id.clone(),
-                    start,
-                    end,
-                    shelter: false,
-                })
+            .flat_map(|exit| {
+                geometry
+                    .exit_segments(&exit.id)
+                    .into_iter()
+                    .map(|(start, end)| ExitTarget {
+                        id: exit.id.clone(),
+                        start,
+                        end,
+                        shelter: false,
+                    })
             })
             .collect();
 
