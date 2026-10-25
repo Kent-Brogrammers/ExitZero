@@ -35,6 +35,8 @@ Open [http://127.0.0.1:5173](http://127.0.0.1:5173). The header should show **Ba
 
 **Run simulation** opens a live first run at normal speed. The **Speed** button cycles through 1×, 2×, 4× and 8× while the backend continues running the same physics ticks. **Cancel run** stops the stream and keeps its last frame visible; cancelled runs do not produce a completed recording. The view shows elapsed simulation time and occupant counts without a predicted finish time. When the run ends, the recorded timeline opens at the end; rewind, step, or replay to review what happened.
 
+Evacuation runs stop after 15 simulated seconds without meaningful occupant movement (at least 0.1 m displacement), even if hazards keep spreading or awareness keeps changing. Successful evacuation or shelter arrival resets the timer. Active window preparation and timed traversal pause this timeout; merely being assigned to a window does not. Runs stopped this way are incomplete, retain the occupants still inside as `remaining`, and record `movement_stagnation` without a full-clearance time.
+
 Under **Settings → Agent awareness**, adjust sight range (default 8 m) and communication/yelling range (default 3 m). These settings are saved with the building. A range of 0 disables that behavior. Agents start with exit locations and assume doors and exits are open, including initially blocked exits. Their route maps do not start with the complete wall layout. They learn an opening's state by seeing it or receiving a nearby person's report.
 
 Wall memory records only observed portions within sight range and clear sight lines. Seeing a sliver does not reveal the wall's hidden extent or endpoints, and separate visible patches do not fill an occluded gap. These fragments accumulate as people move; yelling shares the same observed fragments. Near occlusion boundaries, uncertain portions below a centimetre may be omitted rather than revealing hidden material. Route graphs use only remembered fragments and are rebuilt when new knowledge invalidates the current route or an opening changes.
@@ -267,18 +269,18 @@ Creation and single selection keep Properties closed. Windows remain separate
 stable records even when touching; doors, exits and windows cannot overlap.
 JSON without windows remains compatible.
 
-Newly placed windows default to enabled emergency escape, break preparation,
+Newly placed windows and older windows without escape settings default to enabled emergency escape, break preparation,
 an available exterior landing, and ground-floor traversal assumptions. The
 exterior direction points away from occupants, or away from the rest of the plan
-when no occupants are placed yet. Existing saved settings remain editable;
+when no occupants are placed yet. Missing escape settings are also defaulted by the Rust simulator for direct API requests. Explicitly disabled windows and explicit capability/landing overrides remain unchanged. Existing saved settings remain editable;
 switching an older window's escape checkbox on supplies the other required
 checkbox settings in the same action.
 
 The optional `windows[].emergency_escape` config explicitly specifies enabled,
 open/break preparation, clear width/height, preparation/traversal seconds, exterior
-side and exterior availability. `window_escape_context` must explicitly assert
-zero floor elevation, homogeneous traversal capability and a required clear
-height. The inspector's initial 5 s / 3 s timings and 1.2 m / 1 m height inputs
+side and exterior availability. A missing `window_escape_context` defaults to
+zero floor elevation, all occupants able to traverse, and 1 m required clear
+height. Explicit context settings override these defaults. The inspector's initial 5 s / 3 s timings and 1.2 m / 1 m height inputs
 are editable modeling examples, **not validated safety estimates**. Glazing is
 opaque; ordinary/disabled windows remain solid.
 

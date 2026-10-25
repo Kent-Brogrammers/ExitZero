@@ -25,6 +25,9 @@ mod pursuit_awareness;
 mod windows;
 pub use emergency::Emergency;
 
+const STAGNATION_SECONDS: f64 = 15.0;
+const MEANINGFUL_MOVEMENT_METRES: f64 = 0.1;
+
 #[cfg(test)]
 mod tests;
 
@@ -95,6 +98,8 @@ fn run(
     scenario
         .validate()
         .map_err(SimulationError::InvalidScenario)?;
+    let ready = scenario.with_window_escape_defaults();
+    let scenario = ready.as_ref();
     if scenario.pursuit.is_some() {
         if !emergencies.is_empty() {
             return Err(SimulationError::InvalidScenario(
@@ -179,7 +184,9 @@ fn run(
     let total_population = agents.len() as u32;
     let mut evacuated_count = 0;
     let mut step = 0_u32;
-    let mut idle_steps = 0;
+    let mut movement_anchors: Vec<_> = agents.iter().map(|agent| agent.position).collect();
+    let mut last_movement_step = 0;
+    let mut last_resolved_population = 0;
     let mut communication_events = Vec::new();
     let mut dialogue = dialogue::Dialogue::new(agents.len());
     let movement_budget = motion::WALKING_SPEED * scenario.time_step_seconds;
@@ -886,7 +893,6 @@ fn run(
         tests::assert_accepted_moves(scenario, &geometry, &before, &proposed, &active, &windows);
         let previous_hazard = world.prepare_hazards(step + 1);
         let mut leaving = Vec::new();
-        let mut progress = false;
         for i in 0..agents.len() {
             control::checkpoint()?;
             if evacuated[i] {
@@ -919,7 +925,6 @@ fn run(
             } else {
                 stalled_ticks[i] += 1;
             }
-            progress |= travelled > math::EPSILON;
             if windows.controls(i) {
                 continue;
             }
@@ -928,13 +933,11 @@ fn run(
                 || (!tornado && geometry.at_exit(proposed[i], &route.exit_id))
             {
                 leaving.push(i);
-                progress = true;
             } else if math::distance_to_point(proposed[i], waypoint) <= math::EPSILON {
                 next_waypoint[i] += 1;
                 // A believed opening may be physically closed. Retry discovery
                 // rather than advancing beyond the final route waypoint.
                 next_waypoint[i] = next_waypoint[i].min(route.waypoints.len() - 1);
-                progress = true;
             }
         }
 
@@ -983,7 +986,6 @@ fn run(
                 kind: crate::models::EscapeRouteKind::EmergencyWindow,
                 opening_id: id,
             });
-            progress = true;
         }
         if world.apply(step, &agents, &evacuated) {
             geometry =
@@ -1028,16 +1030,27 @@ fn run(
             }
             last_live_step = step;
         }
-        idle_steps =
-            if progress || information_changed || world.has_pending_changes() || windows.has_work()
+        let mut meaningful_movement = false;
+        for (i, agent) in agents.iter().enumerate() {
+            if !evacuated[i]
+                && math::distance_to_point(movement_anchors[i], agent.position)
+                    >= MEANINGFUL_MOVEMENT_METRES
             {
-                0
-            } else {
-                idle_steps + 1
-            };
-        // Allow rerouting before reporting a stalled run. Local avoidance has
-        // already run on every tick; a stall still does not prove entrapment.
-        if idle_steps >= agents.len().max(2 * retry_ticks as usize + 1) {
+                meaningful_movement = true;
+                movement_anchors[i] = agent.position;
+            }
+        }
+        let resolved_population = evacuated_count + sheltered_count;
+        if meaningful_movement
+            || resolved_population != last_resolved_population
+            || windows.has_timed_service(step)
+        {
+            last_movement_step = step;
+        }
+        last_resolved_population = resolved_population;
+        // Awareness updates, spreading hazards, and an unreachable window
+        // approach must not keep a motionless run alive indefinitely.
+        if f64::from(step - last_movement_step) * scenario.time_step_seconds >= STAGNATION_SECONDS {
             break (
                 SimulationStatus::Incomplete,
                 TerminationReason::MovementStagnation,
