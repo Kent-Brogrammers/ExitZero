@@ -10,7 +10,7 @@ describe("computed analytics data flow", () => {
     const html = renderToStaticMarkup(
       createElement(AnalyticsDashboard, { result: null, stressResult: null }),
     );
-    expect(html).toContain("No computed metrics");
+    expect(html).toContain("Calculate Results to measure this layout");
     expect(html).not.toContain("synthetic preview");
     expect(html).not.toContain("Illustrative results");
     expect(html).not.toContain("sample-exit");

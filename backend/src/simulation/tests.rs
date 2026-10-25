@@ -55,6 +55,27 @@ fn room() -> BuildingScenario {
 }
 
 #[test]
+fn recordings_report_the_actual_termination_branch() {
+    use crate::models::TerminationReason;
+    let mut scenario = room();
+    assert!(matches!(
+        simulate(&scenario).unwrap().termination_reason,
+        Some(TerminationReason::Completed)
+    ));
+    scenario.max_steps = 1;
+    assert!(matches!(
+        simulate(&scenario).unwrap().termination_reason,
+        Some(TerminationReason::StepLimit)
+    ));
+    scenario.max_steps = 1000;
+    scenario.blocked_exit_ids.push("north_exit".into());
+    assert!(matches!(
+        simulate(&scenario).unwrap().termination_reason,
+        Some(TerminationReason::NoActiveRoutes)
+    ));
+}
+
+#[test]
 fn a_fire_warning_relays_between_groups_and_immediately_changes_their_destination() {
     for kind in [
         crate::models::DisasterKind::Fire,

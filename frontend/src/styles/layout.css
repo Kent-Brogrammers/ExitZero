@@ -182,6 +182,9 @@ body,
   flex: 1;
   min-height: 0;
 }
+.layout-comparison {
+  margin-top: 24px;
+}
 .studio-viewport {
   position: absolute;
   inset: 0;

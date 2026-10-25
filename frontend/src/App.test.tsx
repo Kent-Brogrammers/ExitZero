@@ -2,10 +2,14 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import example from "./editor/presets/corporate-office.json";
+import exampleJson from "./editor/presets/corporate-office.json";
 import App from "./App";
 import { api } from "./services/api";
+import { storeLayout } from "./templates/layouts";
+import { readTemplates, TEMPLATE_STORAGE_KEY } from "./templates/templates";
 import type { BuildingScenario, SimulationResult } from "./types/simulation";
+
+const example = exampleJson as BuildingScenario;
 
 vi.mock("./services/api", () => ({
   api: {
@@ -13,6 +17,12 @@ vi.mock("./services/api", () => ({
     optimize: vi.fn(),
     stressTest: vi.fn(),
     simulateLive: vi.fn(),
+    cancelComputation: vi.fn(),
+    listJobs: vi.fn(),
+    simulate: vi.fn(),
+    recordScenario: vi.fn(),
+    jobRequest: vi.fn(),
+    jobResult: vi.fn(),
   },
 }));
 vi.mock("./simulation/SimulationView", () => ({
@@ -41,8 +51,10 @@ const recording: SimulationResult = {
 };
 let root: Root;
 function button(text: string): HTMLButtonElement {
-  const found = [...document.querySelectorAll("button")].find((element) =>
-    element.textContent?.trim().startsWith(text),
+  const found = [...document.querySelectorAll("button")].find(
+    (element) =>
+      !element.closest("[hidden]") &&
+      element.textContent?.trim().startsWith(text),
   );
   if (!found) throw new Error(`Missing button: ${text}`);
   return found;
@@ -78,6 +90,8 @@ beforeEach(() => {
     status: "ok",
     service: "exitzero",
   });
+  vi.mocked(api.cancelComputation).mockResolvedValue({ status: "cancelling" });
+  vi.mocked(api.listJobs).mockResolvedValue({ server_id: "test", jobs: [] });
 });
 afterEach(async () => {
   await act(async () => root.unmount());
@@ -85,6 +99,194 @@ afterEach(async () => {
 });
 
 describe("optimization editor history", () => {
+  it("keeps a saved layout intact when opening another layout's computation", async () => {
+    window.localStorage.removeItem(TEMPLATE_STORAGE_KEY);
+    const saved = storeLayout(
+      window.localStorage,
+      example,
+      "Original saved layout",
+      "layout",
+    );
+    const other = structuredClone(example);
+    other.doors[0]!.width += 0.5;
+    vi.mocked(api.jobRequest).mockResolvedValue({
+      kind: "simulate",
+      building: other,
+    });
+    vi.mocked(api.jobResult).mockResolvedValue(recording);
+    vi.mocked(api.listJobs).mockResolvedValue({
+      server_id: "test",
+      jobs: [
+        {
+          id: "other-run",
+          server_id: "test",
+          kind: "simulate",
+          status: "completed",
+          cached: false,
+          error: null,
+          progress: {
+            evaluations_completed: 1,
+            evaluations_total: 1,
+            step: 1,
+            step_limit: 100,
+          },
+        },
+      ],
+    });
+    try {
+      await mount();
+      await click("Templates");
+      await act(async () =>
+        document
+          .querySelector<HTMLButtonElement>(
+            '[aria-label="Original saved layout template"] .template-card-edit',
+          )!
+          .click(),
+      );
+      expect(
+        document.querySelector('[aria-label="Layout save status"]')!
+          .textContent,
+      ).toContain(saved.name);
+      await click("Computations");
+      await click("Open results");
+      expect(workspace().building).toEqual(other);
+      await click("Edit");
+      await click("Save");
+      const dialog = document.querySelector<HTMLDialogElement>(
+        ".layout-name-dialog",
+      );
+      expect(dialog?.open).toBe(true);
+      expect(dialog!.textContent).toContain("Save layout");
+      expect(readTemplates(window.localStorage)).toEqual([saved]);
+      await click("Cancel");
+    } finally {
+      window.localStorage.removeItem(TEMPLATE_STORAGE_KEY);
+    }
+  });
+
+  it("keeps pursuit outside safety analysis even before a recording exists", async () => {
+    await mount();
+    await click("Templates");
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Halloween — The Pursuit template"] .template-card-edit',
+        )!
+        .click(),
+    );
+    expect(workspace().building.pursuit).toBeDefined();
+    await click("Analytics");
+    await act(async () => vi.dynamicImportSettled());
+    expect(button("Stress Test").disabled).toBe(true);
+    expect(button("Optimize").disabled).toBe(true);
+    expect(
+      [...document.querySelectorAll("button")]
+        .filter((b) => !b.closest("[hidden]"))
+        .some((b) => b.textContent === "Run stress test"),
+    ).toBe(false);
+    expect(api.stressTest).not.toHaveBeenCalled();
+    expect(api.optimize).not.toHaveBeenCalled();
+  });
+  it("preserves the original recording after applying a candidate and rerunning", async () => {
+    vi.mocked(api.simulateLive).mockResolvedValue(recording);
+    await mount();
+    await click("Run Simulation");
+    const original = structuredClone(workspace().building);
+    const improved = structuredClone(original);
+    improved.doors[0]!.width += 0.5;
+    vi.mocked(api.optimize).mockResolvedValue({
+      baseline: { ...recording, clearance_steps: 100 },
+      candidates: [
+        {
+          building: improved,
+          rank: 1,
+          metrics: { ...recording, clearance_steps: 90 },
+        },
+      ],
+    });
+    await click("Analytics");
+    await click("Optimize");
+    await act(async () => vi.dynamicImportSettled());
+    await click("Advanced");
+    await click("Apply candidate");
+    const rerun = { ...recording, clearance_steps: 2 };
+    vi.mocked(api.simulate).mockResolvedValue(rerun);
+    await click("Calculate Results");
+    expect(workspace().building).toEqual(improved);
+    expect(document.body.textContent).toContain(
+      "Actual original and modified outcomes",
+    );
+    await click("Watch original recording");
+    expect(workspace().building).toEqual(original);
+    expect(workspace().result).toEqual(recording);
+    await click("Return to comparison / baseline");
+    expect(workspace().building).toEqual(improved);
+    expect(workspace().result).toEqual(rerun);
+  });
+  it("watches the selected stress recording without replacing the editable layout or baseline", async () => {
+    vi.mocked(api.simulateLive).mockResolvedValue(recording);
+    await mount();
+    await click("Run Simulation");
+    const original = structuredClone(workspace().building);
+    const modified = { ...original, blocked_exit_ids: ["west"] };
+    vi.mocked(api.stressTest).mockImplementation(
+      async (_request, _signal, _id, onStatus) => {
+        onStatus!({
+          id: "stress-origin",
+          server_id: "test",
+          kind: "stress",
+          status: "completed",
+          cached: false,
+          error: null,
+          progress: {
+            evaluations_completed: 2,
+            evaluations_total: 2,
+            step: 1,
+            step_limit: 100,
+          },
+        });
+        return {
+          baseline: recording,
+          scenarios: [
+            {
+              scenario_id: "block-exit:west",
+              description: "West exit closed.",
+              modifications: {
+                blocked_exit_ids: ["west"],
+                added_obstructions: [],
+              },
+              metrics: recording,
+              rank: 1,
+              severity: "low",
+            },
+          ],
+        };
+      },
+    );
+    vi.mocked(api.recordScenario).mockResolvedValue({
+      stress_job_id: "stress-origin",
+      scenario_id: "block-exit:west",
+      building: modified,
+      result: { ...recording, clearance_steps: 2 },
+    });
+    await click("Analytics");
+    await click("Stress Test");
+    await act(async () => vi.dynamicImportSettled());
+    await click("Advanced");
+    await click("Watch Scenario");
+    expect(api.recordScenario).toHaveBeenCalledWith(
+      "stress-origin",
+      "block-exit:west",
+      expect.any(AbortSignal),
+      expect.any(String),
+      expect.any(Function),
+    );
+    expect(workspace().building).toEqual(modified);
+    expect(workspace().result?.clearance_steps).toBe(2);
+    await click("Return to comparison / baseline");
+    expect(workspace().building).toEqual(original);
+    expect(workspace().result).toEqual(recording);
+  });
   it("undoes and redoes application separately from the preceding Fire edit", async () => {
     await mount();
     await click("Scenario");
@@ -114,6 +316,7 @@ describe("optimization editor history", () => {
     await click("Analytics");
     await click("Optimize");
     await act(async () => vi.dynamicImportSettled());
+    await click("Advanced");
     await click("Apply candidate");
     expect(workspace().building).toEqual(improved);
     await click("Undo");
@@ -146,7 +349,10 @@ describe("stopping live simulation", () => {
     const [, onFrame, signal] = vi.mocked(api.simulateLive).mock.calls[1]!;
     await click("Stop Simulation");
     expect(signal!.aborted).toBe(true);
-    expect(workspace()).toMatchObject({ result: null, live: null });
+    expect(workspace()).toMatchObject({
+      result: null,
+      live: { status: "cancelled" },
+    });
     expect(button("Run Simulation").disabled).toBe(false);
     expect(document.body.textContent).toContain(
       "Simulation stopped. No recording was saved.",
@@ -155,7 +361,10 @@ describe("stopping live simulation", () => {
       "The operation was aborted",
     );
     await act(async () => onFrame(recording.frames[0]!));
-    expect(workspace().live).toBeNull();
+    expect(workspace().live).toMatchObject({
+      status: "cancelled",
+      frame: recording.frames[0],
+    });
     vi.mocked(api.simulateLive).mockResolvedValueOnce(recording);
     await click("Run Simulation");
     expect(workspace().result).toEqual(recording);
@@ -175,7 +384,10 @@ describe("stopping live simulation", () => {
     await click("Run Simulation");
     await click("Stop Simulation");
     await act(async () => finish(recording));
-    expect(workspace()).toMatchObject({ result: null, live: null });
+    expect(workspace()).toMatchObject({
+      result: null,
+      live: { status: "cancelled" },
+    });
     expect(button("Run Simulation").disabled).toBe(false);
     expect(document.body.textContent).toContain("Simulation stopped.");
   });
@@ -190,5 +402,84 @@ describe("stopping live simulation", () => {
     expect(document.body.textContent).not.toContain("Simulation stopped.");
     expect(workspace()).toMatchObject({ result: null, live: null });
     expect(button("Run Simulation").disabled).toBe(false);
+  });
+});
+
+describe("stopping analysis computations", () => {
+  it.each(["Stress Test", "Optimize"])(
+    "cancels %s on the server, preserves the baseline, and rejects late results",
+    async (action) => {
+      vi.mocked(api.simulateLive).mockResolvedValue(recording);
+      await mount();
+      await click("Run Simulation");
+      await click("Analytics");
+      let finish!: () => void;
+      if (action === "Stress Test") {
+        vi.mocked(api.stressTest).mockImplementation(
+          () =>
+            new Promise((resolve) => {
+              finish = () => resolve({ baseline: recording, scenarios: [] });
+            }),
+        );
+      } else {
+        vi.mocked(api.optimize).mockImplementation(
+          () =>
+            new Promise((resolve) => {
+              finish = () => resolve({ baseline: recording, candidates: [] });
+            }),
+        );
+      }
+      await click(action);
+      const mock =
+        action === "Stress Test"
+          ? vi.mocked(api.stressTest)
+          : vi.mocked(api.optimize);
+      const [, signal, id] = mock.mock.calls[0]!;
+      expect(id).toBeTruthy();
+      await click(
+        action === "Optimize" ? "Stop Optimization" : "Stop Stress Test",
+      );
+      expect(api.cancelComputation).toHaveBeenCalledWith(id);
+      expect(signal!.aborted).toBe(false);
+      await act(async () => finish());
+      expect(signal!.aborted).toBe(true);
+      expect(workspace().result).toEqual(recording);
+      expect(button("Run Simulation").disabled).toBe(false);
+      expect(document.body.textContent).toContain(
+        "Previous results were preserved.",
+      );
+      expect(document.body.textContent).not.toContain("Stress test ready.");
+      expect(document.body.textContent).not.toContain(
+        "layout improvements found.",
+      );
+    },
+  );
+
+  it("keeps work connected when Stop fails and leaves background work reconnectable on page departure", async () => {
+    vi.mocked(api.stressTest).mockImplementation(
+      (_payload, signal) =>
+        new Promise((_resolve, reject) => {
+          signal!.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "AbortError")),
+          );
+        }),
+    );
+    await mount();
+    await click("Analytics");
+    await click("Stress Test");
+    const [, signal, id] = vi.mocked(api.stressTest).mock.calls[0]!;
+    vi.mocked(api.cancelComputation).mockRejectedValueOnce(
+      new Error("Network unavailable"),
+    );
+    await click("Stop Stress Test");
+    expect(signal!.aborted).toBe(false);
+    expect(document.body.textContent).toContain(
+      "Could not confirm cancellation",
+    );
+    expect(button("Stop Stress Test").disabled).toBe(false);
+    await act(async () => window.dispatchEvent(new Event("pagehide")));
+    expect(api.cancelComputation).toHaveBeenLastCalledWith(id);
+    expect(api.cancelComputation).toHaveBeenCalledTimes(1);
+    expect(signal!.aborted).toBe(true);
   });
 });

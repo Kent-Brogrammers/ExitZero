@@ -12,6 +12,7 @@ import {
   compareMetrics,
   openingChanges,
   type OptimizationEvaluation,
+  improvementLabel,
 } from "./optimization";
 import { OptimizationComparison } from "./OptimizationComparison";
 
@@ -29,6 +30,21 @@ function candidate(steps = 120, rank = 1): OptimizationCandidate {
   return { building, rank, metrics: { ...baseline, clearance_steps: steps } };
 }
 describe("real-result optimization presentation and application", () => {
+  it("formats actual clearance improvements without inventing null or zero-baseline percentages", () => {
+    expect(
+      improvementLabel(baseline, { ...baseline, clearance_steps: 120 }, 0.1),
+    ).toBe("3 steps · 0.30 s · 2.4% faster");
+    expect(
+      improvementLabel({ ...baseline, clearance_steps: null }, baseline, 0.1),
+    ).toBe("Full clearance comparison unavailable");
+    expect(
+      improvementLabel(
+        { ...baseline, clearance_steps: 0 },
+        { ...baseline, clearance_steps: 0 },
+        0.1,
+      ),
+    ).not.toContain("%");
+  });
   it("ranks the supplied improvements and compares their measured metrics", () => {
     const first = candidate(120, 1),
       second = candidate(121, 2);

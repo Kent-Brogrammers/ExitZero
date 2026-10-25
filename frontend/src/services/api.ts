@@ -2,6 +2,11 @@ import Ajv, { type ValidateFunction } from "ajv";
 import contracts from "../../../shared/schemas/contracts.schema.json";
 import type {
   ApiErrorResponse,
+  ComputationCancellationResponse,
+  JobRequest,
+  JobSnapshot,
+  JobList,
+  ScenarioReplay,
   AnimationFrame,
   BuildingScenario,
   HealthResponse,
@@ -11,6 +16,8 @@ import type {
   SimulationMetrics,
   SimulationResult,
   SimulationStreamEvent,
+  LiveChatBatch,
+  LiveSpeedControl,
   StressTestRequest,
   StressTestResult,
 } from "../types/simulation";
@@ -29,10 +36,18 @@ const validateSimulation = validator<SimulationResult>("SimulationResult");
 const validateStreamEvent = validator<SimulationStreamEvent>(
   "SimulationStreamEvent",
 );
+const validateLiveSpeed = validator<LiveSpeedControl>("LiveSpeedControl");
 const validateStress = validator<StressTestResult>("StressTestResult");
 const validateOptimization =
   validator<OptimizationResult>("OptimizationResult");
 const validateError = validator<ApiErrorResponse>("ApiErrorResponse");
+const validateCancellation = validator<ComputationCancellationResponse>(
+  "ComputationCancellationResponse",
+);
+const validateJob = validator<JobSnapshot>("JobSnapshot");
+const validateJobs = validator<JobList>("JobList");
+const validateJobRequest = validator<JobRequest>("JobRequest");
+const validateReplay = validator<ScenarioReplay>("ScenarioReplay");
 
 export class ApiError extends Error {
   constructor(
@@ -60,6 +75,89 @@ function checkMetrics(metrics: SimulationMetrics): void {
       "invalid_response",
       "Backend returned inconsistent population totals.",
     );
+  }
+}
+
+function checkChat(
+  events: Partial<LiveChatBatch>,
+  building: BuildingScenario,
+  ids: Set<number>,
+  lastStep: number,
+  firstStep = 0,
+) {
+  if (events.agent_events) {
+    const exits = new Set(building.exits.map((e) => e.id));
+    const windows = new Set(building.windows?.map((w) => w.id));
+    const shelters = new Set(building.tornado_zones?.map((s) => s.id));
+    const seen = new Set<string>();
+    let previous = firstStep;
+    for (const event of events.agent_events) {
+      const key = JSON.stringify([
+        event.step,
+        event.kind,
+        event.agent_id,
+        event.subject_id,
+      ]);
+      const subject = event.subject_id ?? "";
+      const validSubject = event.kind.startsWith("window_")
+        ? windows.has(subject)
+        : event.kind === "sheltered"
+          ? shelters.has(subject)
+          : event.kind === "evacuated"
+            ? exits.has(subject) || windows.has(subject)
+            : event.kind === "heading_to_exit" || event.kind === "rerouting"
+              ? exits.has(subject) || shelters.has(subject)
+              : event.subject_id === undefined;
+      if (
+        event.step < previous ||
+        event.step > lastStep ||
+        !ids.has(event.agent_id) ||
+        !validSubject ||
+        seen.has(key) ||
+        (event.position &&
+          (event.position.x > building.width ||
+            event.position.y > building.height))
+      ) {
+        throw new ApiError(
+          200,
+          "invalid_response",
+          "Backend returned invalid agent activity references or timing.",
+        );
+      }
+      seen.add(key);
+      previous = event.step;
+    }
+  }
+  if (events.communication_events) {
+    const openings = new Set(
+      [...building.doors, ...building.exits].map((o) => o.id),
+    );
+    const seen = new Set<string>();
+    let previousStep = firstStep;
+    for (const event of events.communication_events) {
+      const key = JSON.stringify([
+        event.step,
+        event.event_type ?? "shared",
+        event.sender_id,
+        event.opening_id,
+      ]);
+      if (
+        event.step < previousStep ||
+        event.step > lastStep ||
+        seen.has(key) ||
+        !ids.has(event.sender_id) ||
+        !openings.has(event.opening_id) ||
+        event.recipient_ids.includes(event.sender_id) ||
+        event.recipient_ids.some((id) => !ids.has(id))
+      )
+        throw new ApiError(
+          200,
+          "invalid_response",
+          "Backend returned invalid communication event references or timing.",
+        );
+      seen.add(key);
+      previousStep = event.step;
+    }
   }
 }
 
@@ -168,42 +266,15 @@ function checkSimulation(
       "invalid_response",
       "Pursuit escapes disagree with the recorded outcome.",
     );
-  if (result.communication_events) {
-    const ids = new Set([
+  checkChat(
+    result,
+    building,
+    new Set([
       ...(result.frames[0]?.agents.map((a) => a.id) ?? []),
       ...(result.analytics?.agents.map((a) => a.id) ?? []),
-    ]);
-    const openings = new Set(
-      [...building.doors, ...building.exits].map((o) => o.id),
-    );
-    const lastStep = result.frames.at(-1)?.step ?? -1;
-    const seen = new Set<string>();
-    let previousStep = 0;
-    for (const event of result.communication_events) {
-      const key = JSON.stringify([
-        event.step,
-        event.event_type ?? "shared",
-        event.sender_id,
-        event.opening_id,
-      ]);
-      if (
-        event.step < previousStep ||
-        event.step > lastStep ||
-        seen.has(key) ||
-        !ids.has(event.sender_id) ||
-        !openings.has(event.opening_id) ||
-        event.recipient_ids.includes(event.sender_id) ||
-        event.recipient_ids.some((id) => !ids.has(id))
-      )
-        throw new ApiError(
-          200,
-          "invalid_response",
-          "Backend returned invalid communication event references or timing.",
-        );
-      seen.add(key);
-      previousStep = event.step;
-    }
-  }
+    ]),
+    result.frames.at(-1)?.step ?? -1,
+  );
   if (
     result.analytics?.agents.some((a) => {
       const route = a.escape_route;
@@ -309,17 +380,20 @@ export function createApiClient(
     validate: ValidateFunction<T>,
     body?: unknown,
     signal?: AbortSignal,
+    computationId?: string,
+    keepalive = false,
   ): Promise<T> {
     let response: Response;
     try {
       response = await fetch(`${baseUrl.replace(/\/$/, "")}${path}`, {
         method: body === undefined ? "GET" : "POST",
-        headers:
-          body === undefined
-            ? undefined
-            : { "Content-Type": "application/json" },
+        headers: {
+          ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+          ...(computationId ? { "X-Computation-Id": computationId } : {}),
+        },
         body: body === undefined ? undefined : JSON.stringify(body),
         signal,
+        keepalive,
       });
     } catch (error) {
       if (signal?.aborted) throw error;
@@ -362,29 +436,185 @@ export function createApiClient(
     return data;
   }
 
+  async function runJob<T>(
+    input: JobRequest,
+    validate: ValidateFunction<T>,
+    signal: AbortSignal | undefined,
+    id: string,
+    onStatus: (job: JobSnapshot) => void,
+  ): Promise<T> {
+    let job = await request(
+      "/jobs",
+      validateJob,
+      { id, request: input },
+      signal,
+    );
+    const cached = job.cached;
+    for (;;) {
+      signal?.throwIfAborted();
+      onStatus({ ...job, cached });
+      if (job.status === "completed")
+        return request(
+          `/jobs/${encodeURIComponent(job.id)}/result`,
+          validate,
+          undefined,
+          signal,
+        );
+      if (job.status === "failed")
+        throw new ApiError(
+          422,
+          "job_failed",
+          job.error ?? "Computation failed.",
+        );
+      if (job.status === "cancelled")
+        throw new DOMException("Computation cancelled", "AbortError");
+      await new Promise<void>((resolve, reject) => {
+        const done = () => {
+          signal?.removeEventListener("abort", abort);
+          resolve();
+        };
+        const timer = setTimeout(done, 300);
+        const abort = () => {
+          clearTimeout(timer);
+          signal?.removeEventListener("abort", abort);
+          reject(signal?.reason);
+        };
+        signal?.addEventListener("abort", abort, { once: true });
+        if (signal?.aborted) abort();
+      });
+      job = await request(
+        `/jobs/${encodeURIComponent(job.id)}`,
+        validateJob,
+        undefined,
+        signal,
+      );
+    }
+  }
   return {
+    recordScenario: async (
+      stress_job_id: string,
+      scenario_id: string,
+      signal: AbortSignal,
+      id: string,
+      onStatus: (job: JobSnapshot) => void,
+    ) => {
+      const replay = await runJob(
+        { kind: "replay", stress_job_id, scenario_id },
+        validateReplay,
+        signal,
+        id,
+        onStatus,
+      );
+      checkSimulation(replay.result, replay.building);
+      return replay;
+    },
+    listJobs: (signal?: AbortSignal) =>
+      request("/jobs", validateJobs, undefined, signal),
+    jobRequest: (id: string, signal?: AbortSignal) =>
+      request(
+        `/jobs/${encodeURIComponent(id)}/request`,
+        validateJobRequest,
+        undefined,
+        signal,
+      ),
+    jobResult: async (id: string, input: JobRequest, signal?: AbortSignal) => {
+      const path = `/jobs/${encodeURIComponent(id)}/result`;
+      if (input.kind === "replay") {
+        const replay = await request(path, validateReplay, undefined, signal);
+        checkSimulation(replay.result, replay.building);
+        return replay;
+      }
+      if (input.kind === "simulate")
+        return checkSimulation(
+          await request(path, validateSimulation, undefined, signal),
+          input.building,
+        );
+      if (input.kind === "stress") {
+        const result = await request(path, validateStress, undefined, signal);
+        checkMetrics(result.baseline);
+        result.scenarios.forEach((s) => checkMetrics(s.metrics));
+        return result;
+      }
+      const result = await request(
+        path,
+        validateOptimization,
+        undefined,
+        signal,
+      );
+      checkMetrics(result.baseline);
+      result.candidates.forEach((s) => checkMetrics(s.metrics));
+      return result;
+    },
+    cancelComputation: (id: string) =>
+      request(
+        `/computations/${encodeURIComponent(id)}/cancel`,
+        validateCancellation,
+        {},
+        undefined,
+        undefined,
+        true,
+      ),
     health: (signal?: AbortSignal) =>
       request("/health", validateHealth, undefined, signal),
-    simulate: async (building: BuildingScenario): Promise<SimulationResult> => {
-      const result = await request("/simulate", validateSimulation, building);
+    simulate: async (
+      building: BuildingScenario,
+      signal?: AbortSignal,
+      computationId?: string,
+      onStatus?: (job: JobSnapshot) => void,
+    ): Promise<SimulationResult> => {
+      const result = onStatus
+        ? await runJob(
+            { kind: "simulate", building },
+            validateSimulation,
+            signal,
+            computationId ?? crypto.randomUUID(),
+            onStatus,
+          )
+        : await request(
+            "/simulate",
+            validateSimulation,
+            building,
+            signal,
+            computationId,
+          );
       return checkSimulation(result, building);
     },
+    setLiveSpeed: (
+      runId: string,
+      speed: LiveSpeedControl["speed"],
+      signal?: AbortSignal,
+    ) =>
+      request(
+        `/simulate/live/${encodeURIComponent(runId)}/speed`,
+        validateLiveSpeed,
+        { speed },
+        signal,
+      ),
     simulateLive: async (
       building: BuildingScenario,
       onFrame: (frame: AnimationFrame) => void,
       signal?: AbortSignal,
+      onChat?: (chat: LiveChatBatch) => void,
+      computationId?: string,
     ): Promise<SimulationResult> => {
       let response: Response;
       try {
-        response = await fetch(`${baseUrl.replace(/\/$/, "")}/simulate/live`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/x-ndjson",
+        const query = computationId
+          ? `?${new URLSearchParams({ run_id: computationId })}`
+          : "";
+        response = await fetch(
+          `${baseUrl.replace(/\/$/, "")}/simulate/live${query}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/x-ndjson",
+              ...(computationId ? { "X-Computation-Id": computationId } : {}),
+            },
+            body: JSON.stringify(building),
+            signal,
           },
-          body: JSON.stringify(building),
-          signal,
-        });
+        );
       } catch (error) {
         if (signal?.aborted) throw error;
         throw new ApiError(
@@ -422,6 +652,8 @@ export function createApiClient(
       let buffer = "";
       let lastStep = -1;
       let previousIds: Set<number> | null = null;
+      let initialIds = new Set<number>();
+      let lastChatStep = 0;
       const population = building.spawn_zones.reduce(
         (sum, zone) => sum + zone.count,
         0,
@@ -463,6 +695,22 @@ export function createApiClient(
           }
           return result;
         }
+        if (event.type === "chat") {
+          if (lastStep < 0)
+            throw new ApiError(
+              200,
+              "invalid_response",
+              "Live chat arrived before the simulation started.",
+            );
+          checkChat(event, building, initialIds, lastStep, lastChatStep);
+          lastChatStep = Math.max(
+            lastChatStep,
+            event.communication_events.at(-1)?.step ?? 0,
+            event.agent_events.at(-1)?.step ?? 0,
+          );
+          onChat?.(event);
+          return null;
+        }
         const frame = event.frame;
         const ids = new Set(frame.agents.map((agent) => agent.id));
         if (
@@ -488,6 +736,7 @@ export function createApiClient(
             "Backend returned invalid live positions or timestamps.",
           );
         }
+        if (lastStep < 0) initialIds = ids;
         lastStep = frame.step;
         previousIds = ids;
         onFrame(frame);
@@ -524,14 +773,50 @@ export function createApiClient(
     },
     stressTest: async (
       payload: StressTestRequest,
+      signal?: AbortSignal,
+      computationId?: string,
+      onStatus?: (job: JobSnapshot) => void,
     ): Promise<StressTestResult> => {
-      const result = await request("/stress-test", validateStress, payload);
+      const result = onStatus
+        ? await runJob(
+            { kind: "stress", request: payload },
+            validateStress,
+            signal,
+            computationId ?? crypto.randomUUID(),
+            onStatus,
+          )
+        : await request(
+            "/stress-test",
+            validateStress,
+            payload,
+            signal,
+            computationId,
+          );
       checkMetrics(result.baseline);
       result.scenarios.forEach((scenario) => checkMetrics(scenario.metrics));
       return result;
     },
-    optimize: async (payload: OptimizeRequest): Promise<OptimizationResult> => {
-      const result = await request("/optimize", validateOptimization, payload);
+    optimize: async (
+      payload: OptimizeRequest,
+      signal?: AbortSignal,
+      computationId?: string,
+      onStatus?: (job: JobSnapshot) => void,
+    ): Promise<OptimizationResult> => {
+      const result = onStatus
+        ? await runJob(
+            { kind: "optimize", request: payload },
+            validateOptimization,
+            signal,
+            computationId ?? crypto.randomUUID(),
+            onStatus,
+          )
+        : await request(
+            "/optimize",
+            validateOptimization,
+            payload,
+            signal,
+            computationId,
+          );
       checkMetrics(result.baseline);
       result.candidates.forEach((candidate) => checkMetrics(candidate.metrics));
       return result;

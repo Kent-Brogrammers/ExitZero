@@ -59,6 +59,56 @@
   font-size: var(--text-small);
   line-height: 1.6;
 }
+.agent-chat li .chat-message-note {
+  color: var(--cad-muted);
+  font-size: 10px;
+}
+.live-agent-chat {
+  position: relative;
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+.live-run-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.live-cancel-button {
+  color: var(--cad-danger);
+}
+.live-chat-notification {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-width: 0;
+  color: var(--cad-text);
+  border-color: var(--cad-border);
+}
+.live-chat-preview {
+  max-width: min(32vw, 300px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cad-muted);
+  font-size: var(--text-small);
+}
+.live-chat-count {
+  padding: 2px 6px;
+  border-radius: 12px;
+  background: var(--cad-accent);
+  color: var(--cad-surface);
+  font-size: var(--text-small);
+  font-variant-numeric: tabular-nums;
+}
+.live-agent-chat .agent-chat {
+  left: auto;
+  right: 0;
+  bottom: calc(100% + 8px);
+  width: min(380px, calc(100vw - 48px));
+  max-height: min(50dvh, 360px);
+}
 .playback-preview-toggle {
   display: flex;
   align-items: center;

@@ -1,6 +1,7 @@
 import { LengthInput } from "./ui/LengthInput";
 import { formatDimensions } from "./utils/units";
 import type { ReplayTarget } from "./simulation/replayTarget";
+import { appendChat } from "./simulation/communication";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import example from "../../shared/examples/building.json";
 import defaultOffice from "./editor/presets/corporate-office.json";
@@ -23,6 +24,9 @@ import {
   type OfficeDemoSource,
 } from "./studio/OfficeDemoNotice";
 import { api } from "./services/api";
+import { ComputationJobs } from "./services/ComputationJobs";
+import { jobLabel } from "./services/jobPresentation";
+import type { BaselineRecording } from "./analytics/comparison";
 import {
   applyOptimizationCandidate,
   type OptimizationEvaluation,
@@ -33,6 +37,10 @@ import type {
   SimulationResult,
   StressTestResult,
   OptimizationCandidate,
+  LiveSpeedControl,
+  JobSnapshot,
+  OptimizationResult,
+  ScenarioReplay,
 } from "./types/simulation";
 
 const AnalyticsDashboard = lazy(() => import("./analytics/AnalyticsDashboard"));
@@ -161,13 +169,18 @@ export default function App() {
     // Pass this same independent copy to run(), without waiting for React state.
     const selected = structuredClone(next);
     setBuilding(selected);
+    setBaseline(null);
     setActiveLayout(source?.kind === "layout" ? structuredClone(source) : null);
     markSaved(selected);
     setResult(null);
     setStressResult(null);
+    setStressJobId(null);
+    setScenarioReplay(null);
+    setViewOriginal(false);
     setOptimization(null);
     setReplayTarget(null);
     setOfficeDemo(null);
+    setLive(null);
     previousWorkspace.current = null;
     setLayoutRevision((revision) => revision + 1);
     setMessage("");
@@ -180,8 +193,18 @@ export default function App() {
       JSON.stringify(withoutObjectNames(next));
     setBuilding(next);
     if (namesOnly) return;
+    setLive(null);
+    if (result && !baseline)
+      setBaseline({
+        building: structuredClone(building),
+        result,
+        source: officeDemo === "recorded" ? "recorded_demo" : "computed",
+      });
     setResult(null);
     setStressResult(null);
+    setStressJobId(null);
+    setScenarioReplay(null);
+    setViewOriginal(false);
     setOptimization(null);
     if (officeDemo) setOfficeDemo("edited");
     setMessage("");
@@ -194,10 +217,88 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [result, setResult] = useState<SimulationResult | null>(null);
+  const [baseline, setBaseline] = useState<BaselineRecording | null>(null);
+  const [viewOriginal, setViewOriginal] = useState(false);
   const [replayTarget, setReplayTarget] = useState<ReplayTarget | null>(null);
   const [live, setLive] = useState<LiveSimulation | null>(null);
   const liveRequest = useRef<AbortController | null>(null);
-  useEffect(() => () => liveRequest.current?.abort(), []);
+  const liveRunId = useRef<string | null>(null);
+  function cancelLive() {
+    if (!liveRequest.current || liveRequest.current.signal.aborted) return;
+    liveRequest.current.abort();
+    setLive((previous) =>
+      previous
+        ? {
+            ...previous,
+            status: "cancelled",
+            speed_pending: false,
+            control_error: undefined,
+          }
+        : previous,
+    );
+    setMessage("Simulation cancelled.");
+  }
+  async function changeLiveSpeed(speed: LiveSpeedControl["speed"]) {
+    const controller = liveRequest.current;
+    const id = liveRunId.current;
+    if (!controller || controller.signal.aborted || !id || live?.speed_pending)
+      return;
+    setLive((previous) =>
+      previous
+        ? { ...previous, speed_pending: true, control_error: undefined }
+        : previous,
+    );
+    try {
+      const applied = await api.setLiveSpeed(id, speed, controller.signal);
+      if (liveRequest.current === controller && !controller.signal.aborted)
+        setLive((previous) =>
+          previous ? { ...previous, speed: applied.speed } : previous,
+        );
+    } catch (error) {
+      if (liveRequest.current === controller && !controller.signal.aborted)
+        setLive((previous) =>
+          previous
+            ? {
+                ...previous,
+                control_error:
+                  error instanceof Error
+                    ? error.message
+                    : "Could not change speed.",
+              }
+            : previous,
+        );
+    } finally {
+      if (liveRequest.current === controller)
+        setLive((previous) =>
+          previous ? { ...previous, speed_pending: false } : previous,
+        );
+    }
+  }
+  const computationId = useRef<string | null>(null);
+  const stopRequested = useRef(false);
+  const background = useRef(false);
+  const [job, setJob] = useState<JobSnapshot | null>(null);
+  const [stressJobId, setStressJobId] = useState<string | null>(null);
+  const [scenarioReplay, setScenarioReplay] = useState<ScenarioReplay | null>(
+    null,
+  );
+  const [operation, setOperation] = useState<
+    "simulate" | "calculate" | "stress" | "optimize" | "watch" | null
+  >(null);
+  const [stopping, setStopping] = useState(false);
+  useEffect(() => {
+    const abandon = () => {
+      const id = computationId.current;
+      if (id && !background.current)
+        void api.cancelComputation(id).catch(() => undefined);
+      liveRequest.current?.abort();
+    };
+    window.addEventListener("pagehide", abandon);
+    return () => {
+      window.removeEventListener("pagehide", abandon);
+      abandon();
+    };
+  }, []);
   const [stressResult, setStressResult] = useState<StressTestResult | null>(
     null,
   );
@@ -215,6 +316,9 @@ export default function App() {
       if (!editor.current?.applyBuilding(next)) return;
       setResult(null);
       setStressResult(null);
+      setStressJobId(null);
+      setScenarioReplay(null);
+      setViewOriginal(false);
       setOptimization({ ...optimization, applied: candidate });
       if (officeDemo) setOfficeDemo("edited");
       setMessage(
@@ -235,6 +339,8 @@ export default function App() {
     stressResult: StressTestResult | null;
     optimization: OptimizationEvaluation | null;
     savedLayoutJson: string;
+    baseline: BaselineRecording | null;
+    stressJobId: string | null;
     activeLayout: UserTemplate | null;
   } | null>(null);
 
@@ -242,6 +348,7 @@ export default function App() {
     if (busy) return;
     if (!canReplace("the saved office demo")) return;
     setBusy(true);
+    setLive(null);
     try {
       const recording = await loadOfficeDemo();
       previousWorkspace.current ??= {
@@ -250,15 +357,21 @@ export default function App() {
         stressResult,
         optimization,
         savedLayoutJson,
+        baseline,
+        stressJobId,
         activeLayout,
       };
       setBuilding(structuredClone(officeDemoBuilding));
+      setBaseline(null);
       markSaved(officeDemoBuilding);
       setActiveLayout(null);
       setLayoutRevision((revision) => revision + 1);
       setReplayTarget(null);
       setResult(recording);
       setStressResult(null);
+      setStressJobId(null);
+      setScenarioReplay(null);
+      setViewOriginal(false);
       setOptimization(null);
       setOfficeDemo("recorded");
       setMessage("");
@@ -280,10 +393,15 @@ export default function App() {
     setResult(previous.result);
     setStressResult(previous.stressResult);
     setOptimization(previous.optimization);
+    setBaseline(previous.baseline);
+    setStressJobId(previous.stressJobId);
+    setScenarioReplay(null);
+    setViewOriginal(false);
     setSavedLayoutJson(previous.savedLayoutJson);
     setActiveLayout(previous.activeLayout);
     setLayoutRevision((revision) => revision + 1);
     setReplayTarget(null);
+    setLive(null);
     previousWorkspace.current = null;
     setOfficeDemo(null);
     setMessage("");
@@ -302,53 +420,168 @@ export default function App() {
   }, [healthAttempt]);
 
   async function run(
-    action: "simulate" | "stress" | "optimize",
+    action: "simulate" | "calculate" | "stress" | "optimize" | "watch",
     scenario = building,
+    scenarioId?: string,
   ) {
-    if (busy) return;
+    if (busy || (action === "watch" && (!stressJobId || !scenarioId))) return;
+    if (
+      scenario.pursuit &&
+      (action === "stress" || action === "optimize" || action === "watch")
+    ) {
+      setMessage(
+        "Safety stress testing and optimization apply to ordinary evacuation modes.",
+      );
+      return;
+    }
     setBusy(true);
+    setLive(null);
     setMessage("Sending request…");
+    const controller = new AbortController();
+    const id = crypto.randomUUID();
+    computationId.current = id;
+    liveRequest.current = controller;
+    stopRequested.current = false;
+    background.current = action !== "simulate";
+    setJob(null);
+    setOperation(action);
+    setStopping(false);
+    setMessage(
+      `${action === "stress" ? "Stress testing" : action === "optimize" ? "Optimization" : "Simulation"} requested. Waiting for computation…`,
+    );
+    function acceptCompletion() {
+      if (stopRequested.current) controller.abort();
+      controller.signal.throwIfAborted();
+    }
+    const updateJob = (next: JobSnapshot) => {
+      if (controller.signal.aborted) return;
+      setJob(next);
+      if (next.kind === "stress") setStressJobId(next.id);
+      computationId.current = next.id;
+      if (!stopRequested.current) setMessage(jobLabel(next));
+    };
     try {
       if (action === "simulate") {
+        setScenarioReplay(null);
+        setViewOriginal(false);
         if (officeDemo && scenario === building) setOfficeDemo("live");
-        const controller = new AbortController();
-        liveRequest.current = controller;
         setResult(null);
         setStressResult(null);
+        setStressJobId(null);
+        setScenarioReplay(null);
+        setViewOriginal(false);
         setReplayTarget(null);
-        setLive({ frame: null });
+        liveRunId.current = id;
+        setLive({
+          frame: null,
+          chat: { messages: [], total: 0 },
+          status: "running",
+          speed: 1,
+        });
         setMessage("Starting live simulation…");
         navigate("simulation");
         const recording = await api.simulateLive(
           scenario,
           (frame) => {
             if (!controller.signal.aborted) {
-              setLive({ frame });
+              setLive((previous) => ({ ...previous, frame }));
               setMessage("");
             }
           },
           controller.signal,
+          (chat) => {
+            if (controller.signal.aborted) return;
+            const incoming = [
+              ...chat.communication_events,
+              ...chat.agent_events,
+            ].sort((a, b) => a.step - b.step);
+            setLive((previous) =>
+              previous
+                ? {
+                    ...previous,
+                    chat: appendChat(
+                      previous.chat,
+                      incoming,
+                      scenario.time_step_seconds,
+                    ),
+                  }
+                : previous,
+            );
+          },
+          id,
         );
-        controller.signal.throwIfAborted();
+        acceptCompletion();
         setResult(recording);
         setMessage("Recording ready.");
+      } else if (action === "calculate") {
+        const recording = await api.simulate(
+          scenario,
+          controller.signal,
+          id,
+          updateJob,
+        );
+        acceptCompletion();
+        setScenarioReplay(null);
+        setViewOriginal(false);
+        setResult(recording);
+        setReplayTarget((previous) => ({
+          source: recording,
+          step: recording.frames[0]?.step ?? 0,
+          request: (previous?.request ?? 0) + 1,
+        }));
+        navigate("analytics");
+        setMessage(
+          "Calculation ready. Open playback to watch the recorded run.",
+        );
       } else if (action === "stress") {
-        setStressResult(
-          await api.stressTest({
+        const stressed = await api.stressTest(
+          {
             building: scenario,
             config: {
               max_scenarios: 10,
               block_each_exit: true,
               obstruction_candidates: [],
             },
-          }),
+          },
+          controller.signal,
+          id,
+          updateJob,
         );
+        acceptCompletion();
+        setStressResult(stressed);
         setMessage("Stress test ready.");
+      } else if (action === "watch") {
+        const replay = await api.recordScenario(
+          stressJobId!,
+          scenarioId!,
+          controller.signal,
+          id,
+          updateJob,
+        );
+        acceptCompletion();
+        setScenarioReplay(replay);
+        setViewOriginal(false);
+        setReplayTarget((previous) => ({
+          source: replay.result,
+          step: replay.result.frames[0]?.step ?? 0,
+          request: (previous?.request ?? 0) + 1,
+          play: true,
+        }));
+        navigate("simulation");
+        setMessage(
+          "Recorded the selected stress scenario. The editable building and baseline recording are unchanged.",
+        );
       } else {
-        const optimized = await api.optimize({
-          building: scenario,
-          max_candidates: 10,
-        });
+        const optimized = await api.optimize(
+          {
+            building: scenario,
+            max_candidates: 10,
+          },
+          controller.signal,
+          id,
+          updateJob,
+        );
+        acceptCompletion();
         setOptimization({
           source: structuredClone(scenario),
           result: optimized,
@@ -358,16 +591,129 @@ export default function App() {
       }
     } catch (error) {
       setMessage(
-        liveRequest.current?.signal.aborted
-          ? "Simulation stopped. No recording was saved."
+        controller.signal.aborted || stopRequested.current
+          ? action === "simulate"
+            ? "Simulation stopped. No recording was saved."
+            : "Computation stopped. Previous results were preserved."
           : error instanceof Error
             ? error.message
             : "Request failed.",
       );
     } finally {
-      setLive(null);
+      if (!liveRequest.current?.signal.aborted) setLive(null);
       liveRequest.current = null;
+      liveRunId.current = null;
+      computationId.current = null;
+      setOperation(null);
+      setStopping(false);
       setBusy(false);
+    }
+  }
+
+  async function openJob(id: string) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const request = await api.jobRequest(id);
+      if (request.kind === "replay") {
+        const replay = (await api.jobResult(id, request)) as ScenarioReplay;
+        setScenarioReplay(replay);
+        setViewOriginal(false);
+        setReplayTarget((previous) => ({
+          source: replay.result,
+          step: replay.result.frames[0]?.step ?? 0,
+          request: (previous?.request ?? 0) + 1,
+          play: true,
+        }));
+        navigate("simulation");
+        setMessage(
+          "Opened the tested scenario recording. Your editable building is unchanged.",
+        );
+        return;
+      }
+      const source =
+        request.kind === "simulate"
+          ? request.building
+          : request.request.building;
+      if (
+        JSON.stringify(source) !== JSON.stringify(building) &&
+        !canReplace("this computation's original layout")
+      )
+        return;
+      const computed = await api.jobResult(id, request);
+      if (JSON.stringify(source) !== JSON.stringify(building)) {
+        setBuilding(structuredClone(source));
+        setLayoutRevision((value) => value + 1);
+        markSaved(source, "replace");
+        setResult(null);
+        setStressResult(null);
+        setStressJobId(null);
+        setScenarioReplay(null);
+        setViewOriginal(false);
+        setOptimization(null);
+        setOfficeDemo(null);
+      }
+      if (request.kind === "simulate") {
+        setResult(computed as SimulationResult);
+        const recording = computed as SimulationResult;
+        setReplayTarget((previous) => ({
+          source: recording,
+          step: recording.frames[0]?.step ?? 0,
+          request: (previous?.request ?? 0) + 1,
+        }));
+      } else if (request.kind === "stress") {
+        setStressResult(computed as StressTestResult);
+        setStressJobId(id);
+      } else
+        setOptimization({
+          source,
+          result: computed as OptimizationResult,
+          applied: null,
+        });
+      navigate("analytics");
+      setMessage("Opened a completed computation without rerunning it.");
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Could not open results.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function stopComputation() {
+    const id = computationId.current;
+    const controller = liveRequest.current;
+    if (!id || !controller || stopping) return;
+    stopRequested.current = true;
+    setStopping(true);
+    setJob((previous) =>
+      previous ? { ...previous, status: "cancelling" } : null,
+    );
+    setMessage("Cancelling computation…");
+    try {
+      await api.cancelComputation(id);
+      if (!background.current) {
+        controller.abort();
+        setLive((previous) =>
+          previous
+            ? {
+                ...previous,
+                status: "cancelled",
+                speed_pending: false,
+                control_error: undefined,
+              }
+            : previous,
+        );
+      }
+    } catch (error) {
+      // Keep the request connected so a failed Stop cannot abandon batch work.
+      if (computationId.current !== id) return;
+      stopRequested.current = false;
+      setStopping(false);
+      setMessage(
+        `Could not confirm cancellation. Retry Stop. ${error instanceof Error ? error.message : ""}`,
+      );
     }
   }
 
@@ -598,13 +944,39 @@ export default function App() {
                 </div>
               )}
             </StudioPopover>
-            {live ? (
+            <StudioPopover
+              label="Computations"
+              className="computations-popover"
+            >
+              {(close) => (
+                <ComputationJobs
+                  current={job}
+                  disabled={busy}
+                  onOpen={(id) => {
+                    void openJob(id);
+                    close();
+                  }}
+                />
+              )}
+            </StudioPopover>
+            {operation ? (
               <button
                 type="button"
                 className="run-action"
-                onClick={() => liveRequest.current?.abort()}
+                disabled={stopping}
+                onClick={() => void stopComputation()}
               >
-                Stop Simulation
+                {stopping
+                  ? "Cancelling…"
+                  : operation === "simulate"
+                    ? "Stop Simulation"
+                    : operation === "watch"
+                      ? "Stop Scenario Recording"
+                      : operation === "calculate"
+                        ? "Stop Calculation"
+                        : operation === "stress"
+                          ? "Stop Stress Test"
+                          : "Stop Optimization"}
               </button>
             ) : (
               view !== "templates" && (
@@ -623,6 +995,16 @@ export default function App() {
                   <span aria-hidden="true">↗</span>
                 </button>
               )
+            )}
+            {!operation && view !== "templates" && (
+              <button
+                className="studio-control"
+                disabled={busy || connection !== "online" || !!layoutProblem}
+                onClick={() => void run("calculate")}
+                title="Compute the recording without real-time playback pacing"
+              >
+                Calculate Results
+              </button>
             )}
           </div>
         </header>
@@ -671,7 +1053,16 @@ export default function App() {
               onChange={changeBuilding}
               result={result}
               live={live}
+              onLiveSpeedChange={changeLiveSpeed}
+              onCancelLive={cancelLive}
               replayTarget={replayTarget}
+              scenarioReplay={scenarioReplay}
+              comparisonReplay={viewOriginal ? baseline : null}
+              onReturnFromScenario={() => {
+                setScenarioReplay(null);
+                setViewOriginal(false);
+                navigate("analytics");
+              }}
               allowSyntheticPreview={!officeDemo && !building.pursuit}
               disabled={busy}
               savedLayoutJson={savedLayoutJson}
@@ -756,11 +1147,37 @@ export default function App() {
                       request: (previous?.request ?? 0) + 1,
                     }));
                     navigate("simulation");
+                    setScenarioReplay(null);
+                    setViewOriginal(false);
                   }}
                   result={result}
                   stressResult={stressResult}
                   building={building}
+                  baseline={baseline}
+                  onWatchOriginal={() => {
+                    setScenarioReplay(null);
+                    setViewOriginal(true);
+                    if (baseline)
+                      setReplayTarget((previous) => ({
+                        source: baseline.result,
+                        step: baseline.result.frames[0]?.step ?? 0,
+                        request: (previous?.request ?? 0) + 1,
+                        play: true,
+                      }));
+                    navigate("simulation");
+                  }}
                   optimization={optimization}
+                  onStress={
+                    building.pursuit ? undefined : () => void run("stress")
+                  }
+                  onOptimize={
+                    building.pursuit ? undefined : () => void run("optimize")
+                  }
+                  onWatchScenario={
+                    stressJobId && !building.pursuit
+                      ? (id) => void run("watch", building, id)
+                      : undefined
+                  }
                   onApply={applyCandidate}
                   disabled={busy}
                 />

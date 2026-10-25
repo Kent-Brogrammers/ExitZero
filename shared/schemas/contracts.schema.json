@@ -4,6 +4,120 @@
   "title": "ExitZero API contracts",
   "$ref": "#/$defs/BuildingScenario",
   "$defs": {
+    "JobRequest": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "stress_job_id", "scenario_id"],
+          "properties": {
+            "kind": { "const": "replay" },
+            "stress_job_id": { "type": "string", "maxLength": 80 },
+            "scenario_id": { "type": "string", "maxLength": 128 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "building"],
+          "properties": {
+            "kind": { "const": "simulate" },
+            "building": { "$ref": "#/$defs/BuildingScenario" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "request"],
+          "properties": {
+            "kind": { "const": "stress" },
+            "request": { "$ref": "#/$defs/StressTestRequest" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "request"],
+          "properties": {
+            "kind": { "const": "optimize" },
+            "request": { "$ref": "#/$defs/OptimizeRequest" }
+          }
+        }
+      ]
+    },
+    "JobSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "server_id",
+        "kind",
+        "status",
+        "progress",
+        "cached",
+        "error"
+      ],
+      "properties": {
+        "context": { "type": "string" },
+        "id": { "type": "string" },
+        "server_id": { "type": "string" },
+        "kind": { "enum": ["simulate", "stress", "optimize", "replay"] },
+        "status": {
+          "enum": [
+            "queued",
+            "running",
+            "cancelling",
+            "completed",
+            "failed",
+            "cancelled"
+          ]
+        },
+        "cached": { "type": "boolean" },
+        "error": { "type": ["string", "null"] },
+        "progress": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "evaluations_completed",
+            "evaluations_total",
+            "step",
+            "step_limit"
+          ],
+          "properties": {
+            "evaluations_completed": { "type": "integer", "minimum": 0 },
+            "evaluations_total": { "type": "integer", "minimum": 0 },
+            "step": { "type": "integer", "minimum": 0 },
+            "step_limit": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "JobList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["server_id", "jobs"],
+      "properties": {
+        "server_id": { "type": "string" },
+        "jobs": { "type": "array", "items": { "$ref": "#/$defs/JobSnapshot" } }
+      }
+    },
+    "ScenarioReplay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["building", "result", "stress_job_id", "scenario_id"],
+      "properties": {
+        "building": { "$ref": "#/$defs/BuildingScenario" },
+        "result": { "$ref": "#/$defs/SimulationResult" },
+        "stress_job_id": { "type": "string" },
+        "scenario_id": { "type": "string" }
+      }
+    },
+    "ComputationCancellationResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": { "status": { "const": "cancelling" } }
+    },
     "SpawnZone": {
       "type": "object",
       "additionalProperties": false,
@@ -310,14 +424,28 @@
         "blocked"
       ],
       "properties": {
-        "step": { "type": "integer", "minimum": 0, "maximum": 100000 },
-        "event_type": { "enum": ["discovery", "shared"] },
-        "sender_id": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "step": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100000
+        },
+        "event_type": {
+          "enum": ["discovery", "shared"]
+        },
+        "sender_id": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
         "recipient_ids": {
           "type": "array",
           "maxItems": 10000,
           "uniqueItems": true,
-          "items": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          }
         },
         "opening_id": {
           "type": "string",
@@ -325,17 +453,33 @@
           "maxLength": 64,
           "pattern": "\\S"
         },
-        "blocked": { "type": "boolean" }
+        "blocked": {
+          "type": "boolean"
+        }
       },
       "if": {
         "required": ["event_type"],
-        "properties": { "event_type": { "const": "discovery" } }
+        "properties": {
+          "event_type": {
+            "const": "discovery"
+          }
+        }
       },
       "then": {
-        "properties": { "recipient_ids": { "type": "array", "maxItems": 0 } }
+        "properties": {
+          "recipient_ids": {
+            "type": "array",
+            "maxItems": 0
+          }
+        }
       },
       "else": {
-        "properties": { "recipient_ids": { "type": "array", "minItems": 1 } }
+        "properties": {
+          "recipient_ids": {
+            "type": "array",
+            "minItems": 1
+          }
+        }
       }
     },
     "AnimationFrame": {
@@ -481,6 +625,14 @@
         "time_step_seconds"
       ],
       "properties": {
+        "termination_reason": {
+          "enum": [
+            "completed",
+            "step_limit",
+            "no_active_routes",
+            "movement_stagnation"
+          ]
+        },
         "status": {
           "enum": ["completed", "incomplete", "timeout"]
         },
@@ -542,7 +694,9 @@
         },
         "communication_events": {
           "type": "array",
-          "items": { "$ref": "#/$defs/CommunicationEvent" }
+          "items": {
+            "$ref": "#/$defs/CommunicationEvent"
+          }
         },
         "evacuated_by_route": {
           "$ref": "#/$defs/EvacuatedByRoute"
@@ -551,6 +705,12 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 10000
+        },
+        "agent_events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AgentEvent"
+          }
         }
       },
       "allOf": [
@@ -1189,6 +1349,28 @@
         {
           "type": "object",
           "additionalProperties": false,
+          "required": ["type", "communication_events", "agent_events"],
+          "properties": {
+            "type": {
+              "const": "chat"
+            },
+            "communication_events": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/CommunicationEvent"
+              }
+            },
+            "agent_events": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/AgentEvent"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
           "required": ["type", "result"],
           "properties": {
             "type": {
@@ -1615,6 +1797,112 @@
           "items": {
             "$ref": "#/$defs/HazardArea"
           }
+        }
+      }
+    },
+    "AgentEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["step", "agent_id", "kind"],
+      "properties": {
+        "step": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100000
+        },
+        "agent_id": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "kind": {
+          "enum": [
+            "heading_to_exit",
+            "hazard_discovered",
+            "hazard_spreading",
+            "rerouting",
+            "route_unavailable",
+            "window_approach",
+            "window_queue",
+            "window_opening",
+            "window_breaking",
+            "window_traversal",
+            "exposure",
+            "waiting",
+            "evacuated",
+            "sheltered"
+          ]
+        },
+        "subject_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "\\S"
+        },
+        "position": {
+          "$ref": "#/$defs/Point"
+        },
+        "hazard_kind": {
+          "enum": ["fire", "gas_leak", "tornado"]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "heading_to_exit",
+                  "rerouting",
+                  "window_approach",
+                  "window_queue",
+                  "window_opening",
+                  "window_breaking",
+                  "window_traversal",
+                  "evacuated",
+                  "sheltered"
+                ]
+              }
+            },
+            "required": ["kind"]
+          },
+          "then": {
+            "required": ["subject_id"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": ["hazard_discovered", "hazard_spreading"]
+              }
+            },
+            "required": ["kind"]
+          },
+          "then": {
+            "required": ["position"]
+          }
+        }
+      ]
+    },
+    "LiveRunQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,64}$"
+        }
+      }
+    },
+    "LiveSpeedControl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["speed"],
+      "properties": {
+        "speed": {
+          "type": "integer",
+          "enum": [1, 2, 4, 8]
         }
       }
     }

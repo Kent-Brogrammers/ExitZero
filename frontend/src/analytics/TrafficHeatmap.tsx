@@ -47,12 +47,15 @@ export default function TrafficHeatmap({
     const redraw = () =>
       drawLayout(
         target,
-        building,
+        frameLayout(building, result.frames.at(-1) ?? null),
         null,
         undefined,
         window.devicePixelRatio || 1,
         canvasPalette(target),
         {
+          hazardMode: "filled",
+          showBlockedLabels: false,
+          disasterState: result.frames.at(-1)?.disaster_state,
           underlay: (ctx) => {
             if (!visible || data.max === 0) return;
             ctx.save();
@@ -137,8 +140,7 @@ export default function TrafficHeatmap({
           ) : (
             <p className="note">No positive traffic samples were returned.</p>
           )}
-          <details className="note">
-            <summary>About recorded traffic</summary>
+          <div className="note traffic-explanation">
             <p>
               Computed visits, smoothed for display. Color may extend beyond
               recorded paths; it does not predict movement through walls. Source
@@ -147,9 +149,10 @@ export default function TrafficHeatmap({
               relative to this run, not density or measured congestion. Scenario
               selection does not change this map.
             </p>
-          </details>
+          </div>
         </>
       )}
     </section>
   );
 }
+import { frameLayout } from "../simulation/frameLayout";

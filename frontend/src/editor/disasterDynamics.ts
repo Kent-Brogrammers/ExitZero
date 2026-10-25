@@ -7,8 +7,8 @@ export function defaultDynamics(
   return {
     enabled: true,
     growth_rate: kind === "gas_leak" ? 0.12 : 0.06,
-    spread_interval_seconds: kind === "gas_leak" ? 1.5 : 2.5,
-    max_patches: 32,
+    spread_interval_seconds: 2.5,
+    max_patches: kind === "gas_leak" ? 1 : 32,
     max_radius: Math.max(0.01, Math.min(1000, radius * 2)),
     speed: 1.2,
     turn_rate_degrees: 50,

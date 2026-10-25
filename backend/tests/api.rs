@@ -13,6 +13,62 @@ use std::{future::poll_fn, pin::Pin};
 use tower::ServiceExt;
 
 #[tokio::test]
+async fn explicit_stop_cancels_live_work_even_when_the_reader_is_not_draining() {
+    let app = router();
+    let mut payload = building();
+    payload["max_steps"] = json!(10000);
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/api/simulate/live")
+                .header("content-type", "application/json")
+                .header("x-computation-id", "test-live-stop")
+                .body(Body::from(payload.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response.into_body(); // Keep the reader connected without consuming frames.
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    for _ in 0..2 {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/api/computations/test-live-stop/cancel")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+    // With the sole worker occupied, a batch cannot finish. Completion proves
+    // Stop released real worker capacity rather than hiding the live stream.
+    let mut next = building();
+    next["max_steps"] = json!(1);
+    let response = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        app.clone().oneshot(
+            Request::post("/api/simulate")
+                .header("content-type", "application/json")
+                .body(Body::from(next.to_string()))
+                .unwrap(),
+        ),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    drop(body);
+    let response = app
+        .oneshot(Request::get("/api/health").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
 async fn live_route_delivers_frames_before_the_final_recording() {
     let mut building: BuildingScenario = serde_json::from_value(building()).unwrap();
     building.max_steps = 2;
@@ -48,10 +104,11 @@ async fn live_route_delivers_frames_before_the_final_recording() {
             .iter()
             .map(|event| event["type"].as_str().unwrap())
             .collect::<Vec<_>>(),
-        vec!["frame", "frame", "complete"]
+        vec!["frame", "frame", "chat", "complete"]
     );
     assert_eq!(events[1]["frame"]["step"], 2);
-    let result: SimulationResult = serde_json::from_value(events[2]["result"].clone()).unwrap();
+    let result: SimulationResult =
+        serde_json::from_value(events.last().unwrap()["result"].clone()).unwrap();
     result.validate().unwrap();
     let expected: Value =
         serde_json::from_slice(&serde_json::to_vec(&simulate(&building).unwrap()).unwrap())

@@ -115,6 +115,24 @@ it("exposes kind-specific evolution parameters and validates their bounds", asyn
   expect(defaultDynamics("gas_leak", 1).growth_rate).toBeGreaterThan(
     defaultDynamics("fire", 1).growth_rate,
   );
+  building.disaster = {
+    kind: "gas_leak",
+    center: { x: 5, y: 5 },
+    radius: 1,
+    dynamics: defaultDynamics("gas_leak", 1),
+  };
+  html = renderToStaticMarkup(
+    <DisasterControls
+      building={building}
+      onChange={() => {}}
+      onLocate={() => {}}
+    />,
+  );
+  expect(html).toContain("Cloud growth settings");
+  expect(html).toContain("Maximum cloud radius (ft)");
+  expect(html).not.toContain("New patch every (s)");
+  expect(html).not.toContain("Maximum patches");
+  expect(defaultDynamics("gas_leak", 1).max_patches).toBe(1);
 });
 
 it("uses a compact native radio group with one selected mode and feet-only distance labels", () => {

@@ -392,7 +392,9 @@ export function ScenarioFields({
               <summary>
                 {disaster.kind === "tornado"
                   ? "Tornado movement settings"
-                  : "Spread settings"}
+                  : disaster.kind === "gas_leak"
+                    ? "Cloud growth settings"
+                    : "Spread settings"}
               </summary>
               <label className="disaster-enable">
                 <input
@@ -404,7 +406,9 @@ export function ScenarioFields({
                 />
                 {disaster.kind === "tornado"
                   ? "Enable movement"
-                  : "Enable spread"}
+                  : disaster.kind === "gas_leak"
+                    ? "Enable growth"
+                    : "Enable spread"}
               </label>
               <div className="disaster-parameters">
                 {(disaster.kind === "tornado"
@@ -438,49 +442,61 @@ export function ScenarioFields({
                       ["max_patches", "Maximum patches", 1, 64, 1],
                       [
                         "max_radius",
-                        "Maximum patch radius (ft)",
+                        disaster.kind === "gas_leak"
+                          ? "Maximum cloud radius (ft)"
+                          : "Maximum patch radius (ft)",
                         0.01,
                         1000,
                         0.1,
                       ],
                     ]
-                ).map(([key, label, min, max, step]) => {
-                  const distance = [
-                    "speed",
-                    "shelter_clearance",
-                    "growth_rate",
-                    "max_radius",
-                  ].includes(String(key));
-                  const current =
-                    dynamics[key as Exclude<keyof DisasterDynamics, "enabled">];
-                  return (
-                    <label key={key}>
-                      {label}
-                      <input
-                        type="number"
-                        aria-label={String(label)}
-                        min={distance ? toFeet(Number(min)) : min}
-                        max={distance ? toFeet(Number(max)) : max}
-                        step={distance ? "any" : step}
-                        disabled={!dynamics.enabled}
-                        value={distance ? lengthInputValue(current) : current}
-                        onChange={(e) => {
-                          const input = e.target.valueAsNumber;
-                          const value = distance
-                            ? lengthFromInput(input, current)
-                            : input;
-                          if (
-                            Number.isFinite(value) &&
-                            value >= Number(min) &&
-                            value <= Number(max) &&
-                            (key !== "max_patches" || Number.isInteger(value))
-                          )
-                            updateDynamics({ [String(key)]: value });
-                        }}
-                      />
-                    </label>
-                  );
-                })}
+                )
+                  .filter(
+                    ([key]) =>
+                      disaster.kind !== "gas_leak" ||
+                      !["spread_interval_seconds", "max_patches"].includes(
+                        String(key),
+                      ),
+                  )
+                  .map(([key, label, min, max, step]) => {
+                    const distance = [
+                      "speed",
+                      "shelter_clearance",
+                      "growth_rate",
+                      "max_radius",
+                    ].includes(String(key));
+                    const current =
+                      dynamics[
+                        key as Exclude<keyof DisasterDynamics, "enabled">
+                      ];
+                    return (
+                      <label key={key}>
+                        {label}
+                        <input
+                          type="number"
+                          aria-label={String(label)}
+                          min={distance ? toFeet(Number(min)) : min}
+                          max={distance ? toFeet(Number(max)) : max}
+                          step={distance ? "any" : step}
+                          disabled={!dynamics.enabled}
+                          value={distance ? lengthInputValue(current) : current}
+                          onChange={(e) => {
+                            const input = e.target.valueAsNumber;
+                            const value = distance
+                              ? lengthFromInput(input, current)
+                              : input;
+                            if (
+                              Number.isFinite(value) &&
+                              value >= Number(min) &&
+                              value <= Number(max) &&
+                              (key !== "max_patches" || Number.isInteger(value))
+                            )
+                              updateDynamics({ [String(key)]: value });
+                          }}
+                        />
+                      </label>
+                    );
+                  })}
               </div>
               <p className="note">
                 {disaster.kind === "tornado"

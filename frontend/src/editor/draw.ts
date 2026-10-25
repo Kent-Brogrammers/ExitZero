@@ -1,14 +1,19 @@
 import { formatDimensions } from "../utils/units";
 import { drawStalker } from "./drawPursuit";
-import type {
-  BuildingScenario,
-  Point,
-  WindowFrameState,
-} from "../types/simulation";
-import { canvasView, openingSegment, type Selection } from "./geometry";
+import type { Point, WindowFrameState } from "../types/simulation";
+import {
+  canvasView,
+  openingSegment,
+  type Selection,
+  type CanvasCamera,
+} from "./geometry";
 import { drawGrid } from "./drawGrid";
 import type { DraftingPreferences } from "./drafting";
-import { solidWallSegments, openingLabels } from "./openings";
+import {
+  solidWallSegments,
+  openingLabels,
+  type OpeningLayout,
+} from "./openings";
 import { openingStartsBlocked } from "./openingState";
 import { doorLeaves } from "./doorSymbols";
 import { drawFurniture, type FurnitureKind } from "./furniture";
@@ -18,7 +23,7 @@ import { canvasPalette, type CanvasPalette } from "../styles/canvasPalette";
 
 export function drawLayout(
   canvas: HTMLCanvasElement,
-  building: BuildingScenario,
+  building: OpeningLayout,
   selected: Selection | readonly Selection[] | null,
   draft?: {
     start: Point;
@@ -31,6 +36,7 @@ export function drawLayout(
   pixelRatio = 1,
   palette: CanvasPalette = canvasPalette(canvas),
   options?: {
+    camera?: CanvasCamera;
     grid?: DraftingPreferences;
     furniture?: ReadonlyMap<string, FurnitureKind>;
     underlay?: (ctx: CanvasRenderingContext2D) => void;
@@ -39,6 +45,8 @@ export function drawLayout(
     showPursuitStart?: boolean;
     windowStates?: readonly WindowFrameState[];
     disasterState?: import("../types/simulation").DisasterState;
+    hazardMode?: "filled" | "outline" | "both";
+    showBlockedLabels?: boolean;
   },
 ) {
   const ctx = canvas.getContext("2d");
@@ -50,7 +58,13 @@ export function drawLayout(
   const height = Math.max(1, Math.round(display.height * ratio));
   if (canvas.width !== width) canvas.width = width;
   if (canvas.height !== height) canvas.height = height;
-  const { scale, x, y } = canvasView(canvas.width, canvas.height, building);
+  const { scale, x, y } = canvasView(
+    canvas.width,
+    canvas.height,
+    building,
+    options?.camera,
+    ratio,
+  );
   const px = ratio / scale;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -83,7 +97,15 @@ export function drawLayout(
     }
   }
   if (options?.grid)
-    drawGrid(ctx, building, { scale, x, y }, ratio, options.grid, palette);
+    drawGrid(
+      ctx,
+      building,
+      { scale, x, y },
+      ratio,
+      options.grid,
+      palette,
+      !!options.camera,
+    );
   if (building.disaster) {
     const kind = options?.disasterState?.kind ?? building.disaster.kind;
     const color =
@@ -103,12 +125,13 @@ export function drawLayout(
       ctx.lineWidth = 2 * px;
       ctx.beginPath();
       ctx.arc(area.center.x, area.center.y, exposure, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
+      if (options?.hazardMode !== "outline") ctx.fill();
+      if (options?.hazardMode !== "filled") ctx.stroke();
       ctx.fillStyle = color + "60";
       ctx.beginPath();
       ctx.arc(area.center.x, area.center.y, area.radius, 0, Math.PI * 2);
-      ctx.fill();
+      if (options?.hazardMode !== "outline") ctx.fill();
+      else ctx.stroke();
       if (index === 0) {
         ctx.fillStyle = palette.wall;
         ctx.font = `${12 * px}px system-ui`;
@@ -265,7 +288,9 @@ export function drawLayout(
       const wall = building.walls.find((v) => v.id === opening.wall_id);
       if (!wall) continue;
       const [a, b] = openingSegment(opening, wall);
-      const blocked = openingStartsBlocked(building, opening.id);
+      const blocked =
+        openingStartsBlocked(building, opening.id) ||
+        (building.closedDoorIds?.includes(opening.id) ?? false);
       const blueprintDoor =
         palette.blueprint === "1" && openings === building.doors && !blocked;
       ctx.lineCap = "butt";
@@ -419,9 +444,16 @@ export function drawLayout(
         (text) => ctx.measureText?.(text).width ?? text.length * 6 * px,
         options?.windowStates,
       )) {
+    if (
+      options?.showBlockedLabels === false &&
+      openingStartsBlocked(building, label.id) &&
+      !selectedIds.has(label.id)
+    )
+      continue;
     ctx.fillStyle = building.windows?.some((w) => w.id === label.id)
       ? palette.muted
-      : openingStartsBlocked(building, label.id)
+      : openingStartsBlocked(building, label.id) ||
+          building.closedDoorIds?.includes(label.id)
         ? palette.danger
         : building.exits.some((o) => o.id === label.id)
           ? palette.exit

@@ -1,7 +1,8 @@
 use self::agent::Agent;
 use crate::models::{
-    AgentPosition, AgentStatistics, AnimationFrame, BuildingScenario, Point, SimulationMetrics,
-    SimulationResult, SimulationStatus, TrafficSample,
+    AgentEvent, AgentPosition, AgentStatistics, AnimationFrame, BuildingScenario,
+    CommunicationEvent, Point, SimulationMetrics, SimulationResult, SimulationStatus,
+    TrafficSample,
 };
 use std::{collections::BTreeMap, fmt};
 mod agent;
@@ -9,6 +10,9 @@ mod analytics;
 mod awareness;
 mod catastrophe;
 mod congestion;
+pub(crate) mod control;
+mod dialogue;
+pub use control::{ComputationControl, ComputationProgress};
 mod emergency;
 mod evolution;
 mod geometry;
@@ -56,7 +60,7 @@ pub fn simulate_with_emergencies(
     scenario: &BuildingScenario,
     emergencies: &[Emergency],
 ) -> Result<SimulationResult, SimulationError> {
-    run(scenario, emergencies, None)
+    run(scenario, emergencies, None, None)
 }
 
 /// Observe actual physics frames before completion. Returning false cancels the
@@ -65,14 +69,29 @@ pub fn simulate_live(
     scenario: &BuildingScenario,
     on_frame: &mut dyn FnMut(&AnimationFrame) -> bool,
 ) -> Result<SimulationResult, SimulationError> {
-    run(scenario, &[], Some(on_frame))
+    run(scenario, &[], Some(on_frame), None)
+}
+
+type ChatObserver<'a> = dyn FnMut(&[CommunicationEvent], &[AgentEvent]) -> bool + 'a;
+
+/// Send newly recorded messages after the corresponding live physics frame.
+/// Returning false from either observer cancels the run.
+pub fn simulate_live_with_chat(
+    scenario: &BuildingScenario,
+    on_frame: &mut dyn FnMut(&AnimationFrame) -> bool,
+    on_chat: &mut ChatObserver<'_>,
+) -> Result<SimulationResult, SimulationError> {
+    run(scenario, &[], Some(on_frame), Some(on_chat))
 }
 
 fn run(
     scenario: &BuildingScenario,
     emergencies: &[Emergency],
     mut on_frame: Option<&mut dyn FnMut(&AnimationFrame) -> bool>,
+    mut on_chat: Option<&mut ChatObserver<'_>>,
 ) -> Result<SimulationResult, SimulationError> {
+    control::checkpoint()?;
+    control::step(0, scenario.max_steps);
     scenario
         .validate()
         .map_err(SimulationError::InvalidScenario)?;
@@ -114,10 +133,11 @@ fn run(
     let mut routes: Vec<_> = agents
         .iter()
         .map(|agent| {
+            control::checkpoint()?;
             let (map, navigation) = beliefs.for_agent(agent);
-            navigation.find_route(agent.position, map)
+            Ok(navigation.find_route(agent.position, map))
         })
-        .collect();
+        .collect::<Result<Vec<_>, SimulationError>>()?;
     let mut next_waypoint = vec![0; agents.len()];
     let mut motion: Vec<_> = agents.iter().map(|_| motion::Motion::new()).collect();
     let retry_ticks = (2.0 / scenario.time_step_seconds).ceil() as u32;
@@ -161,6 +181,7 @@ fn run(
     let mut step = 0_u32;
     let mut idle_steps = 0;
     let mut communication_events = Vec::new();
+    let mut dialogue = dialogue::Dialogue::new(agents.len());
     let movement_budget = motion::WALKING_SPEED * scenario.time_step_seconds;
 
     // Bound animation output by sampling ticks, retaining initial/final frames.
@@ -182,6 +203,23 @@ fn run(
     let mut frames = vec![frame(0, &agents, &evacuated, &world, &windows)];
     let live_stride = (0.05 / scenario.time_step_seconds).ceil().max(1.0) as u32;
     let mut last_live_step = 0;
+    let mut sent_communications = 0;
+    let mut sent_activity = 0;
+    let mut emit_chat = |communications: &[CommunicationEvent], activity: &[AgentEvent]| {
+        if let Some(emit) = &mut on_chat
+            && (communications.len() > sent_communications || activity.len() > sent_activity)
+        {
+            if !emit(
+                &communications[sent_communications..],
+                &activity[sent_activity..],
+            ) {
+                return false;
+            }
+            sent_communications = communications.len();
+            sent_activity = activity.len();
+        }
+        true
+    };
     if let Some(emit) = &mut on_frame
         && !emit(&frames[0])
     {
@@ -190,9 +228,12 @@ fn run(
     let mut traffic = BTreeMap::new();
     record_traffic(scenario, &agents, &evacuated, &mut traffic);
 
-    let status = loop {
+    use crate::models::TerminationReason;
+    let (status, termination_reason) = loop {
+        control::checkpoint()?;
+        control::step(step, scenario.max_steps);
         if evacuated_count + sheltered_count == total_population {
-            break SimulationStatus::Completed;
+            break (SimulationStatus::Completed, TerminationReason::Completed);
         }
         let now = f64::from(step) * scenario.time_step_seconds;
         let (changed_beliefs, information_changed) = awareness::update_knowledge(
@@ -212,6 +253,7 @@ fn run(
             },
         );
         for i in 0..agents.len() {
+            control::checkpoint()?;
             let versions: Vec<_> = agents[i]
                 .known_hazards
                 .values()
@@ -302,6 +344,7 @@ fn run(
         // approach. Decide locally whether to try a window, searching for a
         // danger-free normal detour first. This is not proof of entrapment.
         for i in 0..agents.len() {
+            control::checkpoint()?;
             if evacuated[i] || tornado || !windows.has_eligible() {
                 window_fallback[i] = false;
                 continue;
@@ -343,7 +386,16 @@ fn run(
         }
         let controlled: Vec<_> = (0..agents.len()).map(|i| windows.controls(i)).collect();
         windows.update(step, &agents, &evacuated, &window_fallback, &geometry);
+        dialogue.observe(
+            step,
+            scenario,
+            &agents,
+            &routes,
+            &statistics,
+            windows.snapshots(&agents).as_deref(),
+        );
         for i in 0..agents.len() {
+            control::checkpoint()?;
             if windows.controls(i) {
                 statistics[i].route_found = true;
             } else if controlled[i] && !evacuated[i] {
@@ -368,10 +420,13 @@ fn run(
             && !information_changed
             && scenario.disaster.is_none()
         {
-            break SimulationStatus::Incomplete;
+            break (
+                SimulationStatus::Incomplete,
+                TerminationReason::NoActiveRoutes,
+            );
         }
         if step == scenario.max_steps {
-            break SimulationStatus::Timeout;
+            break (SimulationStatus::Timeout, TerminationReason::StepLimit);
         }
 
         let before: Vec<Point> = agents.iter().map(|agent| agent.position).collect();
@@ -383,6 +438,7 @@ fn run(
         // Visibility is symmetric. Check each pair once, retaining agent order
         // in each list so congestion sums remain deterministic.
         for i in 0..agents.len() {
+            control::checkpoint()?;
             if evacuated[i] {
                 continue;
             }
@@ -407,6 +463,7 @@ fn run(
             })
             .collect();
         for i in 0..agents.len() {
+            control::checkpoint()?;
             if evacuated[i] || windows.controls(i) {
                 continue;
             }
@@ -537,6 +594,7 @@ fn run(
         // Guidance can change with congestion, but avoidance is active on every
         // tick, including the very first one. All people see the same snapshot.
         for i in 0..agents.len() {
+            control::checkpoint()?;
             if evacuated[i] {
                 continue;
             }
@@ -651,6 +709,7 @@ fn run(
             })
             .collect();
         for i in 0..agents.len() {
+            control::checkpoint()?;
             let Some(waypoint) = targets[i] else {
                 continue;
             };
@@ -792,6 +851,7 @@ fn run(
             &velocity_limits,
         );
         for i in 0..agents.len() {
+            control::checkpoint()?;
             proposed[i].x = proposed[i].x.clamp(0.0, scenario.width);
             proposed[i].y = proposed[i].y.clamp(0.0, scenario.height);
             if !windows
@@ -821,6 +881,7 @@ fn run(
         let mut leaving = Vec::new();
         let mut progress = false;
         for i in 0..agents.len() {
+            control::checkpoint()?;
             if evacuated[i] {
                 continue;
             }
@@ -871,6 +932,7 @@ fn run(
         }
 
         step += 1;
+        control::step(step, scenario.max_steps);
         // Include exit arrivals in traffic before removing evacuated agents.
         record_traffic(scenario, &agents, &evacuated, &mut traffic);
         for i in leaving {
@@ -932,6 +994,14 @@ fn run(
         // State changes at this timestamp are recorded in both live and saved
         // frames; preparation deadlines are never shifted by rendering stride.
         windows.update(step, &agents, &evacuated, &window_fallback, &geometry);
+        dialogue.observe(
+            step,
+            scenario,
+            &agents,
+            &routes,
+            &statistics,
+            windows.snapshots(&agents).as_deref(),
+        );
         for (i, statistic) in statistics.iter_mut().enumerate() {
             if windows.controls(i) {
                 statistic.route_found = true;
@@ -946,6 +1016,9 @@ fn run(
             if !emit(&frame(step, &agents, &evacuated, &world, &windows)) {
                 return Err(SimulationError::Cancelled);
             }
+            if !emit_chat(&communication_events, &dialogue.events) {
+                return Err(SimulationError::Cancelled);
+            }
             last_live_step = step;
         }
         idle_steps =
@@ -958,7 +1031,10 @@ fn run(
         // Allow rerouting before reporting a stalled run. Local avoidance has
         // already run on every tick; a stall still does not prove entrapment.
         if idle_steps >= agents.len().max(2 * retry_ticks as usize + 1) {
-            break SimulationStatus::Incomplete;
+            break (
+                SimulationStatus::Incomplete,
+                TerminationReason::MovementStagnation,
+            );
         }
     };
 
@@ -969,6 +1045,9 @@ fn run(
         && let Some(emit) = &mut on_frame
         && !emit(frames.last().unwrap())
     {
+        return Err(SimulationError::Cancelled);
+    }
+    if !emit_chat(&communication_events, &dialogue.events) {
         return Err(SimulationError::Cancelled);
     }
     // Graph-search failure alone is not proof of entrapment. We only classify
@@ -988,6 +1067,7 @@ fn run(
         agent.waiting_seconds = f64::from(agent.waiting_steps) * scenario.time_step_seconds;
     }
     let analytics = analytics::summarize(statistics, f64::from(step) * scenario.time_step_seconds);
+    control::checkpoint()?;
     Ok(SimulationResult {
         metrics: SimulationMetrics {
             sheltered: sheltered_count,
@@ -1015,6 +1095,8 @@ fn run(
         time_step_seconds: scenario.time_step_seconds,
         analytics: Some(analytics),
         communication_events: Some(communication_events),
+        agent_events: Some(dialogue.events),
+        termination_reason: Some(termination_reason),
     })
 }
 

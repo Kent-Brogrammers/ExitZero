@@ -55,3 +55,38 @@ pub struct CommunicationEvent {
     pub opening_id: String,
     pub blocked: bool,
 }
+
+/// Personal activity recorded from actual knowledge, decisions and outcomes.
+/// These do not broadcast information or change another person's beliefs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentEventKind {
+    HeadingToExit,
+    HazardDiscovered,
+    HazardSpreading,
+    Rerouting,
+    RouteUnavailable,
+    WindowApproach,
+    WindowQueue,
+    WindowOpening,
+    WindowBreaking,
+    WindowTraversal,
+    Exposure,
+    Waiting,
+    Evacuated,
+    Sheltered,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentEvent {
+    pub step: u32,
+    pub agent_id: u32,
+    pub kind: AgentEventKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub position: Option<super::Point>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hazard_kind: Option<super::DisasterKind>,
+}

@@ -5,6 +5,7 @@ use super::{
     agent::{self, Agent},
     awareness::OpeningStates,
     congestion::CrowdForecast,
+    control,
     geometry::Geometry,
     math, motion,
     navigation::{Navigation, Route},
@@ -134,6 +135,7 @@ pub(super) fn run(
     scenario: &BuildingScenario,
     mut emit: Option<&mut dyn FnMut(&AnimationFrame) -> bool>,
 ) -> Result<SimulationResult, SimulationError> {
+    control::checkpoint()?;
     let config = scenario.pursuit.as_ref().unwrap();
     let mut world = OpeningStates::new(scenario);
     world.apply(0, &[], &[]);
@@ -154,6 +156,7 @@ pub(super) fn run(
     }
     let total = people.len() as u32;
     let mut gone = vec![false; people.len()];
+    let mut controllers: Vec<_> = people.iter().map(|_| motion::Motion::new()).collect();
     let mut routes: Vec<Option<Route>> = people.iter().map(|_| None).collect();
     let mut hunter_route = None;
     let mut retarget = true;
@@ -171,6 +174,8 @@ pub(super) fn run(
     let mut step = 0;
     let mut last_outcomes = (0, 0);
     loop {
+        control::checkpoint()?;
+        control::step(step, scenario.max_steps);
         let changed = if scenario.opening_events.is_empty() {
             false
         } else {
@@ -200,6 +205,7 @@ pub(super) fn run(
         );
         for (i, person) in people.iter().enumerate().filter(|(i, _)| !gone[*i]) {
             if changed || alerted[i] || step % replan_stride == 0 {
+                control::checkpoint()?;
                 let forecast = if let Some(report) = awareness.known[i] {
                     CrowdForecast::for_pursuit(&geometry, report.position, config.avoidance_radius)
                 } else {
@@ -268,98 +274,135 @@ pub(super) fn run(
                 .find_route(stalker, &geometry)
             });
         }
+        control::checkpoint()?;
         let before: Vec<_> = people.iter().map(|a| a.position).collect();
-        let mut proposed: Vec<_> = before
-            .iter()
-            .enumerate()
-            .map(|(i, &position)| {
-                if gone[i] {
-                    position
-                } else if windows.controls(i) {
-                    windows
-                        .target(i, position, &geometry)
-                        .map_or(position, |target| {
-                            let next = math::move_toward(
-                                position,
-                                target,
-                                windows.movement_budget(
-                                    i,
-                                    config.survivor_speed * scenario.time_step_seconds,
-                                ),
-                            );
-                            if windows.geometry(i, &geometry).can_move(position, next) {
-                                next
-                            } else {
-                                position
-                            }
-                        })
-                } else {
-                    advance(
-                        position,
-                        &mut routes[i],
-                        config.survivor_speed * scenario.time_step_seconds,
-                        &geometry,
-                    )
+        // Use the ordinary reciprocal crowd controller, rather than proposing
+        // straight overlapping paths and repeatedly stopping everyone involved.
+        // Its velocity units use WALKING_SPEED; scaling the movement interval
+        // preserves the configured survivor speed through every correction.
+        let movement_dt =
+            scenario.time_step_seconds * config.survivor_speed / motion::WALKING_SPEED;
+        let budget = config.survivor_speed * scenario.time_step_seconds;
+        let active: Vec<_> = gone.iter().map(|g| !g).collect();
+        let mut targets = vec![None; people.len()];
+        let mut limits = vec![Vec::new(); people.len()];
+        for i in 0..people.len() {
+            if gone[i] {
+                continue;
+            }
+            if windows.controls(i) {
+                targets[i] = windows.target(i, before[i], &geometry);
+            } else if let Some(route) = &mut routes[i] {
+                // Lateral avoidance need not return to a waypoint it has passed.
+                while route.waypoints.len() > 1
+                    && math::distance_to_point(before[i], route.waypoints[0]) <= budget
+                    && geometry.can_move(before[i], route.waypoints[1])
+                {
+                    route.waypoints.remove(0);
                 }
+                if route.waypoints.len() == 1
+                    && let Some((start, end)) = geometry.exit_segment(&route.exit_id)
+                {
+                    let target = math::closest_point_on_segment(before[i], start, end);
+                    if geometry.can_move(before[i], target) {
+                        route.waypoints[0] = target;
+                    }
+                }
+                targets[i] = route.waypoints.first().copied();
+            }
+            limits[i] = windows
+                .geometry(i, &geometry)
+                .velocity_limits(before[i], movement_dt);
+            limits[i].extend(windows.approach_limits(i, before[i], movement_dt));
+        }
+        let neighbors = |i: usize, velocities: &[Point]| -> Vec<_> {
+            before
+                .iter()
+                .enumerate()
+                .filter(|(j, _)| *j != i && !gone[*j])
+                .map(|(j, &position)| motion::Neighbor {
+                    position,
+                    velocity: velocities[j],
+                    responsibility: if targets[j].is_none() { 1.0 } else { 0.5 },
+                    horizon: routes[i]
+                        .as_ref()
+                        .zip(routes[j].as_ref())
+                        .filter(|(a, b)| a.exit_id == b.exit_id)
+                        .map_or(1.5, |(a, _)| {
+                            let exit = *a.waypoints.last().unwrap();
+                            (math::distance_to_point(before[i], exit)
+                                .min(math::distance_to_point(position, exit))
+                                / motion::WALKING_SPEED
+                                + movement_dt)
+                                .min(1.5)
+                        }),
+                })
+                .collect()
+        };
+        let previous: Vec<_> = controllers.iter().map(|m| m.velocity()).collect();
+        let intents: Vec<_> = (0..people.len())
+            .map(|i| {
+                targets[i].map_or(Point { x: 0.0, y: 0.0 }, |target| {
+                    controllers[i].preferred_velocity(
+                        before[i],
+                        target,
+                        movement_dt,
+                        scenario.agent_radius,
+                        &neighbors(i, &previous),
+                        &limits[i],
+                    )
+                })
             })
             .collect();
-        let active: Vec<_> = gone.iter().map(|g| !g).collect();
-        // Reuse ordinary cooperative collision correction. Stopping both members
-        // of a converging exit queue forever leaves otherwise usable exits stalled.
-        let mut leaders = BTreeMap::<&str, (f64, usize)>::new();
-        for (i, route) in routes.iter().enumerate().filter(|(i, _)| !gone[*i]) {
-            if let Some(route) = route
-                && let Some(target) = route.waypoints.last()
+        let mut proposed = before.clone();
+        for i in 0..people.len() {
+            let Some(target) = targets[i] else {
+                continue;
+            };
+            let mut candidate = controllers[i].propose(
+                before[i],
+                intents[i],
+                movement_dt,
+                scenario.agent_radius,
+                &neighbors(i, &intents),
+                limits[i].clone(),
+            );
+            let allowed = windows.movement_budget(i, budget);
+            if windows.traversing(i) {
+                candidate = math::move_toward(before[i], target, allowed);
+            }
+            // Finish the last short segment exactly instead of asymptotically
+            // stopping at the exit plane or a visibility-graph corner.
+            if math::distance_to_point(before[i], target) <= allowed
+                && windows.geometry(i, &geometry).can_move(before[i], target)
             {
-                let distance = math::distance_to_point(before[i], *target);
-                let entry = leaders.entry(&route.exit_id).or_insert((distance, i));
-                if distance < entry.0 {
-                    *entry = (distance, i);
-                }
+                candidate = target;
+            }
+            candidate.x = candidate.x.clamp(0.0, scenario.width);
+            candidate.y = candidate.y.clamp(0.0, scenario.height);
+            candidate = math::move_toward(before[i], candidate, allowed);
+            if windows
+                .geometry(i, &geometry)
+                .can_move(before[i], candidate)
+            {
+                proposed[i] = candidate;
             }
         }
-        let compliance: Vec<_> = routes
+        let compliance: Vec<_> = targets
             .iter()
             .enumerate()
-            .map(|(i, route)| {
+            .map(|(i, t)| {
                 if windows.controls(i) {
                     if windows.traversing(i) || windows.has_priority(i) {
                         0.0
                     } else {
                         1.0
                     }
-                } else if gone[i]
-                    || route.is_none()
-                    || route
-                        .as_ref()
-                        .and_then(|r| leaders.get(r.exit_id.as_str()))
-                        .is_some_and(|(_, leader)| *leader == i)
-                {
-                    0.0
-                } else {
+                } else if t.is_some() {
                     1.0
+                } else {
+                    0.0
                 }
-            })
-            .collect();
-        let limits: Vec<_> = before
-            .iter()
-            .enumerate()
-            .map(|(i, &position)| {
-                let mut limits = windows
-                    .geometry(i, &geometry)
-                    .velocity_limits(position, scenario.time_step_seconds);
-                limits.extend(windows.approach_limits(i, position, scenario.time_step_seconds));
-                limits.extend((0..16).map(|i| {
-                    let angle = std::f64::consts::TAU * i as f64 / 16.0;
-                    motion::VelocityLimit {
-                        normal: Point {
-                            x: angle.cos(),
-                            y: angle.sin(),
-                        },
-                        offset: -config.survivor_speed * (std::f64::consts::PI / 16.0).cos(),
-                    }
-                }));
-                limits
             })
             .collect();
         motion::coordinate_moves(
@@ -368,17 +411,14 @@ pub(super) fn run(
             &active,
             &compliance,
             scenario.agent_radius,
-            scenario.time_step_seconds,
+            movement_dt,
             &limits,
         );
         for i in 0..people.len() {
-            if windows.controls(i) {
-                proposed[i] = math::move_toward(
-                    before[i],
-                    proposed[i],
-                    windows.movement_budget(i, config.survivor_speed * scenario.time_step_seconds),
-                );
-            }
+            proposed[i].x = proposed[i].x.clamp(0.0, scenario.width);
+            proposed[i].y = proposed[i].y.clamp(0.0, scenario.height);
+            proposed[i] =
+                math::move_toward(before[i], proposed[i], windows.movement_budget(i, budget));
             if !windows
                 .geometry(i, &geometry)
                 .can_move(before[i], proposed[i])
@@ -395,6 +435,7 @@ pub(super) fn run(
             &geometry,
         );
         for i in 0..people.len() {
+            control::checkpoint()?;
             if gone[i] {
                 continue;
             }
@@ -405,6 +446,7 @@ pub(super) fn run(
             {
                 proposed[i] = before[i];
             }
+            controllers[i].accepted(before[i], proposed[i], movement_dt);
             people[i].position = proposed[i];
             if let Some(position) = contact(
                 before[i],
@@ -471,10 +513,13 @@ pub(super) fn run(
         time_step_seconds: scenario.time_step_seconds,
         analytics: None,
         communication_events: None,
+        agent_events: None,
+        termination_reason: None,
     };
     result
         .validate()
         .map_err(SimulationError::InvalidScenario)?;
+    control::checkpoint()?;
     Ok(result)
 }
 

@@ -11,6 +11,7 @@ import {
   hitOpening,
   solidWallSegments,
   suggestedWindowExterior,
+  configureWindowEscape,
 } from "./openings";
 import { mergeEditedOpenings } from "./doorEditing";
 import { renameObject, nextObjectName } from "./names";
@@ -61,6 +62,56 @@ function draft(): BuildingScenario {
 const selected = { kind: "windows", id: "pane" } as const;
 
 describe("persistent wall-attached windows", () => {
+  it("creates escape-ready windows with scenario assumptions and an outward direction before occupants are placed", () => {
+    const b: BuildingScenario = structuredClone(example);
+    b.spawn_zones = [];
+    b.windows = [];
+    const before = structuredClone(b);
+    const pane = {
+      id: "new",
+      name: "Window",
+      wall_id: "east_wall",
+      offset: 3,
+      width: 1.2,
+    };
+    const next = configureWindowEscape(b, pane);
+    expect(buildingError(next, false)).toBeNull();
+    expect(next.windows![0]!.emergency_escape).toMatchObject({
+      enabled: true,
+      exterior_available: true,
+      exterior_side: -1,
+      preparation: "break",
+    });
+    expect(next.window_escape_context).toMatchObject({
+      floor_elevation_metres: 0,
+      all_agents_can_traverse: true,
+    });
+    expect(JSON.parse(JSON.stringify(next))).toEqual(next);
+    expect(b).toEqual(before);
+  });
+  it("enables an older window in one step while preserving its custom dimensions and timing", () => {
+    const b = draft();
+    b.window_escape_context = {
+      floor_elevation_metres: 0,
+      all_agents_can_traverse: false,
+      required_clear_height_metres: 1,
+    };
+    const next = configureWindowEscape(b, b.windows![0]!, { enabled: true });
+    expect(next.windows).toHaveLength(1);
+    expect(next.windows![0]!.emergency_escape).toMatchObject({
+      enabled: true,
+      exterior_available: true,
+      clear_width_metres: 1.6,
+      preparation: "open",
+      preparation_seconds: 5,
+    });
+    expect(next.window_escape_context!.all_agents_can_traverse).toBe(true);
+    const disabled = configureWindowEscape(next, next.windows![0]!, {
+      enabled: false,
+    });
+    expect(disabled.windows![0]!.emergency_escape!.enabled).toBe(false);
+    expect(b.windows![0]!.emergency_escape!.enabled).toBe(false);
+  });
   it("suggests an exterior away from occupied zones without guessing when both sides are occupied", () => {
     const b = draft();
     b.walls[0] = {
