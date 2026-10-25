@@ -162,7 +162,7 @@
 }
 .editor-panel .editor-canvas-wrap {
   position: absolute;
-  inset: 0 88px;
+  inset: 0 88px 62px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -416,4 +416,70 @@
     right: 16px;
     font-size: var(--text-small);
   }
+}
+
+.drafting-controls {
+  display: grid;
+  gap: 12px;
+}
+.drafting-controls h3 {
+  font-size: var(--text-control);
+  margin: 0;
+}
+.drafting-controls label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--cad-muted);
+  font-size: var(--text-small);
+}
+.drafting-controls select {
+  min-width: 0;
+  flex: 1;
+  height: var(--control-height);
+  color: var(--cad-text);
+  background: var(--cad-surface);
+  border: 1px solid var(--cad-border-strong);
+  border-radius: var(--radius-control);
+  font-size: var(--text-small);
+}
+
+.file-presets {
+  border-top: 1px solid var(--cad-border);
+  margin-top: 4px;
+  padding-top: 5px;
+}
+.file-presets summary {
+  padding: 8px 10px;
+  cursor: pointer;
+  color: var(--cad-muted);
+  font-size: var(--text-small);
+}
+
+.furniture-choices,
+.object-curves {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  border-top: 1px solid var(--cad-border);
+  padding-top: 8px;
+  margin-top: 8px;
+}
+.furniture-choices .shape-choice {
+  align-items: flex-start;
+}
+.furniture-choices .shape-choice small {
+  font-size: 9px;
+}
+
+.object-curves {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.object-curves .shape-choice {
+  gap: 8px;
+}
+.object-curves .shape-choice small {
+  font-size: 9px;
 }

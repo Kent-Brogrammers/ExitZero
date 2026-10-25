@@ -124,6 +124,21 @@ body,
 .settings-values {
   margin: 0;
 }
+.settings-content fieldset {
+  margin: 12px 0;
+  padding: 10px;
+  border: 1px solid var(--cad-border);
+}
+.settings-content fieldset label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px 0;
+}
+.settings-content fieldset input {
+  width: 76px;
+}
 .settings-values > div {
   display: flex;
   justify-content: space-between;

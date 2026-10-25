@@ -127,8 +127,13 @@ pub(super) fn moving_circles_overlap(
         x: a_end.x - b_end.x,
         y: a_end.y - b_end.y,
     };
+    let combined_radius = a_radius + b_radius;
+    // Tangent contacts can round a few ulps inside the boundary after their
+    // endpoints are stored. Without a scale-aware tolerance, that tick-zero
+    // artefact rejects every future move in a touching queue.
+    let tolerance = EPSILON.min(combined_radius * 1e-7);
     distance_to_segment(Point { x: 0.0, y: 0.0 }, relative_start, relative_end)
-        < a_radius + b_radius
+        < combined_radius - tolerance
 }
 
 /// Shortest distance between two finite segments with finite coordinates.

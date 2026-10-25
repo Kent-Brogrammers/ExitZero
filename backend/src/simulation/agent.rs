@@ -1,14 +1,29 @@
 use super::{SimulationError, geometry::Geometry, math};
+use super::{awareness::Observation, perception::WallKnowledge};
 use crate::models::{BuildingScenario, Point};
+use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) struct Agent {
     pub id: u32,
     pub position: Point,
+    /// Missing entries mean assumed open, never privileged access to the world.
+    pub knowledge: BTreeMap<String, Observation>,
+    // Emergency indices are stable for the immutable input of this run.
+    pub known_emergencies: BTreeSet<usize>,
+    pub known_obstructions: BTreeSet<String>,
+    pub known_walls: WallKnowledge,
 }
 
 impl Agent {
     pub(super) fn new(id: u32, position: Point) -> Self {
-        Self { id, position }
+        Self {
+            id,
+            position,
+            knowledge: BTreeMap::new(),
+            known_emergencies: BTreeSet::new(),
+            known_obstructions: BTreeSet::new(),
+            known_walls: WallKnowledge::new(),
+        }
     }
 }
 

@@ -1,11 +1,15 @@
+import type { FurnitureTool } from "./furniture";
 export type EditorTool =
+  | FurnitureTool
   | "select"
+  | "wall-freehand"
   | "wall"
   | "wall-rectangle"
   | "wall-circle"
   | "door"
   | "exit"
   | "spawn"
+  | "stairs"
   | "object-square"
   | "object-rectangle";
 

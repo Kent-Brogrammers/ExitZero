@@ -5,7 +5,14 @@ import type {
   Point,
 } from "../types/simulation";
 import { frameIndexAtTime } from "./playback";
-import { solidWallSegments, wallPolygon } from "../editor/wallGeometry";
+import { solidWallSegments } from "../editor/openings";
+import { frameLayout } from "./frameLayout";
+
+interface Segment {
+  start: Point;
+  end: Point;
+  padding: number;
+}
 
 function pointDistance(point: Point, start: Point, end: Point) {
   const dx = end.x - start.x,
@@ -42,11 +49,13 @@ function segmentDistance(a: Point, b: Point, c: Point, d: Point) {
   );
 }
 
-function solidWalls(building: BuildingScenario): Point[][] {
+function solidWalls(building: BuildingScenario): Segment[] {
   return building.walls.flatMap((wall) =>
-    solidWallSegments(building, wall).map(([start, end]) =>
-      wallPolygon(start, end, wall.thickness),
-    ),
+    solidWallSegments(building, wall).map(([start, end]) => ({
+      start,
+      end,
+      padding: building.agent_radius + wall.thickness / 2,
+    })),
   );
 }
 
@@ -54,7 +63,7 @@ function solidWalls(building: BuildingScenario): Point[][] {
 function canBlend(
   a: Point,
   b: Point,
-  walls: Point[][],
+  walls: Segment[],
   building: BuildingScenario,
 ) {
   if (a.x === b.x && a.y === b.y) return true;
@@ -62,36 +71,15 @@ function canBlend(
     right = Math.max(a.x, b.x),
     top = Math.min(a.y, b.y),
     bottom = Math.max(a.y, b.y);
-  for (const vertices of walls) {
-    const radius = building.agent_radius;
-    const xs = vertices.map((p) => p.x),
-      ys = vertices.map((p) => p.y);
+  for (const { start, end, padding } of walls) {
     if (
-      right < Math.min(...xs) - radius ||
-      left > Math.max(...xs) + radius ||
-      bottom < Math.min(...ys) - radius ||
-      top > Math.max(...ys) + radius
+      right < Math.min(start.x, end.x) - padding ||
+      left > Math.max(start.x, end.x) + padding ||
+      bottom < Math.min(start.y, end.y) - padding ||
+      top > Math.max(start.y, end.y) + padding
     )
       continue;
-    const inside = (p: Point) => {
-      const sides = vertices.map((start, i) => {
-        const end = vertices[(i + 1) % 4]!;
-        return (
-          (end.x - start.x) * (p.y - start.y) -
-          (end.y - start.y) * (p.x - start.x)
-        );
-      });
-      return (
-        sides.every((side) => side >= 0) || sides.every((side) => side <= 0)
-      );
-    };
-    if (inside(a) || inside(b)) return false;
-    for (let i = 0; i < 4; i++)
-      if (
-        segmentDistance(a, b, vertices[i]!, vertices[(i + 1) % 4]!) <
-        radius - 1e-8
-      )
-        return false;
+    if (segmentDistance(a, b, start, end) < padding - 1e-8) return false;
   }
   for (const obstacle of building.obstructions) {
     const radius = building.agent_radius;
@@ -138,7 +126,6 @@ export function createFrameSampler(
   frames: AnimationFrame[],
   timeStep: number,
 ) {
-  const walls = solidWalls(building);
   let pair = -1;
   let display: AnimationFrame | null = null;
   let entries: {
@@ -154,18 +141,21 @@ export function createFrameSampler(
     if (!next || seconds <= source.step * timeStep) return source;
     if (pair !== index) {
       pair = index;
+      const layout = frameLayout(building, source);
+      const walls = solidWalls(layout);
       const targets = new Map(next.agents.map((agent) => [agent.id, agent]));
       entries = source.agents.map((agent) => {
         const target = targets.get(agent.id);
         return {
           source: agent,
           target:
-            target && canBlend(agent, target, walls, building) ? target : agent,
+            target && canBlend(agent, target, walls, layout) ? target : agent,
           display: { ...agent },
         };
       });
       display = {
         step: source.step,
+        blocked_opening_ids: source.blocked_opening_ids,
         agents: entries.map((entry) => entry.display),
       };
     }

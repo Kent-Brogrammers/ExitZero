@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
-import type { BuildingScenario, SimulationResult } from "../types/simulation";
+import type {
+  BuildingScenario,
+  LiveSimulation,
+  SimulationResult,
+} from "../types/simulation";
 import { SimulationView } from "../simulation/SimulationView";
 import { BuildingEditor } from "./BuildingEditor";
 import "./BuildingWorkspace.css";
@@ -10,9 +14,11 @@ interface BuildingWorkspaceProps {
   building: BuildingScenario;
   onChange: (building: BuildingScenario) => void;
   result: SimulationResult | null;
+  live?: LiveSimulation | null;
   disabled?: boolean;
   mode?: Mode;
   active?: boolean;
+  allowSyntheticPreview?: boolean;
   onOpenAnalytics?: () => void;
 }
 
@@ -20,9 +26,11 @@ export function BuildingWorkspace({
   building,
   onChange,
   result,
+  live,
   disabled,
   mode: controlledMode,
   active = true,
+  allowSyntheticPreview = true,
   onOpenAnalytics,
 }: BuildingWorkspaceProps) {
   const [localMode, setMode] = useState<Mode>(() =>
@@ -73,6 +81,8 @@ export function BuildingWorkspace({
         <SimulationView
           building={building}
           result={result}
+          live={live}
+          allowSyntheticPreview={allowSyntheticPreview}
           active={active && mode === "simulation"}
           onOpenAnalytics={onOpenAnalytics}
         />

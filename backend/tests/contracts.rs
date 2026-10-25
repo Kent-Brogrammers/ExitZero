@@ -23,6 +23,52 @@ fn example() -> BuildingScenario {
 }
 
 #[test]
+fn awareness_ranges_and_opening_events_are_validated_and_round_trip() {
+    use exitzero::models::OpeningStateChange;
+    let mut b = example();
+    assert_eq!(b.awareness.sight_range_metres, 8.0);
+    assert_eq!(b.awareness.communication_range_metres, 3.0);
+    b.awareness.communication_range_metres = 0.0;
+    b.opening_events = vec![
+        OpeningStateChange {
+            step: 20,
+            opening_id: "door_north".into(),
+            blocked: true,
+        },
+        OpeningStateChange {
+            step: 30,
+            opening_id: "west".into(),
+            blocked: false,
+        },
+    ];
+    b.validate().unwrap();
+    let round_trip: BuildingScenario =
+        serde_json::from_str(&serde_json::to_string(&b).unwrap()).unwrap();
+    round_trip.validate().unwrap();
+    assert_eq!(round_trip.awareness.communication_range_metres, 0.0);
+    assert_eq!(round_trip.opening_events.len(), 2);
+    for range in [-1.0, f64::NAN, f64::INFINITY, 1001.0] {
+        let mut invalid = b.clone();
+        invalid.awareness.communication_range_metres = range;
+        assert!(invalid.validate().is_err());
+    }
+    let mut invalid = b.clone();
+    invalid.opening_events[0].opening_id = "missing".into();
+    assert!(invalid.validate().is_err());
+    let mut invalid = b.clone();
+    invalid.opening_events[0].step = b.max_steps;
+    assert!(invalid.validate().is_err());
+    let mut invalid = b.clone();
+    invalid.opening_events.reverse();
+    assert!(invalid.validate().is_err());
+    let mut invalid = b.clone();
+    invalid
+        .opening_events
+        .insert(0, b.opening_events[0].clone());
+    assert!(invalid.validate().is_err());
+}
+
+#[test]
 fn continuous_example_validates_and_round_trips() {
     let building = example();
     building.validate().unwrap();
@@ -248,6 +294,53 @@ fn display_name_validation_matches_optional_string_contract() {
         let mut valid = original.clone();
         valid[field][0]["name"] = serde_json::json!("🧱".repeat(80));
         serde_json::from_value::<BuildingScenario>(valid)
+            .unwrap()
+            .validate()
+            .unwrap();
+    }
+}
+
+#[test]
+fn stair_annotations_are_optional_validated_and_round_trip() {
+    let original = serde_json::to_value(example()).unwrap();
+    assert!(original.get("stair_areas").is_none());
+    let mut json = original.clone();
+    json["stair_areas"] = serde_json::json!([{"id":"stair-marker","name":"Main Stair","x":0.0,"y":0.0,"width":30.0,"height":20.0,"orientation_degrees":90}]);
+    let building: BuildingScenario = serde_json::from_value(json.clone()).unwrap();
+    building.validate().unwrap();
+    assert_eq!(serde_json::to_value(building).unwrap(), json);
+    for orientation in [
+        serde_json::json!(45),
+        serde_json::Value::Null,
+        serde_json::json!("90"),
+    ] {
+        let mut invalid = json.clone();
+        invalid["stair_areas"][0]["orientation_degrees"] = orientation;
+        assert!(match serde_json::from_value::<BuildingScenario>(invalid) {
+            Err(_) => true,
+            Ok(b) => b.validate().is_err(),
+        });
+    }
+    json["stair_areas"][0]["x"] = serde_json::json!(30);
+    assert!(
+        serde_json::from_value::<BuildingScenario>(json)
+            .unwrap()
+            .validate()
+            .is_err()
+    );
+}
+
+#[test]
+fn editor_presets_validate_under_rust_geometry_rules() {
+    for source in [
+        include_str!("../../frontend/src/editor/presets/house.json"),
+        include_str!("../../frontend/src/editor/presets/classroom.json"),
+        include_str!("../../frontend/src/editor/presets/office.json"),
+    ] {
+        let b: BuildingScenario = serde_json::from_str(source).unwrap();
+        b.validate().unwrap();
+        let saved = serde_json::to_string(&b).unwrap();
+        serde_json::from_str::<BuildingScenario>(&saved)
             .unwrap()
             .validate()
             .unwrap();

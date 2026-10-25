@@ -5,13 +5,13 @@ import type {
   StressTestResult,
 } from "../types/simulation";
 
-import { LayoutCanvas } from "./LayoutCanvas";
 import { PopulationChart } from "./PopulationChart";
 import { OptimizationComparison } from "./OptimizationComparison";
 import type { OptimizationEvaluation } from "./optimization";
-import { trafficCells } from "./traffic";
 
 import ScenarioComparison from "./ScenarioComparison";
+import TrafficHeatmap from "./TrafficHeatmap";
+import CrowdingRanking from "./CrowdingRanking";
 import { outcomeExplanation } from "./presentation";
 
 interface AnalyticsDashboardProps {
@@ -32,19 +32,11 @@ export default function AnalyticsDashboard({
   disabled,
 }: AnalyticsDashboardProps) {
   const metrics = result ?? stressResult?.baseline ?? null;
-  const cells = result
-    ? trafficCells(result.traffic_samples, result.width, result.height)
-    : [];
-  const peak = cells.reduce(
-    (maximum, cell) => Math.max(maximum, cell.visits),
-    0,
-  );
   return (
     <section className="analytics-grid" id="analytics" aria-label="Analytics">
       <div className="panel">
         <div className="panel-heading">
           <div>
-            <p className="eyebrow">03 / Analytics</p>
             <h2>Evacuation metrics</h2>
           </div>
           <span className="badge">
@@ -60,8 +52,8 @@ export default function AnalyticsDashboard({
             <p className="note">{outcomeExplanation(metrics)}</p>
             {result && stressResult && (
               <p className="note">
-                These cards show the standalone simulation. The comparison below
-                uses its own computed stress-test baseline.
+                Metrics use the simulation run; comparisons use the computed
+                stress-test baseline.
               </p>
             )}
             <div className="metrics">
@@ -108,54 +100,15 @@ export default function AnalyticsDashboard({
         ) : (
           <div className="empty-state compact">
             <h3>No computed metrics</h3>
-            <p>
-              Run a simulation for the current building to see computed metrics.
-            </p>
+            <p>Run Simulation to see results.</p>
           </div>
         )}
       </div>
-      <div className="panel" aria-label="Traffic heatmap">
-        <p className="eyebrow">Traffic / Accumulated visits</p>
-        <h2>Traffic heatmap</h2>
-        {result && building ? (
-          <>
-            <LayoutCanvas
-              building={building}
-              samples={result.traffic_samples}
-              label={`Traffic heatmap for the standalone simulation. ${result.traffic_samples.length} recorded samples; peak ${peak} visits per bin.`}
-            />
-            {cells.length ? (
-              <div className="traffic-scale">
-                <span>Low visits</span>
-                <span>Peak: {peak} visits / bin</span>
-              </div>
-            ) : (
-              <p>No traffic samples were recorded.</p>
-            )}
-            <p className="note">
-              Positioned in metres and weighted by accumulated visits from the
-              standalone simulation. This is not instantaneous crowd density or
-              a recording of the selected stress scenario.
-            </p>
-          </>
-        ) : (
-          <p className="note">
-            Run a simulation to record traffic for the current layout.
-          </p>
-        )}
-      </div>
+      <TrafficHeatmap building={building} result={result} />
+      <CrowdingRanking building={building} result={result} />
       <div className="panel comparison-panel">
-        <p className="eyebrow">04 / Stress testing</p>
         <h2>Vulnerability comparison</h2>
-        <p className="note">
-          Run Stress test to compute a baseline and blocked-exit scenarios for
-          the current building.
-        </p>
         <ScenarioComparison result={stressResult} />
-        <p className="note">
-          Traffic samples represent accumulated visits at world positions, not
-          instantaneous crowd density.
-        </p>
       </div>
       {onApply && (
         <OptimizationComparison

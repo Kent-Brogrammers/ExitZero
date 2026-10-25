@@ -1,20 +1,15 @@
 import type { TrafficSample } from "../types/simulation";
 
-/** Aggregate actual visits into bounded, equally sized world-space bins. */
-export function trafficCells(
+export function trafficBins(
   samples: TrafficSample[],
   width: number,
   height: number,
 ) {
-  const size = Math.max(width, height) / 96;
-  const columns = Math.ceil(width / size),
-    rows = Math.ceil(height / size);
-  const counts = new Map<number, number>();
+  const size = Math.max(0.25, Math.max(width, height) / 160);
+  const bins = new Map<string, { x: number; y: number; visits: number }>();
   for (const sample of samples) {
     if (
-      !Number.isFinite(sample.x) ||
-      !Number.isFinite(sample.y) ||
-      !Number.isFinite(sample.visits) ||
+      ![sample.x, sample.y, sample.visits].every(Number.isFinite) ||
       sample.x < 0 ||
       sample.y < 0 ||
       sample.x > width ||
@@ -22,20 +17,36 @@ export function trafficCells(
       sample.visits <= 0
     )
       continue;
-    const column = Math.min(columns - 1, Math.floor(sample.x / size)),
-      row = Math.min(rows - 1, Math.floor(sample.y / size));
-    const key = row * columns + column;
-    counts.set(key, (counts.get(key) ?? 0) + sample.visits);
+    const col = Math.min(
+      Math.ceil(width / size) - 1,
+      Math.floor(sample.x / size),
+    );
+    const row = Math.min(
+      Math.ceil(height / size) - 1,
+      Math.floor(sample.y / size),
+    );
+    const key = `${col},${row}`;
+    const bin = bins.get(key) ?? { x: col * size, y: row * size, visits: 0 };
+    bin.visits += sample.visits;
+    bins.set(key, bin);
   }
-  return [...counts].map(([key, visits]) => {
-    const x = (key % columns) * size,
-      y = Math.floor(key / columns) * size;
-    return {
-      x,
-      y,
-      width: Math.min(size, width - x),
-      height: Math.min(size, height - y),
-      visits,
-    };
-  });
+  return {
+    size,
+    bins: [...bins.values()],
+    max: Math.max(0, ...[...bins.values()].map((bin) => bin.visits)),
+  };
+}
+
+/** Rectangular-bin adapter for the audit layout overlay and its regression tests. */
+export function trafficCells(
+  samples: TrafficSample[],
+  width: number,
+  height: number,
+) {
+  const { size, bins } = trafficBins(samples, width, height);
+  return bins.map((bin) => ({
+    ...bin,
+    width: Math.min(size, width - bin.x),
+    height: Math.min(size, height - bin.y),
+  }));
 }

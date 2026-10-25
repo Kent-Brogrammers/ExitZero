@@ -7,8 +7,66 @@ use exitzero::{
     models::{BuildingScenario, OptimizationResult, SimulationResult, StressTestResult},
     simulation::simulate,
 };
+use futures_core::Stream;
 use serde_json::{Value, json};
+use std::{future::poll_fn, pin::Pin};
 use tower::ServiceExt;
+
+#[tokio::test]
+async fn live_route_delivers_frames_before_the_final_recording() {
+    let mut building: BuildingScenario = serde_json::from_value(building()).unwrap();
+    building.max_steps = 2;
+    building.time_step_seconds = 0.01;
+    let request = Request::post("/api/simulate/live")
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_vec(&building).unwrap()))
+        .unwrap();
+    let response = router().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["content-type"], "application/x-ndjson");
+    let mut stream = response.into_body().into_data_stream();
+    let first = poll_fn(|cx| Pin::new(&mut stream).poll_next(cx))
+        .await
+        .unwrap()
+        .unwrap();
+    let event: Value = serde_json::from_slice(&first).unwrap();
+    assert_eq!(event["type"], "frame");
+    assert_eq!(event["frame"]["step"], 0);
+    // The API remains responsive while a live simulation owns a worker.
+    assert_eq!(self::request("/api/health", None).await.0, StatusCode::OK);
+    let mut bytes = first.to_vec();
+    while let Some(chunk) = poll_fn(|cx| Pin::new(&mut stream).poll_next(cx)).await {
+        bytes.extend_from_slice(&chunk.unwrap());
+    }
+    let events: Vec<Value> = std::str::from_utf8(&bytes)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(
+        events
+            .iter()
+            .map(|event| event["type"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["frame", "frame", "complete"]
+    );
+    assert_eq!(events[1]["frame"]["step"], 2);
+    let result: SimulationResult = serde_json::from_value(events[2]["result"].clone()).unwrap();
+    result.validate().unwrap();
+    let expected: Value =
+        serde_json::from_slice(&serde_json::to_vec(&simulate(&building).unwrap()).unwrap())
+            .unwrap();
+    assert_eq!(serde_json::to_value(&result).unwrap(), expected);
+}
+
+#[tokio::test]
+async fn live_route_rejects_invalid_buildings_before_opening_a_stream() {
+    let mut payload = building();
+    payload["walls"][0]["end"]["x"] = json!(100);
+    let (status, body) = request("/api/simulate/live", Some(payload)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(body["error"]["code"], "validation_error");
+}
 
 async fn request(path: &str, payload: Option<Value>) -> (StatusCode, Value) {
     let request = match payload {
@@ -200,4 +258,61 @@ async fn api_rejects_invalid_names_instead_of_silently_losing_them() {
         let (status, body) = request("/api/simulate", Some(named)).await;
         assert!(status.is_client_error(), "{body}");
     }
+}
+
+#[tokio::test]
+async fn walkable_stair_annotations_do_not_change_simulation_output() {
+    let mut plain = building();
+    plain["max_steps"] = json!(10);
+    let mut marked = plain.clone();
+    marked["stair_areas"] = json!([{"id":"stair-area","name":"Single-floor marker","x":0,"y":0,"width":30,"height":20,"orientation_degrees":270}]);
+    let (plain_status, plain_result) = request("/api/simulate", Some(plain)).await;
+    let (marked_status, marked_result) = request("/api/simulate", Some(marked)).await;
+    assert_eq!(plain_status, StatusCode::OK);
+    assert_eq!(marked_status, StatusCode::OK, "{marked_result}");
+    assert_eq!(
+        plain_result, marked_result,
+        "walkable metadata must not become a solid obstacle or floor connection"
+    );
+}
+
+#[tokio::test]
+async fn ellipse_segment_door_rounding_does_not_create_phantom_collision_capsules() {
+    let mut payload = building();
+    let points: Vec<_> = (0..32)
+        .map(|index| {
+            let angle = index as f64 * std::f64::consts::PI / 16.0;
+            json!({"x": 15.0 + 4.0 * angle.cos(), "y": 10.0 + 3.0 * angle.sin()})
+        })
+        .collect();
+    let mut walls: Vec<_> = (0..32)
+        .map(|index| json!({"id":format!("e{index}"),"start":points[index],"end":points[(index+1)%32],"thickness":0.2}))
+        .collect();
+    walls.push(json!({"id":"out","start":{"x":27,"y":5},"end":{"x":27,"y":15},"thickness":0.2}));
+    payload["walls"] = json!(walls);
+    payload["doors"] = json!([]);
+    payload["exits"] = json!([{"id":"exit","wall_id":"out","offset":4,"width":2}]);
+    payload["spawn_zones"] = json!([{"id":"s","x":14.5,"y":9.5,"width":1,"height":1,"count":1}]);
+    payload["blocked_exit_ids"] = json!([]);
+    payload["obstructions"] = json!([]);
+    payload["agent_radius"] = json!(0.25);
+    payload["time_step_seconds"] = json!(0.1);
+    payload["seed"] = json!(42);
+    payload["max_steps"] = json!(1000);
+    let (status, closed) = request("/api/simulate", Some(payload.clone())).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+    assert_eq!(closed["evacuated"], 0);
+    let scenario: BuildingScenario = serde_json::from_value(payload.clone()).unwrap();
+    payload["doors"] = json!([0, 31].map(|index| {
+        json!({"id":format!("d{index}"),"wall_id":format!("e{index}"),"offset":1e-12,"width":scenario.walls[index].length()-2e-12})
+    }));
+    let (status, open) = request("/api/simulate", Some(payload)).await;
+    assert_eq!(status, StatusCode::OK, "{open}");
+    assert_eq!(
+        open["status"], "completed",
+        "status {}, remaining {}",
+        open["status"], open["remaining"]
+    );
+    assert_eq!(open["evacuated"], 1);
+    assert_eq!(open["analytics"]["agents"][0]["route_found"], true);
 }

@@ -1,3 +1,4 @@
+import { furniturePresets, type FurnitureKind } from "./furniture";
 import { StudioPopover } from "../ui/StudioPopover";
 import { ToolIcon } from "./ToolIcon";
 import { isWallTool, type EditorTool } from "./tools";
@@ -72,7 +73,7 @@ export function EditorDrawingRail({
         className="editor-shapes"
         disabled={disabled}
         indicator={false}
-        triggerClassName={`rail-button${isWallTool(tool) ? " is-selected" : ""}`}
+        triggerClassName={`rail-button${isWallTool(tool) || tool === "wall-freehand" ? " is-selected" : ""}`}
         triggerContent={content("wall", "Walls & Shapes")}
         onOpen={onOpenPanel}
       >
@@ -99,22 +100,33 @@ export function EditorDrawingRail({
             {choice(
               "wall-rectangle",
               "Rectangular wall perimeter",
-              "Drag opposite corners · 4 walls",
+              "Drag freely · Shift for square · 4 walls",
               "rectangle",
               close,
             )}
             {choice(
               "wall-circle",
-              "Circular wall perimeter",
-              "Drag centre to radius · 24 segments",
+              "Circle / ellipse wall perimeter",
+              "Drag bounding box · Shift for circle",
               "circle",
               close,
             )}
-            <p className="shape-note">
-              Perimeters save as individual straight walls. Select a segment to
-              edit, name, or delete it; undo restores the entire drawing action.
-              Circles are segmented approximations, not arcs.
-            </p>
+            {choice(
+              "wall-freehand",
+              "Freehand curve",
+              "Drag or click–trace–click · saved as segments",
+              "curve",
+              close,
+            )}
+            <details className="shape-note">
+              <summary>Geometry details</summary>
+              <p>
+                Perimeters save as individual straight walls. Ellipses use 32
+                segments; freehand curves use up to 96. Undo restores the whole
+                drawing action. Freehand groups last this session; Alt-click
+                selects one segment.
+              </p>
+            </details>
           </>
         )}
       </StudioPopover>
@@ -127,7 +139,7 @@ export function EditorDrawingRail({
         className="editor-shapes"
         disabled={disabled}
         indicator={false}
-        triggerClassName={`rail-button${tool.startsWith("object-") ? " is-selected" : ""}`}
+        triggerClassName={`rail-button${tool.startsWith("object-") || tool.startsWith("furniture-") ? " is-selected" : ""}`}
         triggerContent={content("obstruction", "Object")}
         onOpen={onOpenPanel}
       >
@@ -145,80 +157,59 @@ export function EditorDrawingRail({
               </button>
             </div>
             {choice(
-              "object-square",
-              "Square",
-              "Drag to size · physical obstacle",
-              "square",
-              close,
-            )}
-            {choice(
               "object-rectangle",
-              "Rectangle",
-              "Drag opposite corners · physical obstacle",
+              "Rectangle / square",
+              "Drag freely · Shift for square",
               "rectangle",
               close,
             )}
-            <button
-              type="button"
-              className="shape-choice"
-              aria-label="Circle"
-              disabled
-            >
-              <ToolIcon name="circle" />
-              <span>
-                Circle<small>Requires collision-contract approval</small>
-              </span>
-            </button>
-            <p className="shape-note">
-              Squares and rectangles save as rectangular obstructions. Resize
-              width/height independently and give any object a name in
-              Properties. Circular collision is not supported yet.
-            </p>
-          </>
-        )}
-      </StudioPopover>
-      <StudioPopover
-        label="Stairs"
-        side="right"
-        className="editor-shapes"
-        disabled={disabled}
-        indicator={false}
-        triggerClassName="rail-button"
-        triggerContent={content("stairs", "Stairs")}
-        onOpen={onOpenPanel}
-      >
-        {(close) => (
-          <>
-            <div className="control-popover-heading">
-              <h3>Stair areas</h3>
+            <div className="object-curves">
               <button
                 type="button"
-                className="studio-control studio-control--icon"
-                aria-label="Close stair information"
-                onClick={close}
+                className="shape-choice"
+                aria-label="Circle"
+                disabled
               >
-                ×
+                <ToolIcon name="circle" />
+                <span>
+                  Circle<small>Collision unsupported</small>
+                </span>
+              </button>
+              <button
+                type="button"
+                className="shape-choice"
+                aria-label="Ellipse"
+                disabled
+              >
+                <ToolIcon name="circle" />
+                <span>
+                  Ellipse<small>Collision unsupported</small>
+                </span>
               </button>
             </div>
+            <div
+              className="furniture-choices"
+              role="group"
+              aria-label="Furniture presets"
+            >
+              {Object.entries(furniturePresets).map(([kind, preset]) =>
+                choice(
+                  `furniture-${kind as FurnitureKind}`,
+                  preset.label,
+                  `${preset.width} × ${preset.height} m · blocks movement`,
+                  kind,
+                  close,
+                ),
+              )}
+            </div>
             <p className="shape-note">
-              Stair markers need an agreed, persistent area contract before they
-              can be drawn. No stair geometry is saved or simulated yet.
-            </p>
-            <p className="shape-note">
-              A marker will not transport occupants between floors. Multi-floor
-              navigation is tracked separately in{" "}
-              <a
-                href="https://github.com/Kent-Brogrammers/ExitZero/issues/11"
-                target="_blank"
-                rel="noreferrer"
-              >
-                issue #11
-              </a>
-              .
+              All furniture, including chairs, blocks its full rectangle. Styles
+              last this session. JSON and playback retain names and geometry.
             </p>
           </>
         )}
       </StudioPopover>
+      {button("stairs", "Stairs", "stairs")}
     </div>
   );
 }

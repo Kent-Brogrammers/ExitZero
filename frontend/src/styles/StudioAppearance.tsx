@@ -7,15 +7,18 @@ import {
 } from "react";
 import {
   AppearanceContext,
+  appearanceOptions,
   initialTheme,
   THEME_STORAGE_KEY,
+  LEGACY_THEME_STORAGE_KEY,
   type StudioTheme,
 } from "./appearance";
 
 export function StudioAppearance({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<StudioTheme>(initialTheme);
   useLayoutEffect(() => {
-    document.documentElement.dataset.studioTheme = theme;
+    document.documentElement.dataset.studioTheme = "dark";
+    document.documentElement.dataset.canvasTheme = theme;
     try {
       window.localStorage.setItem(THEME_STORAGE_KEY, theme);
     } catch {
@@ -24,7 +27,11 @@ export function StudioAppearance({ children }: { children: ReactNode }) {
   }, [theme]);
   useEffect(() => {
     const update = (event: StorageEvent) => {
-      if (event.key === THEME_STORAGE_KEY || event.key === null)
+      if (
+        event.key === THEME_STORAGE_KEY ||
+        event.key === LEGACY_THEME_STORAGE_KEY ||
+        event.key === null
+      )
         setTheme(initialTheme());
     };
     window.addEventListener("storage", update);
@@ -40,16 +47,28 @@ export function StudioAppearance({ children }: { children: ReactNode }) {
 export function AppearanceSelector() {
   const { theme, setTheme } = useContext(AppearanceContext);
   return (
-    <label className="appearance-setting">
-      Appearance
-      <select
-        aria-label="Studio appearance"
-        value={theme}
-        onChange={(event) => setTheme(event.target.value as StudioTheme)}
-      >
-        <option value="dark">Studio Dark</option>
-        <option value="slate">Studio Slate</option>
-      </select>
-    </label>
+    <div>
+      <label className="appearance-setting">
+        Canvas appearance
+        <select
+          aria-label="Canvas appearance"
+          value={theme}
+          onChange={(event) => setTheme(event.target.value as StudioTheme)}
+        >
+          {appearanceOptions.map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="note">Canvas only. Studio controls stay dark.</p>
+      {theme.startsWith("blueprint") && (
+        <p className="note">
+          Blueprint symbols change appearance only. Walls keep their full
+          thickness and openings; stair markers remain walkable.
+        </p>
+      )}
+    </div>
   );
 }

@@ -22,6 +22,7 @@ pub fn router() -> Router {
     Router::new()
         .route("/api/health", get(health))
         .route("/api/simulate", post(simulate))
+        .route("/api/simulate/live", post(super::live::simulate_live))
         .route("/api/stress-test", post(stress_test))
         .route("/api/optimize", post(optimize))
         .fallback(|| async { ApiError::new(StatusCode::NOT_FOUND, "not_found", "route not found") })
@@ -57,7 +58,7 @@ async fn health() -> Json<HealthResponse> {
 }
 
 #[derive(Debug)]
-struct ApiError {
+pub(super) struct ApiError {
     status: StatusCode,
     code: &'static str,
     message: String,
@@ -117,6 +118,11 @@ impl From<SimulationError> for ApiError {
                 StatusCode::NOT_IMPLEMENTED,
                 "not_implemented",
                 "This computation is not implemented yet; no results were generated.",
+            ),
+            SimulationError::Cancelled => Self::new(
+                StatusCode::REQUEST_TIMEOUT,
+                "cancelled",
+                "Simulation cancelled.",
             ),
         }
     }

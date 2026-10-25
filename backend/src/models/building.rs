@@ -82,6 +82,36 @@ pub struct SpawnZone {
     pub count: u32,
 }
 
+/// Walkable architectural metadata. It is not collision geometry or a floor connection.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StairArea {
+    pub id: String,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_name",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub name: Option<String>,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_orientation",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub orientation_degrees: Option<u16>,
+}
+
+fn deserialize_orientation<'de, D>(deserializer: D) -> Result<Option<u16>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    u16::deserialize(deserializer).map(Some)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BuildingScenario {
@@ -93,7 +123,13 @@ pub struct BuildingScenario {
     pub exits: Vec<Opening>,
     pub spawn_zones: Vec<SpawnZone>,
     pub blocked_exit_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "super::AgentAwareness::is_default")]
+    pub awareness: super::AgentAwareness,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub opening_events: Vec<super::OpeningStateChange>,
     pub obstructions: Vec<Obstruction>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stair_areas: Vec<StairArea>,
     pub agent_radius: f64,
     pub time_step_seconds: f64,
     pub seed: u64,
@@ -192,8 +228,9 @@ impl BuildingScenario {
             || self.spawn_zones.is_empty()
             || self.spawn_zones.len() > 100
             || self.obstructions.len() > 100
+            || self.stair_areas.len() > 100
         {
-            return Err("require 1–1000 exits and 1–100 spawn zones; limits are 500 walls, 1000 doors, and 100 obstructions".into());
+            return Err("require 1–1000 exits and 1–100 spawn zones; limits are 500 walls, 1000 doors, 100 obstructions, and 100 stair areas".into());
         }
         for name in self
             .walls
@@ -203,6 +240,7 @@ impl BuildingScenario {
             .chain(self.exits.iter().map(|v| &v.name))
             .chain(self.spawn_zones.iter().map(|v| &v.name))
             .chain(self.obstructions.iter().map(|v| &v.name))
+            .chain(self.stair_areas.iter().map(|v| &v.name))
             .flatten()
         {
             if name
@@ -222,6 +260,7 @@ impl BuildingScenario {
             .chain(self.exits.iter().map(|v| &v.id))
             .chain(self.spawn_zones.iter().map(|v| &v.id))
             .chain(self.obstructions.iter().map(|v| &v.id))
+            .chain(self.stair_areas.iter().map(|v| &v.id))
         {
             if id.trim().is_empty() || id.chars().count() > 64 || !ids.insert(id) {
                 return Err(
@@ -267,6 +306,49 @@ impl BuildingScenario {
             || blocked.iter().any(|id| !exit_ids.contains(id))
         {
             return Err("blocked_exit_ids must reference distinct existing exits".into());
+        }
+        for range in [
+            self.awareness.sight_range_metres,
+            self.awareness.communication_range_metres,
+        ] {
+            if !range.is_finite() || !(0.0..=1000.0).contains(&range) {
+                return Err("awareness ranges must be finite and between 0 and 1000 metres".into());
+            }
+        }
+        let opening_ids: HashSet<_> = self
+            .doors
+            .iter()
+            .chain(&self.exits)
+            .map(|o| &o.id)
+            .collect();
+        let mut seen_events = HashSet::new();
+        if self.opening_events.len() > 1000
+            || self
+                .opening_events
+                .windows(2)
+                .any(|pair| pair[0].step > pair[1].step)
+        {
+            return Err("opening_events must contain at most 1000 events ordered by step".into());
+        }
+        for event in &self.opening_events {
+            if event.step >= self.max_steps
+                || !opening_ids.contains(&event.opening_id)
+                || !seen_events.insert((event.step, &event.opening_id))
+            {
+                return Err("opening_events must reference existing openings before max_steps, once per opening per step".into());
+            }
+        }
+        for area in &self.stair_areas {
+            if !self.contains_rectangle(area.x, area.y, area.width, area.height)
+                || area
+                    .orientation_degrees
+                    .is_some_and(|angle| ![0, 90, 180, 270].contains(&angle))
+            {
+                return Err(
+                    "stair areas need in-bounds rectangles and orientation 0, 90, 180, or 270"
+                        .into(),
+                );
+            }
         }
         for obstacle in &self.obstructions {
             if !self.contains_rectangle(obstacle.x, obstacle.y, obstacle.width, obstacle.height) {

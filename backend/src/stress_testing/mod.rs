@@ -216,6 +216,9 @@ mod tests {
     fn request() -> StressTestRequest {
         StressTestRequest {
             building: BuildingScenario {
+                awareness: Default::default(),
+                opening_events: vec![],
+                stair_areas: vec![],
                 width: 20.0,
                 height: 10.0,
                 walls: vec![Wall {
@@ -306,6 +309,7 @@ mod tests {
         SimulationResult {
             metrics,
             frames: vec![AnimationFrame {
+                blocked_opening_ids: None,
                 step: 0,
                 agents: (0..4)
                     .map(|id| AgentPosition {
@@ -1095,9 +1099,14 @@ pub(crate) mod real_integration {
                 .chain(std::iter::once((wall.length(), wall.length())))
             {
                 if start > cursor {
-                    // The engine now cuts rectangular wall solids at opening
-                    // jambs. Independently check the swept disc in wall-local
-                    // coordinates, including flat ends and physical thickness.
+                    // Check the rounded solid first, then independently verify its
+                    // rectangular body in wall-local coordinates.
+                    assert!(
+                        segment_distance(from, to, at(cursor), at(start)) + 1e-7
+                            >= building.agent_radius + wall.thickness / 2.0,
+                        "swept path {from:?} -> {to:?} crosses rounded wall '{}'",
+                        wall.id
+                    );
                     let origin = at(cursor);
                     let dx = (wall.end.x - wall.start.x) / wall.length();
                     let dy = (wall.end.y - wall.start.y) / wall.length();

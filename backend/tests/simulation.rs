@@ -99,9 +99,16 @@ fn recovery_never_evacuates_through_disabled_or_impassable_exits() {
 }
 
 #[test]
-fn a_half_metre_opening_admits_a_point_four_metre_disc_with_flat_wall_ends() {
+fn opening_passability_includes_body_radius_and_rounded_jambs() {
     let mut building = symmetric_exit(0.5, false, 42);
     building.spawn_zones.pop();
+    let blocked = simulate(&building).unwrap();
+    blocked.validate().unwrap();
+    assert_eq!(blocked.metrics.status, SimulationStatus::Incomplete);
+    assert_eq!(blocked.metrics.evacuated, 0);
+    assert_eq!(blocked.metrics.clearance_steps, None);
+    building.exits[0].offset = 4.65;
+    building.exits[0].width = 0.7;
     let result = simulate(&building).unwrap();
     result.validate().unwrap();
     assert_eq!(result.metrics.status, SimulationStatus::Completed);

@@ -42,7 +42,7 @@ const barrier: BuildingScenario = {
 };
 
 describe("visual-only frame interpolation", () => {
-  it("allows interpolation through a 0.5 m flat-ended opening for a 0.4 m disc", () => {
+  it("respects rounded jamb clearance while interpolating through an opening", () => {
     const building = {
       ...empty,
       agent_radius: 0.2,
@@ -54,7 +54,7 @@ describe("visual-only frame interpolation", () => {
           thickness: 0.2,
         },
       ],
-      doors: [{ id: "door", wall_id: "wall", offset: 4.75, width: 0.5 }],
+      doors: [{ id: "door", wall_id: "wall", offset: 4.65, width: 0.7 }],
     };
     const passage = [
       { step: 0, agents: [{ id: 1, x: 5, y: 1 }] },
@@ -65,6 +65,13 @@ describe("visual-only frame interpolation", () => {
       x: 5,
       y: 2,
     });
+    const tooNarrow = {
+      ...building,
+      doors: [{ ...building.doors[0]!, offset: 4.75, width: 0.5 }],
+    };
+    expect(createFrameSampler(tooNarrow, passage, 0.1)(0.5)?.agents[0]).toEqual(
+      { id: 1, x: 5, y: 1 },
+    );
     expect(
       createFrameSampler({ ...building, doors: [] }, passage, 0.1)(0.5)
         ?.agents[0],

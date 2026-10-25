@@ -40,6 +40,23 @@ function fixture(width: number, height: number) {
 }
 
 describe("playback Canvas", () => {
+  it("refreshes the cached floor plan when a passage closes or reopens", () => {
+    const main = fixture(600, 400),
+      cache = fixture(600, 400);
+    const render = createPlaybackRenderer(
+      main.element,
+      syntheticBuilding,
+      cache.element,
+    );
+    const frame = syntheticResult.frames[0]!;
+    render({ ...frame, blocked_opening_ids: [] }, 1);
+    render({ ...frame, blocked_opening_ids: ["door"] }, 1);
+    expect(cache.context.drawImage).toHaveBeenCalledTimes(2);
+    render({ ...frame, blocked_opening_ids: ["door"] }, 1);
+    expect(cache.context.drawImage).toHaveBeenCalledTimes(2);
+    render({ ...frame, blocked_opening_ids: [] }, 1);
+    expect(cache.context.drawImage).toHaveBeenCalledTimes(3);
+  });
   it("caches the static layout until the display size or pixel ratio changes", () => {
     const main = fixture(600, 400),
       cache = fixture(600, 400);

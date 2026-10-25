@@ -32,6 +32,10 @@ export interface Obstruction {
 export interface SpawnZone extends Obstruction {
   count: number;
 }
+/** Walkable, nonblocking architectural annotation; no inter-floor transport. */
+export interface StairArea extends Obstruction {
+  orientation_degrees?: 0 | 90 | 180 | 270;
+}
 export interface BuildingScenario {
   width: number;
   height: number;
@@ -40,11 +44,26 @@ export interface BuildingScenario {
   exits: Opening[];
   spawn_zones: SpawnZone[];
   blocked_exit_ids: string[];
+  /** Omitted settings use 8 m sight and 3 m communication ranges. Zero disables a range. */
+  awareness?: AgentAwareness;
+  opening_events?: OpeningStateChange[];
   obstructions: Obstruction[];
+  stair_areas?: StairArea[];
   agent_radius: number;
   time_step_seconds: number;
   seed: number;
   max_steps: number;
+}
+
+export interface AgentAwareness {
+  sight_range_metres: number;
+  communication_range_metres: number;
+}
+
+export interface OpeningStateChange {
+  step: number;
+  opening_id: string;
+  blocked: boolean;
 }
 
 export type SimulationStatus = "completed" | "incomplete" | "timeout";
@@ -66,6 +85,8 @@ export interface AgentPosition extends Point {
 export interface AnimationFrame {
   step: number;
   agents: AgentPosition[];
+  /** Physical state at this time; absent in older recordings. */
+  blocked_opening_ids?: string[];
 }
 
 export interface AgentStatistics {
@@ -82,7 +103,7 @@ export interface AgentStatistics {
   evacuation_seconds: number | null;
   /** Successful exit; null if this occupant did not evacuate. */
   exit_id: string | null;
-  /** Graph search found a route; false does not prove physical entrapment. */
+  /** Latest route search using personal opening knowledge; false does not prove entrapment. */
   route_found: boolean;
 }
 
@@ -104,6 +125,17 @@ export interface SimulationResult extends SimulationMetrics {
   time_step_seconds: number;
   width: number;
   height: number;
+}
+
+/** Newline-delimited events from POST /api/simulate/live. */
+export type SimulationStreamEvent =
+  | { type: "frame"; frame: AnimationFrame }
+  | { type: "complete"; result: SimulationResult }
+  | { type: "error"; error: { code: string; message: string } };
+
+/** A running simulation has no outcome or known duration yet. */
+export interface LiveSimulation {
+  frame: AnimationFrame | null;
 }
 
 export interface StressTestConfig {

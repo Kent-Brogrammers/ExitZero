@@ -1,4 +1,7 @@
 const defaults = {
+  grid: ["--cad-grid", "#252530"],
+  gridMajor: ["--cad-grid-major", "#343442"],
+  blueprint: ["--canvas-blueprint", "0"],
   background: ["--cad-bg", "#0a0a10"],
   surface: ["--cad-surface", "#101017"],
   wall: ["--cad-wall", "#adaab8"],
@@ -11,6 +14,7 @@ const defaults = {
   obstacle: ["--cad-obstacle", "#25221d"],
   obstacleBorder: ["--cad-obstacle-border", "#a18c73"],
   obstacleText: ["--cad-obstacle-text", "#d7c2a6"],
+  shelter: ["--cad-shelter", "#b09ae3"],
   muted: ["--cad-muted", "#aaa8b8"],
 } as const;
 export type CanvasPalette = Record<keyof typeof defaults, string>;

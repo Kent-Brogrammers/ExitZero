@@ -142,6 +142,23 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 100000
+        },
+        "stair_areas": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/StairArea"
+          }
+        },
+        "awareness": {
+          "$ref": "#/$defs/AgentAwareness"
+        },
+        "opening_events": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "$ref": "#/$defs/OpeningStateChange"
+          }
         }
       }
     },
@@ -264,6 +281,17 @@
             "$ref": "#/$defs/AgentPosition"
           },
           "maxItems": 10000
+        },
+        "blocked_opening_ids": {
+          "type": "array",
+          "maxItems": 2000,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "\\S"
+          }
         }
       }
     },
@@ -860,6 +888,141 @@
         "total_waiting_seconds": {
           "type": "number",
           "minimum": 0
+        }
+      }
+    },
+    "StairArea": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "x", "y", "width", "height"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "\\S"
+        },
+        "x": {
+          "type": "number",
+          "maximum": 1000,
+          "minimum": 0
+        },
+        "y": {
+          "type": "number",
+          "maximum": 1000,
+          "minimum": 0
+        },
+        "width": {
+          "type": "number",
+          "maximum": 1000,
+          "exclusiveMinimum": 0
+        },
+        "height": {
+          "type": "number",
+          "maximum": 1000,
+          "exclusiveMinimum": 0
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "[^\\s\\u0085]",
+          "description": "Optional user-facing display name. Stable object references continue to use id; names do not affect simulation."
+        },
+        "orientation_degrees": {
+          "type": "integer",
+          "enum": [0, 90, 180, 270]
+        }
+      }
+    },
+    "SimulationStreamEvent": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "frame"],
+          "properties": {
+            "type": {
+              "const": "frame"
+            },
+            "frame": {
+              "$ref": "#/$defs/AnimationFrame"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "result"],
+          "properties": {
+            "type": {
+              "const": "complete"
+            },
+            "result": {
+              "$ref": "#/$defs/SimulationResult"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "error"],
+          "properties": {
+            "type": {
+              "const": "error"
+            },
+            "error": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["code", "message"],
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "AgentAwareness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sight_range_metres", "communication_range_metres"],
+      "properties": {
+        "sight_range_metres": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "communication_range_metres": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1000
+        }
+      }
+    },
+    "OpeningStateChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["step", "opening_id", "blocked"],
+      "properties": {
+        "step": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 99999
+        },
+        "opening_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "\\S"
+        },
+        "blocked": {
+          "type": "boolean"
         }
       }
     }

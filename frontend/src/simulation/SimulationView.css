@@ -365,3 +365,31 @@
     margin-bottom: 16px;
   }
 }
+.live-trails-note {
+  padding: 8px 16px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--cad-muted);
+  background: var(--cad-surface);
+}
+
+.live-trails-note summary,
+.live-crowding-details summary {
+  cursor: pointer;
+  width: fit-content;
+}
+.live-trails-note summary:hover,
+.live-crowding-details summary:hover {
+  color: var(--cad-text);
+}
+.live-trails-note summary:focus-visible,
+.live-crowding-details summary:focus-visible {
+  outline: 2px solid var(--cad-accent);
+  outline-offset: 3px;
+}
+.live-trails-note p,
+.live-crowding-details p {
+  margin: var(--space-2) 0 0;
+  max-width: 85ch;
+  line-height: 1.5;
+}

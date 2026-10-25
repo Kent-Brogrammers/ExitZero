@@ -5,19 +5,32 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import type { BuildingScenario, SimulationResult } from "../types/simulation";
-import { createPlaybackRenderer } from "./drawPlayback";
+import type {
+  BuildingScenario,
+  LiveSimulation,
+  SimulationResult,
+} from "../types/simulation";
+import { LiveSimulationView } from "./LiveSimulationView";
+import { createPlaybackRenderer, drawAgents } from "./drawPlayback";
+import { drawLayout } from "../editor/draw";
+import { canvasPalette } from "../styles/canvasPalette";
+import { trafficField, fieldPixels } from "../analytics/trafficField";
+import { createRecordedTrails } from "./recordedTrails";
+import { frameIndexAtTime } from "./playback";
 import { useStudioTheme } from "../styles/appearance";
 import { createFrameSampler } from "./interpolation";
 import { createPlayback, PLAYBACK_SPEEDS } from "./playback";
 import { syntheticBuilding, syntheticResult } from "./playback.fixture";
 import { SimulationSummary } from "./SimulationSummary";
+import { frameLayout } from "./frameLayout";
 import "./SimulationView.css";
 
 interface SimulationViewProps {
   building: BuildingScenario;
   result: SimulationResult | null;
+  live?: LiveSimulation | null;
   active?: boolean;
+  allowSyntheticPreview?: boolean;
   onOpenAnalytics?: () => void;
 }
 
@@ -31,17 +44,24 @@ function Playback({
   building,
   result,
   active = true,
+  allowSyntheticPreview = true,
   synthetic,
   analyticsOpen,
   onCloseAnalytics,
   onOpenAnalytics,
 }: PlaybackProps) {
   const theme = useStudioTheme();
+
   const mismatch =
     result !== null &&
     (result.width !== building.width || result.height !== building.height);
   const recording = mismatch ? null : result;
-  const player = useMemo(() => createPlayback(recording), [recording]);
+  const player = useMemo(() => {
+    const playback = createPlayback(recording);
+    // A real run has already been watched live. Begin its review at the end.
+    if (recording && !synthetic) playback.seek(recording.frames.length - 1);
+    return playback;
+  }, [recording, synthetic]);
   const state = useSyncExternalStore(
     player.subscribe,
     player.getSnapshot,
@@ -76,8 +96,70 @@ function Playback({
     const element = canvas.current;
     if (!element) return;
     const render = createPlaybackRenderer(element, building);
-    const redraw = () =>
-      render(sample(player.getTime()), window.devicePixelRatio);
+    const palette = canvasPalette(element);
+    const trailSampler = recording ? createRecordedTrails(recording) : null;
+    const finalData =
+      recording && trailSampler
+        ? trailSampler(recording.frames.length - 1)
+        : null;
+    const finalPeak =
+      finalData && recording
+        ? trafficField(finalData, recording.width, recording.height, 0.6).peak
+        : 0;
+    trailSampler?.(0);
+    const layer = document.createElement("canvas");
+    let lastIndex = -1;
+    const redraw = () => {
+      const time = player.getTime();
+      const agents = sample(time);
+      const ratio = window.devicePixelRatio || 1;
+      if (!recording || !trailSampler) {
+        render(agents, ratio);
+        return;
+      }
+      const index = frameIndexAtTime(
+        recording.frames,
+        recording.time_step_seconds,
+        time,
+      );
+      if (index !== lastIndex) {
+        const field = trafficField(
+          trailSampler(index),
+          recording.width,
+          recording.height,
+          0.6,
+        );
+        layer.width = field.columns;
+        layer.height = field.rows;
+        const ctx = layer.getContext("2d");
+        if (ctx) {
+          const pixels = ctx.createImageData(field.columns, field.rows);
+          pixels.data.set(fieldPixels({ ...field, peak: finalPeak }));
+          ctx.putImageData(pixels, 0, 0);
+        }
+        lastIndex = index;
+      }
+      drawLayout(
+        element,
+        frameLayout(building, agents),
+        null,
+        undefined,
+        ratio,
+        palette,
+        {
+          underlay: (ctx) => {
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(0, 0, building.width, building.height);
+            ctx.clip();
+            ctx.imageSmoothingEnabled = true;
+            ctx.drawImage(layer, 0, 0, building.width, building.height);
+            ctx.restore();
+          },
+        },
+      );
+      drawAgents(element, building, agents, ratio, palette);
+    };
     const unsubscribe = player.subscribeRender(redraw);
     redraw();
     const observer = new ResizeObserver(redraw);
@@ -88,7 +170,7 @@ function Playback({
       observer.disconnect();
       window.removeEventListener("resize", redraw);
     };
-  }, [building, player, sample, theme]);
+  }, [building, player, sample, theme, recording]);
 
   const status = state.playing
     ? "Playing"
@@ -106,6 +188,7 @@ function Playback({
       <div className="playback-stage">
         <div className="canvas-wrap playback-canvas-wrap">
           <canvas
+            data-world-canvas
             ref={canvas}
             width={1200}
             height={800}
@@ -142,6 +225,17 @@ function Playback({
             <span>{frames.length} recorded frames</span>
           </div>
         </div>
+        {recording && (
+          <details className="live-trails-note">
+            <summary>Recorded traffic trails</summary>
+            <p>
+              Accumulates sampled positions as playback advances. Pause freezes
+              trails; reset clears them; seeking rebuilds them. Colors use a
+              fixed scale for this recording. These observations are not the
+              backend's full accumulated traffic totals.
+            </p>
+          </details>
+        )}
         <div className="playback-dock">
           <div className="playback-transport">
             <div
@@ -299,7 +393,7 @@ function Playback({
                     evacuated · {recording.remaining} remaining (
                     {recording.trapped} trapped).{" "}
                     {recording.status !== "completed" &&
-                      "The evacuation did not complete; the recording ending does not imply success."}
+                      "Recording ended before full evacuation."}
                   </p>
                 )}
                 <a
@@ -312,7 +406,7 @@ function Playback({
                     }
                   }}
                 >
-                  Explore analytics ↗
+                  Open Analytics ↗
                 </a>
 
                 <p className="note">
@@ -331,13 +425,12 @@ function Playback({
               </p>
             ) : !recording ? (
               <p className="note">
-                No simulation has run. The current layout is shown. Run a
-                simulation or enable the synthetic preview to try playback.
+                No recording yet. Run Simulation
+                {allowSyntheticPreview ? " or try the synthetic preview." : "."}
               </p>
             ) : !frames.length ? (
               <p className="note">
-                The result contains no animation frames. Playback controls are
-                unavailable.
+                No recorded frames. Playback is unavailable.
               </p>
             ) : (
               <p className="note">
@@ -364,7 +457,9 @@ function Playback({
 export function SimulationView({
   building,
   result,
+  live = null,
   active = true,
+  allowSyntheticPreview = true,
   onOpenAnalytics,
 }: SimulationViewProps) {
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
@@ -373,11 +468,13 @@ export function SimulationView({
     setAnalyticsOpen(false);
     analyticsButton.current?.focus();
   }
-  const [preview, setPreview] = useState(false);
+  const [previewRequested, setPreview] = useState(false);
+  const preview = previewRequested && allowSyntheticPreview;
+  const running = live !== null;
   // A newly returned API result takes precedence over a development preview.
   useEffect(() => {
     setPreview(false);
-  }, [result]);
+  }, [result, running]);
 
   return (
     <section
@@ -388,7 +485,9 @@ export function SimulationView({
       <div className="panel-heading">
         <div>
           <p className="eyebrow">02 / Simulation</p>
-          <h2 id="simulation-title">Evacuation playback</h2>
+          <h2 id="simulation-title">
+            {live ? "Live evacuation" : "Evacuation playback"}
+          </h2>
         </div>
       </div>
       <div className="playback-source">
@@ -397,16 +496,19 @@ export function SimulationView({
             <input
               type="checkbox"
               checked={preview}
+              disabled={live !== null || !allowSyntheticPreview}
               onChange={(event) => setPreview(event.target.checked)}
             />
             Use synthetic playback preview
           </label>
           <span className={`badge${preview ? " mock" : ""}`}>
-            {preview
-              ? "SYNTHETIC PREVIEW"
-              : result
-                ? "API recording"
-                : "Awaiting simulation"}
+            {live
+              ? "LIVE · RECORDING"
+              : preview
+                ? "SYNTHETIC PREVIEW"
+                : result
+                  ? "API recording"
+                  : "Awaiting simulation"}
           </span>
         </div>
         <button
@@ -415,27 +517,32 @@ export function SimulationView({
           className="studio-control"
           aria-expanded={analyticsOpen}
           aria-controls="simulation-summary"
+          disabled={live !== null}
           onClick={() => setAnalyticsOpen(!analyticsOpen)}
         >
           {analyticsOpen ? "Hide Analytics" : "Show Analytics"}
         </button>
       </div>
-      {preview && (
+      {preview && !live && (
         <p className="playback-synthetic-note" role="note">
-          Scripted development fixture only. No simulation was run. Separate 4 ×
-          3 m layout with two occupants; it does not represent your edited
-          building or the full Analytics view.
+          Synthetic preview: two occupants in a separate 4 × 3 m layout. No
+          simulation was run for your building. Full Analytics uses API results.
         </p>
       )}
-      <Playback
-        synthetic={preview}
-        analyticsOpen={analyticsOpen}
-        onCloseAnalytics={closeAnalytics}
-        onOpenAnalytics={onOpenAnalytics}
-        active={active}
-        building={preview ? syntheticBuilding : building}
-        result={preview ? syntheticResult : result}
-      />
+      {live ? (
+        <LiveSimulationView building={building} live={live} active={active} />
+      ) : (
+        <Playback
+          synthetic={preview}
+          allowSyntheticPreview={allowSyntheticPreview}
+          analyticsOpen={analyticsOpen}
+          onCloseAnalytics={closeAnalytics}
+          onOpenAnalytics={onOpenAnalytics}
+          active={active}
+          building={preview ? syntheticBuilding : building}
+          result={preview ? syntheticResult : result}
+        />
+      )}
     </section>
   );
 }

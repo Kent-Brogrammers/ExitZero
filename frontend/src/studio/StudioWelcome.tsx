@@ -2,12 +2,14 @@ import { useEffect, useRef } from "react";
 import type { BuildingScenario } from "../types/simulation";
 import { drawLayout } from "../editor/draw";
 import { useStudioTheme } from "../styles/appearance";
+import { repositoryUrl } from "./credits";
 import "./StudioWelcome.css";
 
 interface StudioWelcomeProps {
   building: BuildingScenario;
   onOpen: () => void;
   onLoadExample: () => void;
+  onOpenDemo?: () => void;
   disabled?: boolean;
 }
 
@@ -15,6 +17,7 @@ export function StudioWelcome({
   building,
   onOpen,
   onLoadExample,
+  onOpenDemo,
   disabled = false,
 }: StudioWelcomeProps) {
   const theme = useStudioTheme();
@@ -43,19 +46,18 @@ export function StudioWelcome({
           </span>{" "}
           ExitZero <span>Studio</span>
         </div>
-        <span className="welcome-edition">A space to explore the way out.</span>
+        <span className="welcome-edition">Stark State Hackathon 2026</span>
       </header>
       <div className="welcome-composition">
         <div className="welcome-copy">
-          <p className="welcome-kicker">SPACE. PEOPLE. POSSIBILITY.</p>
+          <p className="welcome-kicker">BUILDING EVACUATION SIMULATOR</p>
           <h1>
             Design for
             <br />
             the unexpected<span>.</span>
           </h1>
           <p className="welcome-description">
-            Shape a floor plan. Explore an evacuation. See where a better way
-            out begins.
+            Design a floor plan. Run an evacuation. Examine the traffic.
           </p>
           <div className="welcome-actions">
             <button className="entry-action" onClick={onOpen}>
@@ -70,31 +72,55 @@ export function StudioWelcome({
             </button>
           </div>
           <p className="welcome-footnote">
-            Continuous 2D geometry · An exploratory engineering prototype
+            2D simulation · Experimental prototype
           </p>
         </div>
         <div className="welcome-drawing">
           <div className="welcome-drawing-heading">
-            <span>THE FLOOR PLAN / 01</span>
+            <span>
+              {onOpenDemo ? "OFFICE DEMO / 01" : "THE FLOOR PLAN / 01"}
+            </span>
             <span>
               {building.width} × {building.height} M
             </span>
           </div>
           <canvas
+            data-world-canvas
             ref={canvas}
             width={900}
             height={720}
             role="img"
-            aria-label="Illustrative example building floor plan. No simulation is running."
+            aria-label={
+              onOpenDemo
+                ? "Office demo floor plan with open workspace, meeting room, corridor, break room and two exits. No simulation is running."
+                : "Illustrative example building floor plan. No simulation is running."
+            }
           />
           <div className="welcome-scan" aria-hidden="true" />
-          <p>Illustrative floor plan · No simulation running</p>
+          {onOpenDemo ? (
+            <div className="welcome-demo-link">
+              <p>56 occupants · 2 exits · Editable office plan</p>
+              <button
+                type="button"
+                className="welcome-example"
+                disabled={disabled}
+                onClick={onOpenDemo}
+              >
+                View office demo <span aria-hidden="true">→</span>
+              </button>
+              <span>Saved Rust simulation with recorded traffic.</span>
+            </div>
+          ) : (
+            <p>Illustrative floor plan · No simulation running</p>
+          )}
         </div>
       </div>
-      <div className="welcome-bottom">
-        <span>ExitZero Studio / Local prototype</span>
-        <span>Design · Simulate · Understand</span>
-      </div>
+      <footer className="welcome-bottom">
+        <span>© 2026 Kent Brogrammers</span>
+        <a href={repositoryUrl} target="_blank" rel="noreferrer">
+          GitHub <span aria-hidden="true">↗</span>
+        </a>
+      </footer>
     </section>
   );
 }

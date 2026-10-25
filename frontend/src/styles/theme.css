@@ -35,48 +35,73 @@
   --cad-inspector: #17171ff5;
   --cad-rail-border: #ffffff0d;
   --studio-primary-text: #fff;
+  --cad-grid: #252530;
+  --cad-grid-major: #343442;
+  --canvas-blueprint: 0;
   color-scheme: dark;
   accent-color: var(--cad-accent);
   scrollbar-color: var(--cad-border-strong) var(--cad-surface);
 }
 
-:root[data-studio-theme="slate"] {
-  --cad-bg: #34323d;
-  --cad-surface: #45434f;
-  --cad-panel: #3c3945;
-  --cad-control: #494552;
-  --cad-hover: #514b5c;
-  --cad-border: #524c5d;
-  --cad-border-strong: #70657f;
-  --cad-text: #f1edf5;
-  --cad-muted: #c3bbcd;
-  --cad-subtle: #b5abbe;
-  --cad-disabled: #9e94a8;
-  --cad-accent: #8bbfff;
-  --cad-accent-hover: #aed2ff;
-  --cad-selected: #38465e;
-  --cad-success: #66e3b9;
-  --cad-warning: #efc88f;
-  --cad-warning-bg: #514335;
-  --cad-warning-border: #9b815b;
-  --cad-danger: #ffb6a8;
-  --cad-danger-bg: #58413f;
-  --cad-danger-border: #b3817a;
-  --cad-wall: #dfdae6;
-  --cad-door: #efd095;
-  --cad-spawn: #4d485b;
-  --cad-spawn-border: #a99cb8;
-  --cad-shelter: #c8b4ed;
-  --cad-obstacle: #5a4d47;
-  --cad-obstacle-border: #d1b795;
-  --cad-obstacle-text: #f0d8b8;
-  --cad-header: #34323d;
-  --cad-rail: #3c3945ef;
-  --cad-inspector: #3c3945f5;
-  --cad-rail-border: #ffffff14;
-  --studio-primary: #b59bf0;
-  --studio-primary-hover: #c6b0f7;
-  --studio-primary-text: #20182f;
+/* Canvas palettes never cascade into the Studio shell or analytics controls. */
+:root[data-canvas-theme="light"] canvas[data-world-canvas] {
+  --cad-bg: #f3f2f5;
+  --cad-surface: #fcfbfe;
+  --cad-muted: #5c546b;
+  --cad-accent: #2563b8;
+  --cad-success: #128461;
+  --cad-danger: #b3403f;
+  --cad-wall: #4d455b;
+  --cad-door: #94601f;
+  --cad-spawn: #e9e5f0;
+  --cad-spawn-border: #a29ab4;
+  --cad-shelter: #7a55bd;
+  --cad-obstacle: #e4ded7;
+  --cad-obstacle-border: #a28b6a;
+  --cad-obstacle-text: #62492f;
+  --cad-grid: #e9e6ee;
+  --cad-grid-major: #d4cfdf;
+  --canvas-blueprint: 0;
+}
+
+:root[data-canvas-theme="blueprint-dark"] canvas[data-world-canvas] {
+  --cad-bg: #0c1830;
+  --cad-surface: #102844;
+  --cad-muted: #abc4db;
+  --cad-accent: #8ac6ff;
+  --cad-success: #a5e2cb;
+  --cad-danger: #ffb7aa;
+  --cad-wall: #c4def2;
+  --cad-door: #e4bd75;
+  --cad-spawn: #173656;
+  --cad-spawn-border: #668cac;
+  --cad-shelter: #c9b4f3;
+  --cad-obstacle: #1a3b5b;
+  --cad-obstacle-border: #9ab5cf;
+  --cad-obstacle-text: #ccdfef;
+  --cad-grid: #193755;
+  --cad-grid-major: #244c70;
+  --canvas-blueprint: 1;
+}
+
+:root[data-canvas-theme="blueprint-light"] canvas[data-world-canvas] {
+  --cad-bg: #e2ebf1;
+  --cad-surface: #eff7fc;
+  --cad-muted: #45637f;
+  --cad-accent: #235fa3;
+  --cad-success: #16735b;
+  --cad-danger: #a83e45;
+  --cad-wall: #315f88;
+  --cad-door: #466e9b;
+  --cad-spawn: #dceaf5;
+  --cad-spawn-border: #87aac8;
+  --cad-shelter: #735ba7;
+  --cad-obstacle: #e2edf5;
+  --cad-obstacle-border: #648cac;
+  --cad-obstacle-text: #2b5477;
+  --cad-grid: #dbe8f2;
+  --cad-grid-major: #bed2e3;
+  --canvas-blueprint: 1;
 }
 
 /* Presentation only: shared chart data and analytics components stay unchanged. */
