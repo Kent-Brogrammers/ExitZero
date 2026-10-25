@@ -8,6 +8,7 @@ import { StudioPopover } from "./ui/StudioPopover";
 import { AppearanceSelector } from "./styles/StudioAppearance";
 import { StudioWelcome } from "./studio/StudioWelcome";
 import { StudioAbout } from "./studio/StudioAbout";
+import { TemplatesPage } from "./templates/TemplatesPage";
 import { loadOfficeDemo, officeDemoBuilding } from "./studio/officeDemo";
 import {
   OfficeDemoNotice,
@@ -28,13 +29,15 @@ import type {
 
 const AnalyticsDashboard = lazy(() => import("./analytics/AnalyticsDashboard"));
 
-type StudioView = "welcome" | "edit" | "simulation" | "analytics";
+type StudioView = "welcome" | "templates" | "edit" | "simulation" | "analytics";
 const studioViews = [
+  ["templates", "Templates"],
   ["edit", "Edit"],
   ["simulation", "Simulation"],
   ["analytics", "Analytics"],
 ] as const;
 function viewFromHash(): StudioView {
+  if (window.location.hash === "#templates") return "templates";
   if (window.location.hash === "#building") return "edit";
   if (window.location.hash === "#simulation") return "simulation";
   if (window.location.hash === "#analytics") return "analytics";
@@ -62,6 +65,42 @@ export default function App() {
     structuredClone(example),
   );
   const layoutProblem = buildingError(building);
+  const [savedLayoutJson, setSavedLayoutJson] = useState(() =>
+    JSON.stringify(building),
+  );
+  const [layoutRevision, setLayoutRevision] = useState(0);
+  function markSaved(next: BuildingScenario) {
+    setSavedLayoutJson(JSON.stringify(next));
+  }
+  function canReplace(name: string) {
+    return (
+      JSON.stringify(building) === savedLayoutJson ||
+      window.confirm(
+        `Replace your unsaved layout with ${name}? Save it in My Templates or export JSON first to keep a copy.`,
+      )
+    );
+  }
+  function loadTemplate(
+    next: BuildingScenario,
+    name: string,
+    action: "edit" | "simulate",
+  ) {
+    if (busy || !canReplace(name)) return;
+    // Pass this same independent copy to run(), without waiting for React state.
+    const selected = structuredClone(next);
+    setBuilding(selected);
+    markSaved(selected);
+    setResult(null);
+    setStressResult(null);
+    setOptimization(null);
+    setReplayTarget(null);
+    setOfficeDemo(null);
+    previousWorkspace.current = null;
+    setLayoutRevision((revision) => revision + 1);
+    setMessage("");
+    if (action === "edit") navigate("edit");
+    else void run("simulate", selected);
+  }
   function changeBuilding(next: BuildingScenario) {
     const namesOnly =
       JSON.stringify(withoutObjectNames(building)) ===
@@ -122,18 +161,12 @@ export default function App() {
     result: SimulationResult | null;
     stressResult: StressTestResult | null;
     optimization: OptimizationEvaluation | null;
+    savedLayoutJson: string;
   } | null>(null);
 
   async function openOfficeDemo() {
     if (busy) return;
-    if (
-      officeDemo &&
-      JSON.stringify(building) !== JSON.stringify(officeDemoBuilding) &&
-      !window.confirm(
-        "Reload the office demo? Export any demo edits first to keep them.",
-      )
-    )
-      return;
+    if (!canReplace("the saved office demo")) return;
     setBusy(true);
     try {
       const recording = await loadOfficeDemo();
@@ -142,8 +175,12 @@ export default function App() {
         result,
         stressResult,
         optimization,
+        savedLayoutJson,
       };
       setBuilding(structuredClone(officeDemoBuilding));
+      markSaved(officeDemoBuilding);
+      setLayoutRevision((revision) => revision + 1);
+      setReplayTarget(null);
       setResult(recording);
       setStressResult(null);
       setOptimization(null);
@@ -162,17 +199,14 @@ export default function App() {
   function returnFromOfficeDemo() {
     const previous = previousWorkspace.current;
     if (busy || !previous) return;
-    if (
-      JSON.stringify(building) !== JSON.stringify(officeDemoBuilding) &&
-      !window.confirm(
-        "Return to your previous layout? Export any demo edits first to keep them.",
-      )
-    )
-      return;
+    if (!canReplace("your previous layout")) return;
     setBuilding(previous.building);
     setResult(previous.result);
     setStressResult(previous.stressResult);
     setOptimization(previous.optimization);
+    setSavedLayoutJson(previous.savedLayoutJson);
+    setLayoutRevision((revision) => revision + 1);
+    setReplayTarget(null);
     previousWorkspace.current = null;
     setOfficeDemo(null);
     setMessage("");
@@ -190,13 +224,16 @@ export default function App() {
     return () => controller.abort();
   }, [healthAttempt]);
 
-  async function run(action: "simulate" | "stress" | "optimize") {
+  async function run(
+    action: "simulate" | "stress" | "optimize",
+    scenario = building,
+  ) {
     if (busy) return;
     setBusy(true);
     setMessage("Sending request…");
     try {
       if (action === "simulate") {
-        if (officeDemo) setOfficeDemo("live");
+        if (officeDemo && scenario === building) setOfficeDemo("live");
         const controller = new AbortController();
         liveRequest.current = controller;
         setResult(null);
@@ -205,7 +242,7 @@ export default function App() {
         setMessage("Starting live simulation…");
         navigate("simulation");
         const recording = await api.simulateLive(
-          building,
+          scenario,
           (frame) => {
             if (!controller.signal.aborted) {
               setLive({ frame });
@@ -221,7 +258,7 @@ export default function App() {
       } else if (action === "stress") {
         setStressResult(
           await api.stressTest({
-            building,
+            building: scenario,
             config: {
               max_scenarios: 10,
               block_each_exit: true,
@@ -231,9 +268,12 @@ export default function App() {
         );
         setMessage("Stress test ready.");
       } else {
-        const optimized = await api.optimize({ building, max_candidates: 10 });
+        const optimized = await api.optimize({
+          building: scenario,
+          max_candidates: 10,
+        });
         setOptimization({
-          source: structuredClone(building),
+          source: structuredClone(scenario),
           result: optimized,
           applied: null,
         });
@@ -256,11 +296,10 @@ export default function App() {
           onOpenDemo={() => void openOfficeDemo()}
           disabled={busy}
           onOpen={() => navigate("edit")}
-          onLoadExample={() => {
-            if (busy) return;
-            changeBuilding(structuredClone(example));
-            navigate("edit");
-          }}
+          onTemplates={() => navigate("templates")}
+          onLoadExample={() =>
+            loadTemplate(example, "the example building", "edit")
+          }
         />
       </div>
       <div className="studio-shell" hidden={view === "welcome"}>
@@ -292,8 +331,12 @@ export default function App() {
                     event.key === "Home"
                       ? 0
                       : event.key === "End"
-                        ? 2
-                        : (current + (event.key === "ArrowLeft" ? 2 : 1)) % 3;
+                        ? studioViews.length - 1
+                        : (current +
+                            (event.key === "ArrowLeft"
+                              ? studioViews.length - 1
+                              : 1)) %
+                          studioViews.length;
                   navigate(studioViews[index]![0], true);
                 }
               }}
@@ -306,9 +349,11 @@ export default function App() {
                   role="tab"
                   aria-selected={view === value}
                   aria-controls={
-                    value === "analytics"
-                      ? "studio-analytics-panel"
-                      : `workspace-${value}-panel`
+                    value === "templates"
+                      ? "studio-templates-panel"
+                      : value === "analytics"
+                        ? "studio-analytics-panel"
+                        : `workspace-${value}-panel`
                   }
                   tabIndex={view === value ? 0 : -1}
                   onClick={() => navigate(value)}
@@ -433,25 +478,27 @@ export default function App() {
                 </div>
               )}
             </StudioPopover>
-            <button
-              className="run-action"
-              disabled={busy || connection !== "online" || !!layoutProblem}
-              title={
-                layoutProblem ??
-                (connection !== "online"
-                  ? "Backend unavailable. Open Settings to retry."
-                  : "Run this floor plan through the simulation engine.")
-              }
-              onClick={() => void run("simulate")}
-            >
-              {busy ? "Working…" : "Run Simulation"}
-              <span aria-hidden="true">↗</span>
-            </button>
+            {view !== "templates" && (
+              <button
+                className="run-action"
+                disabled={busy || connection !== "online" || !!layoutProblem}
+                title={
+                  layoutProblem ??
+                  (connection !== "online"
+                    ? "Backend unavailable. Open Settings to retry."
+                    : "Run this floor plan through the simulation engine.")
+                }
+                onClick={() => void run("simulate")}
+              >
+                {busy ? "Working…" : "Run Simulation"}
+                <span aria-hidden="true">↗</span>
+              </button>
+            )}
           </div>
         </header>
         <main className={`studio-main${officeDemo ? " has-office-demo" : ""}`}>
-          <h1 className="sr-only">ExitZero Studio</h1>
-          {officeDemo && (
+          {view !== "templates" && <h1 className="sr-only">ExitZero Studio</h1>}
+          {officeDemo && view !== "templates" && (
             <OfficeDemoNotice
               source={officeDemo}
               result={result}
@@ -460,8 +507,29 @@ export default function App() {
               onReturn={returnFromOfficeDemo}
             />
           )}
-          <div className="studio-viewport" hidden={view === "analytics"}>
+          <section
+            id="studio-templates-panel"
+            role="tabpanel"
+            aria-labelledby="studio-templates-tab"
+            hidden={view !== "templates"}
+          >
+            {view === "templates" && (
+              <TemplatesPage
+                building={building}
+                busy={busy}
+                online={connection === "online"}
+                onOpen={loadTemplate}
+                onSaved={markSaved}
+                onOfficeRecording={() => void openOfficeDemo()}
+              />
+            )}
+          </section>
+          <div
+            className="studio-viewport"
+            hidden={view !== "edit" && view !== "simulation"}
+          >
             <BuildingWorkspace
+              key={layoutRevision}
               building={building}
               onChange={changeBuilding}
               result={result}
@@ -469,6 +537,8 @@ export default function App() {
               replayTarget={replayTarget}
               allowSyntheticPreview={!officeDemo}
               disabled={busy}
+              savedLayoutJson={savedLayoutJson}
+              onSaved={markSaved}
               mode={view === "simulation" ? "simulation" : "edit"}
               active={view === "edit" || view === "simulation"}
               onOpenAnalytics={() => {

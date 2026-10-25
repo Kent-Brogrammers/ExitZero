@@ -18,6 +18,8 @@ interface BuildingWorkspaceProps {
   live?: LiveSimulation | null;
   replayTarget?: ReplayTarget | null;
   disabled?: boolean;
+  savedLayoutJson?: string;
+  onSaved?: (building: BuildingScenario) => void;
   mode?: Mode;
   active?: boolean;
   allowSyntheticPreview?: boolean;
@@ -30,6 +32,8 @@ export function BuildingWorkspace({
   result,
   live,
   disabled,
+  savedLayoutJson,
+  onSaved,
   mode: controlledMode,
   active = true,
   allowSyntheticPreview = true,
@@ -72,6 +76,8 @@ export function BuildingWorkspace({
           building={building}
           onChange={onChange}
           disabled={disabled}
+          savedLayoutJson={savedLayoutJson}
+          onSaved={onSaved}
         />
       </div>
       <div

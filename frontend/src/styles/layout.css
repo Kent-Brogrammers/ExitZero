@@ -423,7 +423,7 @@ canvas {
   }
   .studio-nav {
     justify-content: center;
-    gap: 36px;
+    gap: clamp(16px, 5vw, 36px);
   }
   .studio-nav button {
     padding: 15px 0;

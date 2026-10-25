@@ -458,18 +458,6 @@
   font-size: var(--text-small);
 }
 
-.file-presets {
-  border-top: 1px solid var(--cad-border);
-  margin-top: 4px;
-  padding-top: 5px;
-}
-.file-presets summary {
-  padding: 8px 10px;
-  cursor: pointer;
-  color: var(--cad-muted);
-  font-size: var(--text-small);
-}
-
 .furniture-choices,
 .object-curves {
   display: grid;
