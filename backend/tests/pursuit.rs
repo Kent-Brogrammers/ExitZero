@@ -105,6 +105,56 @@ fn haunted_house_runs_real_seeded_pursuit_and_preserves_survivor_accounting() {
         f64::from(end.step) * result.time_step_seconds
     );
     assert!(pursuit.escaped > 0, "the scenario must be winnable");
+    let routes = result.metrics.evacuated_by_route.as_ref().unwrap();
+    println!(
+        "Escape routes: normal={}, windows={}",
+        routes.normal_exit, routes.emergency_window
+    );
+    assert!(routes.normal_exit > 0, "normal routes must remain usable");
+    assert_eq!(
+        routes.emergency_window, 3,
+        "the two bedroom survivors and garage survivor need real window service"
+    );
+    for pane in building
+        .windows
+        .iter()
+        .filter(|w| w.emergency_escape.as_ref().is_some_and(|e| e.enabled))
+    {
+        let prepared = result
+            .frames
+            .iter()
+            .find(|f| {
+                f.window_states
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .any(|s| s.window_id == pane.id && s.preparation_ready_step.is_some())
+            })
+            .unwrap();
+        let state = prepared
+            .window_states
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|s| s.window_id == pane.id)
+            .unwrap();
+        assert!(
+            state.preparation_ready_step.unwrap()
+                >= prepared.step
+                    + (pane.emergency_escape.as_ref().unwrap().preparation_seconds
+                        / building.time_step_seconds)
+                        .ceil() as u32
+        );
+        assert!(
+            result.frames.iter().any(|f| f
+                .window_states
+                .as_ref()
+                .unwrap()
+                .iter()
+                .any(|s| s.window_id == pane.id && s.traversing_agent_id.is_some())),
+            "window escapes require actual recorded traversal"
+        );
+    }
     assert!(
         !pursuit.caught.is_empty(),
         "the pursuit must pose a real challenge"
@@ -179,6 +229,44 @@ fn haunted_house_runs_real_seeded_pursuit_and_preserves_survivor_accounting() {
         invalid.validate().is_err(),
         "caught positions cannot drift during replay"
     );
+}
+
+#[test]
+fn blocked_house_rooms_cannot_escape_when_their_windows_are_disabled() {
+    let mut building = house();
+    for pane in &mut building.windows {
+        if let Some(escape) = &mut pane.emergency_escape {
+            escape.enabled = false;
+        }
+    }
+    building.max_steps = 150;
+    let result = simulate(&building).unwrap();
+    assert_eq!(
+        result
+            .metrics
+            .evacuated_by_route
+            .as_ref()
+            .unwrap()
+            .emergency_window,
+        0
+    );
+    // Stable spawn order: west bedroom IDs 1/2, garage ID 8.
+    let end = result.frames.last().unwrap();
+    for id in [1, 2, 8] {
+        assert!(
+            end.agents.iter().any(|a| a.id == id),
+            "walls and blocked doors must not be bypassed"
+        );
+        assert!(
+            !end.pursuit
+                .as_ref()
+                .unwrap()
+                .caught
+                .iter()
+                .any(|c| c.agent_id == id),
+            "the stalker cannot catch through walls"
+        );
+    }
 }
 
 #[test]

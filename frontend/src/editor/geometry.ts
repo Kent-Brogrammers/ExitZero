@@ -268,8 +268,6 @@ export function buildingError(
       p.avoidance_radius < p.capture_radius
     )
       return "Pursuit capture range must fit the agents' bodies, and avoidance range must be at least capture range.";
-    if (b.windows?.some((w) => w.emergency_escape?.enabled))
-      return "Halloween pursuit uses doors and exits. Switch to ordinary evacuation for emergency window service.";
   }
   return null;
 }

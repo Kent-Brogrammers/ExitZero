@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import haunted from "../editor/presets/halloween-pursuit.json";
-import school from "../editor/presets/school-emergency.json";
 import { buildingPresets } from "../editor/presets";
 import { buildingError } from "../editor/geometry";
 import { TemplateCard } from "../templates/TemplateCard";
@@ -61,7 +60,7 @@ const result: SimulationResult = {
 
 afterEach(() => vi.unstubAllGlobals());
 describe("Halloween template and recorded outcomes", () => {
-  it("provides an editable, named house with real obstructions, unblocked exits and ordinary glazing", () => {
+  it("provides an editable house with blocked routes and explicitly configured emergency windows", () => {
     expect(
       buildingPresets.find((p) => p.id === "halloween-pursuit")?.label,
     ).toBe("Halloween — The Pursuit");
@@ -70,11 +69,16 @@ describe("Halloween template and recorded outcomes", () => {
     expect(haunted.obstructions.length).toBeGreaterThan(15);
     expect(haunted.exits).toHaveLength(3);
     expect(haunted.windows.length).toBeGreaterThan(3);
-    expect(haunted.blocked_exit_ids).toEqual([]);
+    expect(haunted.blocked_exit_ids).toEqual(["haunt-exit-garage-side"]);
+    expect(haunted.opening_events).toHaveLength(2);
+    expect(haunted.windows.filter((w) => "emergency_escape" in w)).toHaveLength(
+      2,
+    );
+    expect(haunted.window_escape_context.floor_elevation_metres).toBe(0);
     const card = renderToStaticMarkup(
       <TemplateCard
         name="Halloween — The Pursuit"
-        building={haunted}
+        building={haunted as BuildingScenario}
         online
         busy={false}
         onEdit={() => {}}
@@ -87,7 +91,7 @@ describe("Halloween template and recorded outcomes", () => {
   });
   it("preserves pursuit setup through local saving and JSON round trips without modifying the original", () => {
     const entry = createTemplate(
-      haunted,
+      haunted as BuildingScenario,
       "My haunted house",
       "haunt-copy",
       "layout",
@@ -105,7 +109,7 @@ describe("Halloween template and recorded outcomes", () => {
     expect(haunted.pursuit.stalker_speed).toBe(1.6);
     expect(JSON.parse(JSON.stringify(haunted))).toEqual(haunted);
   });
-  it("rejects simultaneous disasters, impossible capture ranges, unsupported window service and oversized casts", () => {
+  it("rejects simultaneous disasters, impossible capture ranges and oversized casts, while allowing window service", () => {
     expect(
       buildingError({
         ...building,
@@ -136,11 +140,11 @@ describe("Halloween template and recorded outcomes", () => {
         windows: [
           {
             ...haunted.windows[0]!,
-            emergency_escape: school.windows[0]!.emergency_escape,
+            emergency_escape: haunted.windows[0]!.emergency_escape,
           },
         ],
       }),
-    ).toMatch(/window service/);
+    ).toBeNull();
   });
   it("separates caught from active survivors in the timeline, live display and summary", () => {
     const metrics = renderToStaticMarkup(
@@ -250,6 +254,11 @@ describe("Halloween template and recorded outcomes", () => {
       Math.PI * 2,
     );
     expect(context.fillText.mock.calls.map((c) => c[0])).toEqual(["1", "2"]);
+    canvas.width = 80;
+    canvas.height = 60;
+    context.arc.mockClear();
+    drawAgents(canvas, building, start, 1, canvasPalette(canvas));
+    expect(context.arc.mock.calls[0]![2]).toBe(context.arc.mock.calls[3]![2]);
   });
   it("accepts real-shaped pursuit recordings and keeps legacy results compatible; rejects fabricated capture accounting", async () => {
     const client = createApiClient("/api");

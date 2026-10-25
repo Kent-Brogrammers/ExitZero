@@ -1,0 +1,231 @@
+.scenario-dialog {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: min(620px, calc(100vw - 32px));
+  max-height: calc(100dvh - 40px);
+  padding: 0;
+  overflow: hidden;
+  color: var(--cad-text);
+  background: var(--cad-surface);
+  border: 1px solid var(--cad-border-strong);
+  border-radius: var(--radius-control);
+  box-shadow: 0 24px 80px #0008;
+}
+.scenario-dialog::backdrop {
+  background: #050509b8;
+  backdrop-filter: blur(3px);
+}
+.scenario-dialog[open],
+.scenario-dialog form {
+  display: flex;
+  flex-direction: column;
+}
+.scenario-dialog form {
+  max-height: inherit;
+  min-height: 0;
+}
+.scenario-dialog-heading,
+.scenario-dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-shrink: 0;
+  padding: 18px 24px;
+}
+.scenario-dialog-heading {
+  border-bottom: 1px solid var(--cad-border);
+}
+.scenario-dialog-heading h2 {
+  margin: 4px 0 0;
+  font-size: 20px;
+  font-weight: 500;
+}
+.scenario-dialog-heading .eyebrow {
+  margin: 0;
+  color: var(--cad-muted);
+}
+.scenario-dialog-body {
+  overflow-y: auto;
+  min-height: 0;
+  padding: 20px 24px;
+}
+.scenario-dialog-hint,
+.scenario-dialog .note {
+  margin: 0;
+  color: var(--cad-muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.scenario-dialog-hint {
+  margin-bottom: 20px;
+}
+.scenario-dialog .disaster-controls {
+  display: grid;
+  gap: 20px;
+}
+.scenario-dialog .scenario-section {
+  min-width: 0;
+  border-top: 1px solid var(--cad-border);
+  padding-top: 18px;
+}
+.scenario-dialog .scenario-section h3,
+.scenario-dialog .disaster-dynamics summary {
+  margin: 0 0 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.scenario-dialog .scenario-picker {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.scenario-dialog .scenario-picker legend {
+  padding: 0 0 10px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.scenario-dialog .scenario-options {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+.scenario-dialog .scenario-option {
+  position: relative;
+  display: block;
+  cursor: pointer;
+  --scenario-accent: #7cb7f1;
+}
+.scenario-dialog .scenario-option[data-scenario="fire"] {
+  --scenario-accent: #f0a56d;
+}
+.scenario-dialog .scenario-option[data-scenario="gas_leak"] {
+  --scenario-accent: #b3c987;
+}
+.scenario-dialog .scenario-option[data-scenario="tornado"] {
+  --scenario-accent: #b9a1e6;
+}
+.scenario-dialog .scenario-option input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+.scenario-dialog .scenario-choice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 8px;
+  border: 1px solid var(--cad-border);
+  border-radius: var(--radius-control);
+  color: var(--cad-muted);
+  font-size: 11px;
+  transition:
+    background 140ms ease,
+    color 140ms ease;
+}
+.scenario-dialog .scenario-choice svg {
+  width: 16px;
+  height: 16px;
+  color: var(--scenario-accent);
+  flex-shrink: 0;
+}
+.scenario-dialog .scenario-option:hover .scenario-choice {
+  color: var(--cad-text);
+  background: var(--cad-hover);
+}
+.scenario-dialog .scenario-option input:checked + .scenario-choice {
+  color: var(--cad-text);
+  background: var(--cad-selected);
+  border-color: var(--scenario-accent);
+}
+.scenario-dialog .scenario-option input:focus-visible + .scenario-choice {
+  outline: 2px solid var(--scenario-accent);
+  outline-offset: 2px;
+}
+.scenario-dialog .scenario-field-grid,
+.scenario-dialog .disaster-parameters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.scenario-dialog .disaster-parameters {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 12px 0;
+}
+.scenario-dialog label {
+  display: grid;
+  gap: 7px;
+  font-size: 11px;
+  color: var(--cad-muted);
+}
+.scenario-dialog input[type="number"] {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  color: var(--cad-text);
+  background: var(--cad-bg);
+  border: 1px solid var(--cad-border-strong);
+  border-radius: var(--radius-control);
+}
+.scenario-dialog .disaster-enable {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.scenario-dialog .disaster-dynamics summary {
+  cursor: pointer;
+}
+.scenario-dialog .scenario-place {
+  margin: 12px 0 8px;
+  border-color: var(--cad-border-strong);
+  background: var(--cad-control);
+}
+.scenario-dialog .pursuit-controls {
+  display: grid;
+  gap: 14px;
+}
+.scenario-dialog .pursuit-settings-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.scenario-dialog .pursuit-settings-fields p {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.scenario-dialog .scenario-dialog-error {
+  color: var(--cad-warning);
+  font-size: 12px;
+  margin: 16px 0 0;
+}
+.scenario-dialog-actions {
+  justify-content: flex-end;
+  border-top: 1px solid var(--cad-border);
+}
+.scenario-dialog .scenario-apply {
+  background: var(--studio-primary);
+  color: var(--studio-primary-text);
+  border-color: transparent;
+}
+.scenario-dialog .scenario-apply:hover {
+  background: var(--studio-primary-hover);
+}
+@media (max-width: 540px) {
+  .scenario-dialog {
+    width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px);
+  }
+  .scenario-dialog-heading,
+  .scenario-dialog-body,
+  .scenario-dialog-actions {
+    padding: 16px;
+  }
+  .scenario-dialog .scenario-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

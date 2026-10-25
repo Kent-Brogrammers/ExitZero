@@ -10,6 +10,7 @@ use super::{
     navigation::{Navigation, Route},
     pursuit_awareness::PursuitAwareness,
     record_traffic,
+    windows::Windows,
 };
 use crate::models::{
     AgentPosition, AnimationFrame, BuildingScenario, CaughtAgent, Point, PursuitFrame,
@@ -66,7 +67,7 @@ fn contact(
     hunter_after: Point,
     radius: f64,
     geometry: &Geometry<'_>,
-) -> bool {
+) -> Option<Point> {
     let relative = Point {
         x: a.x - hunter_before.x,
         y: a.y - hunter_before.y,
@@ -76,14 +77,29 @@ fn contact(
         y: b.y - a.y - hunter_after.y + hunter_before.y,
     };
     let squared = velocity.x * velocity.x + velocity.y * velocity.y;
-    let t = if squared > 0.0 {
-        (-(relative.x * velocity.x + relative.y * velocity.y) / squared).clamp(0.0, 1.0)
-    } else {
+    let separation = relative.x * relative.x + relative.y * relative.y - radius * radius;
+    let t = if separation <= 1e-10 {
         0.0
+    } else {
+        if squared < 1e-12 {
+            return None;
+        }
+        let approach = relative.x * velocity.x + relative.y * velocity.y;
+        let discriminant = approach * approach - squared * separation;
+        if discriminant < 0.0 {
+            return None;
+        }
+        let first_touch = (-approach - discriminant.sqrt()) / squared;
+        if !(0.0..=1.0).contains(&first_touch) {
+            return None;
+        }
+        first_touch
     };
     let survivor = math::interpolate(a, b, t);
     let stalker = math::interpolate(hunter_before, hunter_after, t);
-    math::distance_to_point(survivor, stalker) <= radius && geometry.can_move(stalker, survivor) // Never tag through a wall or cabinet.
+    // Freeze at the first physical contact, without a wind-up or a further move.
+    // The swept body check prevents catches through walls, panes and furniture.
+    geometry.can_move(stalker, survivor).then_some(survivor)
 }
 
 fn snapshot(
@@ -126,10 +142,11 @@ pub(super) fn run(
     let mut people = Vec::new();
     agent::spawn_agents(&mut people, scenario, &geometry)?;
     let mut stalker = config.stalker_start;
+    let contact_radius = config.capture_radius.min(2.0 * scenario.agent_radius);
     if !geometry.can_stand_at(stalker)
         || people
             .iter()
-            .any(|a| math::distance_to_point(a.position, stalker) <= config.capture_radius)
+            .any(|a| math::distance_to_point(a.position, stalker) <= contact_radius)
     {
         return Err(SimulationError::InvalidScenario(
             "Stalker start must be clear of walls, furniture and survivor spawn positions".into(),
@@ -139,9 +156,12 @@ pub(super) fn run(
     let mut gone = vec![false; people.len()];
     let mut routes: Vec<Option<Route>> = people.iter().map(|_| None).collect();
     let mut hunter_route = None;
+    let mut retarget = true;
     let mut caught = Vec::new();
     let mut awareness = PursuitAwareness::new(people.len());
     let mut escaped = 0;
+    let mut window_escapes = 0;
+    let mut windows = Windows::new(scenario, &[], world.blocked(), people.len(), &geometry);
     let mut frames = Vec::new();
     let mut traffic = BTreeMap::new();
     let replan_stride = (0.5 / scenario.time_step_seconds).ceil().max(1.0) as u32;
@@ -168,6 +188,7 @@ pub(super) fn run(
         if changed {
             geometry = Geometry::with_blocked_openings(scenario, &[], world.blocked());
             navigation = Navigation::new(scenario, &geometry);
+            windows.refresh(&[], world.blocked(), &geometry);
         }
         let alerted = awareness.update(
             step,
@@ -177,32 +198,6 @@ pub(super) fn run(
             &scenario.awareness,
             &geometry,
         );
-        let frame = snapshot(
-            step,
-            &people,
-            &gone,
-            PursuitFrame {
-                stalker,
-                escaped,
-                caught: caught.clone(),
-                events: Some(awareness.events.clone()),
-            },
-            &world,
-        );
-        if let Some(callback) = &mut emit
-            && !callback(&frame)
-        {
-            return Err(SimulationError::Cancelled);
-        }
-        let finished = gone.iter().all(|&g| g) || step == scenario.max_steps;
-        if step % frame_stride == 0 || finished || last_outcomes != (escaped, caught.len()) {
-            frames.push(frame);
-            last_outcomes = (escaped, caught.len());
-        }
-        record_traffic(scenario, &people, &gone, &mut traffic);
-        if finished {
-            break;
-        }
         for (i, person) in people.iter().enumerate().filter(|(i, _)| !gone[*i]) {
             if changed || alerted[i] || step % replan_stride == 0 {
                 let forecast = if let Some(report) = awareness.known[i] {
@@ -218,7 +213,39 @@ pub(super) fn run(
                 );
             }
         }
-        if changed || step % replan_stride == 0 {
+        // Reuse real preparation, FIFO service and collision-checked traversal
+        // only for survivors with no usable normal exit route.
+        let fallback: Vec<_> = routes.iter().map(Option::is_none).collect();
+        windows.update(step, &people, &gone, &fallback, &geometry);
+        let mut frame = snapshot(
+            step,
+            &people,
+            &gone,
+            PursuitFrame {
+                stalker,
+                escaped,
+                caught: caught.clone(),
+                events: Some(awareness.events.clone()),
+            },
+            &world,
+        );
+        frame.window_states = windows.snapshots(&people);
+        if let Some(callback) = &mut emit
+            && !callback(&frame)
+        {
+            return Err(SimulationError::Cancelled);
+        }
+        let finished = gone.iter().all(|&g| g) || step == scenario.max_steps;
+        if step % frame_stride == 0 || finished || last_outcomes != (escaped, caught.len()) {
+            frames.push(frame);
+            last_outcomes = (escaped, caught.len());
+        }
+        record_traffic(scenario, &people, &gone, &mut traffic);
+        if finished {
+            break;
+        }
+        if changed || retarget || step % replan_stride == 0 {
+            retarget = false;
             // Try nearest living survivors in stable order. Unreachable targets
             // cannot make the stalker ignore a reachable survivor indefinitely.
             let mut targets: Vec<_> = people
@@ -248,6 +275,24 @@ pub(super) fn run(
             .map(|(i, &position)| {
                 if gone[i] {
                     position
+                } else if windows.controls(i) {
+                    windows
+                        .target(i, position, &geometry)
+                        .map_or(position, |target| {
+                            let next = math::move_toward(
+                                position,
+                                target,
+                                windows.movement_budget(
+                                    i,
+                                    config.survivor_speed * scenario.time_step_seconds,
+                                ),
+                            );
+                            if windows.geometry(i, &geometry).can_move(position, next) {
+                                next
+                            } else {
+                                position
+                            }
+                        })
                 } else {
                     advance(
                         position,
@@ -277,7 +322,13 @@ pub(super) fn run(
             .iter()
             .enumerate()
             .map(|(i, route)| {
-                if gone[i]
+                if windows.controls(i) {
+                    if windows.traversing(i) || windows.has_priority(i) {
+                        0.0
+                    } else {
+                        1.0
+                    }
+                } else if gone[i]
                     || route.is_none()
                     || route
                         .as_ref()
@@ -292,8 +343,12 @@ pub(super) fn run(
             .collect();
         let limits: Vec<_> = before
             .iter()
-            .map(|&position| {
-                let mut limits = geometry.velocity_limits(position, scenario.time_step_seconds);
+            .enumerate()
+            .map(|(i, &position)| {
+                let mut limits = windows
+                    .geometry(i, &geometry)
+                    .velocity_limits(position, scenario.time_step_seconds);
+                limits.extend(windows.approach_limits(i, position, scenario.time_step_seconds));
                 limits.extend((0..16).map(|i| {
                     let angle = std::f64::consts::TAU * i as f64 / 16.0;
                     motion::VelocityLimit {
@@ -317,7 +372,17 @@ pub(super) fn run(
             &limits,
         );
         for i in 0..people.len() {
-            if !geometry.can_move(before[i], proposed[i]) {
+            if windows.controls(i) {
+                proposed[i] = math::move_toward(
+                    before[i],
+                    proposed[i],
+                    windows.movement_budget(i, config.survivor_speed * scenario.time_step_seconds),
+                );
+            }
+            if !windows
+                .geometry(i, &geometry)
+                .can_move(before[i], proposed[i])
+            {
                 proposed[i] = before[i];
             }
         }
@@ -334,24 +399,30 @@ pub(super) fn run(
                 continue;
             }
             // Collision resolver may adjust movement; retain the final world check.
-            if !geometry.can_move(before[i], proposed[i]) {
+            if !windows
+                .geometry(i, &geometry)
+                .can_move(before[i], proposed[i])
+            {
                 proposed[i] = before[i];
             }
             people[i].position = proposed[i];
-            if contact(
+            if let Some(position) = contact(
                 before[i],
                 proposed[i],
                 hunter_before,
                 stalker,
-                config.capture_radius,
+                contact_radius,
                 &geometry,
             ) {
                 caught.push(CaughtAgent {
                     agent_id: people[i].id,
                     step: step + 1,
-                    position: Some(proposed[i]),
+                    position: Some(position),
                 });
+                people[i].position = position;
                 gone[i] = true;
+                windows.cancel(i);
+                retarget = true;
             } else if scenario
                 .exits
                 .iter()
@@ -359,7 +430,14 @@ pub(super) fn run(
             {
                 escaped += 1;
                 gone[i] = true;
+                retarget = true;
             }
+        }
+        for (i, _) in windows.finish(step + 1, &people) {
+            escaped += 1;
+            window_escapes += 1;
+            gone[i] = true;
+            retarget = true;
         }
         step += 1;
     }
@@ -379,7 +457,12 @@ pub(super) fn run(
             trapped: 0,
             sheltered: 0,
             clearance_steps: (remaining == 0).then_some(step),
-            evacuated_by_route: None,
+            evacuated_by_route: (!scenario.windows.is_empty()).then_some(
+                crate::models::EvacuatedByRoute {
+                    normal_exit: escaped - window_escapes,
+                    emergency_window: window_escapes,
+                },
+            ),
         },
         frames,
         traffic_samples: traffic.into_values().collect(),
@@ -508,14 +591,19 @@ mod tests {
     fn swept_contact_catches_crossing_paths_but_never_through_walls_or_furniture() {
         let b = room();
         let clear = Geometry::new(&b);
-        assert!(contact(
+        let first = contact(
             Point { x: 4.0, y: 5.0 },
             Point { x: 6.0, y: 5.0 },
             Point { x: 6.0, y: 5.0 },
             Point { x: 4.0, y: 5.0 },
             0.5,
-            &clear
-        ));
+            &clear,
+        )
+        .unwrap();
+        assert!(
+            (first.x - 4.75).abs() < 1e-8,
+            "stop at first touch, not the end of the tick"
+        );
         let mut blocked = b.clone();
         blocked.walls.push(crate::models::Wall {
             id: "partition".into(),
@@ -527,7 +615,7 @@ mod tests {
         let wall = Geometry::new(&blocked);
         let left = Point { x: 4.7, y: 5.0 };
         let right = Point { x: 5.3, y: 5.0 };
-        assert!(!contact(left, left, right, right, 1.0, &wall));
+        assert!(contact(left, left, right, right, 1.0, &wall).is_none());
         blocked.walls.pop();
         blocked.obstructions.push(crate::models::Obstruction {
             id: "cabinet".into(),
@@ -538,7 +626,41 @@ mod tests {
             height: 2.0,
         });
         let furniture = Geometry::new(&blocked);
-        assert!(!contact(left, left, right, right, 1.0, &furniture));
+        assert!(contact(left, left, right, right, 1.0, &furniture).is_none());
+    }
+    #[test]
+    fn first_contact_is_caught_in_the_same_tick_and_the_stalker_retargets_without_waiting() {
+        let mut b = room();
+        b.pursuit.as_mut().unwrap().stalker_start = Point { x: 4.58, y: 5.0 };
+        b.pursuit.as_mut().unwrap().stalker_speed = 3.0;
+        b.pursuit.as_mut().unwrap().survivor_speed = 0.1;
+        b.spawn_zones.push(crate::models::SpawnZone {
+            id: "second".into(),
+            name: None,
+            x: 5.4,
+            y: 4.8,
+            width: 0.4,
+            height: 0.4,
+            count: 1,
+        });
+        b.max_steps = 4; // Earlier than the ordinary five-tick hunter replan.
+        let result = super::super::simulate(&b).unwrap();
+        let first = &result.frames[1];
+        assert_eq!(first.step, 1);
+        let capture = &first.pursuit.as_ref().unwrap().caught[0];
+        assert_eq!(capture.agent_id, 0);
+        assert_eq!(capture.step, 1, "no attack timer after body contact");
+        assert!(
+            capture.position.unwrap().x < 5.01,
+            "freeze at first contact"
+        );
+        assert!(!first.agents.iter().any(|a| a.id == 0));
+        let end = result.frames.last().unwrap().pursuit.as_ref().unwrap();
+        assert_eq!(end.caught.len(), 2, "immediately pursue the next survivor");
+        assert_eq!(
+            end.caught[0].position.unwrap().x,
+            capture.position.unwrap().x
+        );
     }
     #[test]
     fn house_frames_respect_swept_wall_furniture_and_survivor_collision() {
@@ -547,10 +669,17 @@ mod tests {
         ))
         .unwrap();
         let result = super::super::simulate(&b).unwrap();
-        let geometry = Geometry::new(&b);
         for pair in result.frames.windows(2) {
             let a = &pair[0];
             let z = &pair[1];
+            let blocked: std::collections::BTreeSet<_> = a
+                .blocked_opening_ids
+                .as_ref()
+                .unwrap()
+                .iter()
+                .cloned()
+                .collect();
+            let geometry = Geometry::with_blocked_openings(&b, &[], blocked.clone());
             let config = b.pursuit.as_ref().unwrap();
             let h0 = a.pursuit.as_ref().unwrap().stalker;
             let h1 = z.pursuit.as_ref().unwrap().stalker;
@@ -572,7 +701,24 @@ mod tests {
                     x: person.x,
                     y: person.y,
                 };
-                assert!(geometry.can_move(p0, p1));
+                let crossing = a
+                    .window_states
+                    .iter()
+                    .flatten()
+                    .chain(z.window_states.iter().flatten())
+                    .find(|s| s.traversing_agent_id == Some(person.id))
+                    .map(|s| {
+                        Geometry::with_window_aperture(
+                            &b,
+                            &[],
+                            blocked.clone(),
+                            b.windows.iter().find(|w| w.id == s.window_id).unwrap(),
+                        )
+                    });
+                assert!(
+                    crossing.as_ref().unwrap_or(&geometry).can_move(p0, p1),
+                    "only a serviced window may be crossed"
+                );
                 assert!(
                     math::distance_to_point(p0, p1)
                         <= config.survivor_speed * b.time_step_seconds + 1e-8

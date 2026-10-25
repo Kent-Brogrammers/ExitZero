@@ -8,6 +8,7 @@ pub struct PursuitConfig {
     pub stalker_start: Point,
     pub stalker_speed: f64,
     pub survivor_speed: f64,
+    /// Legacy capture setting; catches are capped at the two physical body radii.
     pub capture_radius: f64,
     pub avoidance_radius: f64,
 }
@@ -43,13 +44,6 @@ impl PursuitConfig {
                 > 64
         {
             return Err("Halloween pursuit is a separate mode, with at most 64 survivors and no simultaneous disaster".into());
-        }
-        if building
-            .windows
-            .iter()
-            .any(|w| w.emergency_escape.as_ref().is_some_and(|e| e.enabled))
-        {
-            return Err("Halloween pursuit currently uses doors and exits; emergency window service is available in ordinary evacuation mode".into());
         }
         Ok(())
     }

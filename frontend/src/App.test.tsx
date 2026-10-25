@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import example from "../../shared/examples/building.json";
+import example from "./editor/presets/corporate-office.json";
 import App from "./App";
 import { api } from "./services/api";
 import type { BuildingScenario, SimulationResult } from "./types/simulation";
@@ -27,8 +27,8 @@ const recording: SimulationResult = {
   width: example.width,
   height: example.height,
   time_step_seconds: example.time_step_seconds,
-  total_population: 34,
-  evacuated: 34,
+  total_population: example.spawn_zones.reduce((n, zone) => n + zone.count, 0),
+  evacuated: example.spawn_zones.reduce((n, zone) => n + zone.count, 0),
   remaining: 0,
   trapped: 0,
   status: "completed",
@@ -87,12 +87,16 @@ afterEach(async () => {
 describe("optimization editor history", () => {
   it("undoes and redoes application separately from the preceding Fire edit", async () => {
     await mount();
+    await click("Scenario");
     const fire = document.querySelector<HTMLInputElement>(
       '[aria-label="Fire evacuation"]',
     )!;
     await act(async () => {
       fire.click();
     });
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>(".scenario-apply")!.click(),
+    );
     const beforeApplication = workspace().building;
     expect(beforeApplication.disaster?.kind).toBe("fire");
     const improved = structuredClone(beforeApplication);

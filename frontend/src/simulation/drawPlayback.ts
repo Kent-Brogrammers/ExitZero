@@ -62,7 +62,8 @@ export function drawAgents(
     drawStalker(
       context,
       worldToCanvas(frame.pursuit.stalker, view),
-      Math.max(10 * ratio, building.agent_radius * view.scale),
+      // Match survivor body size; an oversized mask looks like delayed contact.
+      building.agent_radius * view.scale,
     );
   // A small screen-space minimum keeps labels readable without changing physics.
   const radiusFor = (id: number) =>

@@ -62,6 +62,7 @@ import {
   removeSelection,
   resizeSelection,
   canResizeSelection,
+  rotateObstruction,
 } from "./selection";
 import { drawLayout } from "./draw";
 import "./BuildingEditor.css";
@@ -1008,8 +1009,37 @@ export function BuildingEditor({
       className="panel editor-panel"
       id="building"
       aria-labelledby="building-title"
+      onKeyDown={(event) => {
+        if (
+          disabled ||
+          gesture ||
+          event.defaultPrevented ||
+          event.repeat ||
+          event.ctrlKey ||
+          event.metaKey ||
+          event.altKey ||
+          event.key.toLowerCase() !== "r" ||
+          selections.length !== 1 ||
+          selected?.kind !== "obstructions" ||
+          (event.target instanceof Element &&
+            event.target.closest(
+              'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], dialog',
+            ))
+        )
+          return;
+        event.preventDefault();
+        const next = rotateObstruction(building, selected.id);
+        if (next !== building) commit(next);
+      }}
       onKeyDownCapture={(event) => {
-        if (event.key === "Escape" && expandedView) {
+        if (
+          event.key === "Escape" &&
+          expandedView &&
+          !(
+            event.target instanceof Element &&
+            event.target.closest("dialog[open]")
+          )
+        ) {
           event.preventDefault();
           event.stopPropagation();
           void toggleExpandedView();
@@ -1030,14 +1060,6 @@ export function BuildingEditor({
         onApply={(next) => replaceLayout(next, "the reviewed DXF layout")}
       />
       <fieldset className="editor-controls" disabled={disabled}>
-        <DisasterControls
-          building={building}
-          onChange={(next) => {
-            commit(next);
-            if (!next.disaster && tool === "hazard") changeTool("select");
-          }}
-          onLocate={() => changeTool("hazard")}
-        />
         <div className="editor-workspace">
           <div className="editor-commandbar">
             <EditorDrawingRail
@@ -1047,6 +1069,18 @@ export function BuildingEditor({
               onOpenPanel={() => setPropertiesOpen(false)}
             />
             <EditorUtilityRail
+              scenarioControls={
+                <DisasterControls
+                  building={building}
+                  onChange={(next) => {
+                    const applied = commit(next);
+                    if (applied && !next.disaster && tool === "hazard")
+                      changeTool("select");
+                    return applied;
+                  }}
+                  onLocate={() => changeTool("hazard")}
+                />
+              }
               saveActions={saveActions}
               disabled={disabled}
               canUndo={history.length > 0}
@@ -1165,7 +1199,10 @@ export function BuildingEditor({
                   : tool === "tornado-zone"
                     ? "Drag a safe shelter area for tornado response."
                     : tool === "select"
-                      ? "Drag objects or a hazard’s centre marker to move or marquee select · Shift-click to add · Double-click for Properties"
+                      ? selected?.kind === "obstructions" &&
+                        selections.length === 1
+                        ? "R rotates the object 90° · Drag to move · Double-click for Properties"
+                        : "Drag objects or a hazard’s centre marker to move or marquee select · Shift-click to add · Double-click for Properties"
                       : tool === "wall-freehand"
                         ? freehand?.error &&
                           gesture?.curve &&
