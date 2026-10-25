@@ -517,6 +517,56 @@ impl<'a> Geometry<'a> {
         })
     }
 
+    /// Forecast a sighted person's straight-line motion on this observer's
+    /// belief map. None means a predicted exit arrival, never a real evacuation.
+    pub(super) fn predict_occupant(
+        &self,
+        from: Point,
+        velocity: Point,
+        seconds: f64,
+    ) -> Option<Point> {
+        if !self.can_stand_at(from) {
+            return Some(from);
+        }
+        let to = Point {
+            x: from.x + velocity.x * seconds,
+            y: from.y + velocity.y * seconds,
+        };
+        for exit in &self.scenario.exits {
+            let Some((start, end)) = self.exit_segment(&exit.id) else {
+                continue;
+            };
+            let dx = end.x - start.x;
+            let dy = end.y - start.y;
+            let a = (from.x - start.x) * dy - (from.y - start.y) * dx;
+            let b = (to.x - start.x) * dy - (to.y - start.y) * dx;
+            if (a - b).abs() <= 1e-12 || a * b > 0.0 {
+                continue;
+            }
+            let crossing = math::interpolate(from, to, a / (a - b));
+            if math::distance_to_segment(crossing, start, end) <= math::EPSILON
+                && self.can_move(from, crossing)
+            {
+                return None;
+            }
+        }
+        if self.can_move(from, to) {
+            return Some(to);
+        }
+        // A forecast cannot pass through a remembered wall, obstacle, hazard,
+        // or workspace boundary. Stop just before its first blocked segment.
+        let (mut clear, mut blocked) = (0.0, 1.0);
+        for _ in 0..10 {
+            let middle = (clear + blocked) * 0.5;
+            if self.can_move(from, math::interpolate(from, to, middle)) {
+                clear = middle;
+            } else {
+                blocked = middle;
+            }
+        }
+        Some(math::interpolate(from, to, clear))
+    }
+
     /// Stop on the exit plane for arrival accounting. Tangential movement is
     /// unrestricted, so all usable positions across the opening remain available.
     pub(super) fn exit_approach_limits(

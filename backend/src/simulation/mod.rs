@@ -7,6 +7,7 @@ use std::{collections::BTreeMap, fmt};
 mod agent;
 mod analytics;
 mod awareness;
+mod congestion;
 mod emergency;
 mod geometry;
 mod math;
@@ -109,6 +110,14 @@ fn run(
     let mut motion: Vec<_> = agents.iter().map(|_| motion::Motion::new()).collect();
     let retry_ticks = (2.0 / scenario.time_step_seconds).ceil() as u32;
     let mut stalled_ticks = vec![0_u32; agents.len()];
+    let mut crowd_memory: Vec<_> = agents
+        .iter()
+        .map(|_| congestion::CrowdMemory::default())
+        .collect();
+    let mut commitments: Vec<_> = agents
+        .iter()
+        .map(|_| congestion::RouteCommitment::default())
+        .collect();
     let mut statistics: Vec<_> = agents
         .iter()
         .zip(&routes)
@@ -167,7 +176,7 @@ fn run(
         if evacuated_count == total_population {
             break SimulationStatus::Completed;
         }
-        let previous_blocks: Vec<_> = agents.iter().map(awareness::blocked_ids).collect();
+        let now = f64::from(step) * scenario.time_step_seconds;
         let (changed_beliefs, information_changed) =
             awareness::update_knowledge(&mut agents, &evacuated, &world, &geometry);
         for i in 0..agents.len() {
@@ -175,17 +184,19 @@ fn run(
                 continue;
             }
             // Keep useful guidance as visible fragments grow. Rebuild the
-            // graph only when new knowledge invalidates it or a passage changes.
+            // graph only when new knowledge invalidates the current route.
+            // Newly available alternatives go through congestion commitment.
             let map = beliefs.geometry_for_agent(&agents[i]);
             let mut from = agents[i].position;
             let valid = routes[i].as_ref().is_some_and(|route| {
-                route.waypoints[next_waypoint[i]..].iter().all(|&to| {
-                    let clear = map.can_move(from, to);
-                    from = to;
-                    clear
-                })
+                !map.opening_is_blocked(&route.exit_id)
+                    && route.waypoints[next_waypoint[i]..].iter().all(|&to| {
+                        let clear = map.can_move(from, to);
+                        from = to;
+                        clear
+                    })
             });
-            if valid && previous_blocks[i] == awareness::blocked_ids(&agents[i]) {
+            if valid {
                 continue;
             }
             let (map, navigation) = beliefs.for_agent(&agents[i]);
@@ -193,6 +204,7 @@ fn run(
             statistics[i].route_found = routes[i].is_some();
             next_waypoint[i] = 0;
             stalled_ticks[i] = 0;
+            commitments[i].forced(now);
         }
         let fallback = scenario
             .exits
@@ -209,6 +221,7 @@ fn run(
                 next_waypoint[i] = 0;
                 stalled_ticks[i] = 0;
                 statistics[i].route_found = routes[i].is_some();
+                commitments[i].forced(now);
             }
         }
         if !windows.has_work()
@@ -243,11 +256,20 @@ fn run(
                         <= scenario.awareness.sight_range_metres
                     && geometry.has_line_of_sight(before[i], before[j])
                 {
-                    occupants[i].push(before[j]);
-                    occupants[j].push(before[i]);
+                    occupants[i].push((j, before[j]));
+                    occupants[j].push((i, before[i]));
                 }
             }
         }
+        let forecasts: Vec<_> = (0..agents.len())
+            .map(|i| {
+                if evacuated[i] {
+                    return congestion::CrowdForecast::default();
+                }
+                let map = beliefs.geometry_for_agent(&agents[i]);
+                crowd_memory[i].observe(&occupants[i], step, scenario.time_step_seconds, map)
+            })
+            .collect();
         for i in 0..agents.len() {
             if evacuated[i] || windows.controls(i) {
                 continue;
@@ -266,28 +288,45 @@ fn run(
                 navigation::route_cost(
                     before[i],
                     &route.waypoints[next_waypoint[i]..],
-                    &occupants[i],
+                    &forecasts[i],
                     scenario.agent_radius,
                 )
             });
             let (map, navigation) = beliefs.for_agent(&agents[i]);
-            if let Some(route) = navigation.find_route_with_crowd(
+            if let Some(route) = navigation.find_route_with_forecast(
                 before[i],
                 map,
-                &occupants[i],
+                &forecasts[i],
                 scenario.agent_radius,
             ) {
                 let cost = navigation::route_cost(
                     before[i],
                     &route.waypoints,
-                    &occupants[i],
+                    &forecasts[i],
                     scenario.agent_radius,
                 );
-                if lost_sight
-                    || current_cost.is_none_or(|current| {
-                        navigation::materially_better(cost, current, scenario.agent_radius)
-                    })
-                {
+                let accept = if lost_sight || routes[i].is_none() {
+                    commitments[i].forced(now);
+                    true
+                } else {
+                    let current = routes[i].as_ref().unwrap();
+                    commitments[i].consider(
+                        now,
+                        before[i],
+                        congestion::RouteEstimate {
+                            exit_id: &current.exit_id,
+                            waypoints: &current.waypoints[next_waypoint[i]..],
+                            cost: current_cost.unwrap(),
+                        },
+                        congestion::RouteEstimate {
+                            exit_id: &route.exit_id,
+                            waypoints: &route.waypoints,
+                            cost,
+                        },
+                        scenario.agent_radius,
+                    )
+                };
+                if accept {
                     routes[i] = Some(route);
                     next_waypoint[i] = 0;
                     statistics[i].route_found = true;
@@ -382,12 +421,12 @@ fn run(
                     && navigation::route_cost(
                         before[i],
                         &[target],
-                        &occupants[i],
+                        &forecasts[i],
                         scenario.agent_radius,
                     ) <= navigation::route_cost(
                         before[i],
                         &[*last],
-                        &occupants[i],
+                        &forecasts[i],
                         scenario.agent_radius,
                     ) + math::EPSILON
                 {
@@ -400,12 +439,12 @@ fn run(
                     && navigation::route_cost(
                         before[i],
                         &shortcut,
-                        &occupants[i],
+                        &forecasts[i],
                         scenario.agent_radius,
                     ) <= navigation::route_cost(
                         before[i],
                         &route.waypoints[next_waypoint[i]..=future],
-                        &occupants[i],
+                        &forecasts[i],
                         scenario.agent_radius,
                     ) + math::EPSILON
                 {
