@@ -419,6 +419,7 @@ export function buildDxf(
     exits: [],
     spawn_zones: [],
     blocked_exit_ids: [],
+    opening_events: [],
     obstructions: [],
     stair_areas: [],
   };

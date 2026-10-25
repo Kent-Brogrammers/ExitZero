@@ -78,7 +78,11 @@ describe("automatic DXF suggestions", () => {
   });
   it("creates an empty manual layout without mutating the imported building", () => {
     const before = structuredClone(example);
-    const blank = blankManualLayout(example);
+    const blank = blankManualLayout({
+      ...example,
+      opening_events: [{ step: 5, opening_id: "old-exit", blocked: true }],
+    });
+    expect(blank.opening_events).toEqual([]);
     expect(blank.walls).toEqual([]);
     expect(blank.exits).toEqual([]);
     expect(blank.doors).toEqual([]);
