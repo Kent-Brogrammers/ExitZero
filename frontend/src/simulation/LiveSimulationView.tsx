@@ -1,3 +1,4 @@
+import { createAgentEffects } from "./agentEffects";
 import { useEffect, useRef, useState } from "react";
 import { SimulationDetails } from "./SimulationDetails";
 import { AgentChat } from "./AgentChat";
@@ -62,6 +63,10 @@ export function LiveSimulationView({
     chatButton.current?.focus();
   }
 
+  const effects = useRef(createAgentEffects([]));
+  useEffect(() => {
+    effects.current = createAgentEffects(live.effect_events ?? []);
+  }, [live.effect_events]);
   const heatLayer = useRef<HTMLCanvasElement | null>(null);
   const latest = useRef<{
     frame: AnimationFrame | null;
@@ -119,11 +124,15 @@ export function LiveSimulationView({
     let animation = 0;
     function tick(now: number) {
       const snapshot = latest.current;
+      const seconds = cancelled
+        ? (snapshot.frame?.step ?? 0) * building.time_step_seconds
+        : Math.min(
+            (snapshot.frame?.step ?? 0) * building.time_step_seconds,
+            snapshot.fromTime + ((now - snapshot.receivedAt) / 1000) * speed,
+          );
       const frame = cancelled
         ? snapshot.frame
-        : (snapshot.sample?.(
-            snapshot.fromTime + ((now - snapshot.receivedAt) / 1000) * speed,
-          ) ?? null);
+        : (snapshot.sample?.(seconds) ?? null);
       // Interpolate only between physics samples already received. The live
       // view never predicts future positions or needs the run's duration.
       drawLayout(
@@ -160,6 +169,13 @@ export function LiveSimulationView({
         window.devicePixelRatio || 1,
         palette,
         showAgentNumbers,
+      );
+      effects.current(
+        target,
+        building,
+        frame,
+        seconds,
+        window.devicePixelRatio || 1,
       );
       animation = requestAnimationFrame(tick);
     }

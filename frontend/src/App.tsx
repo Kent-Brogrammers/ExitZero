@@ -498,6 +498,20 @@ export default function App() {
               previous
                 ? {
                     ...previous,
+                    effect_events: [
+                      ...(previous.effect_events ?? []),
+                      ...incoming,
+                    ]
+                      .filter(
+                        (event) =>
+                          event.step >=
+                          Math.max(
+                            previous.frame?.step ?? 0,
+                            incoming.at(-1)?.step ?? 0,
+                          ) -
+                            Math.ceil(2 / scenario.time_step_seconds),
+                      )
+                      .slice(-2000),
                     chat: appendChat(
                       previous.chat,
                       incoming,

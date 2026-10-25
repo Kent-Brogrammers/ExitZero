@@ -273,6 +273,8 @@ export type SimulationStreamEvent =
 
 /** A running simulation has no outcome or known duration yet. */
 export interface LiveSimulation {
+  /** Recent raw observations used for transient canvas effects. */
+  effect_events?: ChatEvent[];
   frame: AnimationFrame | null;
   chat?: ChatHistory;
   status?: "running" | "cancelled";

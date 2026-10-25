@@ -1,3 +1,4 @@
+import { createAgentEffects } from "./agentEffects";
 import type { BuildingScenario, SimulationResult } from "../types/simulation";
 import { canvasPalette } from "../styles/canvasPalette";
 import { drawLayout } from "../editor/draw";
@@ -23,6 +24,10 @@ export function createExportRenderer(
     result.time_step_seconds,
   );
   const plain = createPlaybackRenderer(canvas, building);
+  const effects = createAgentEffects([
+    ...(result.communication_events ?? []),
+    ...(result.agent_events ?? []),
+  ]);
   const trails = createRecordedTrails(result);
   const peak = options.includeHeatmap
     ? trafficField(
@@ -39,6 +44,7 @@ export function createExportRenderer(
     const frame = sample(seconds);
     if (!options.includeHeatmap) {
       plain(frame, 1, options.showAgentNumbers);
+      effects(canvas, building, frame, seconds, 1);
       return;
     }
     const index = frameIndexAtTime(
@@ -85,5 +91,6 @@ export function createExportRenderer(
       },
     );
     drawAgents(canvas, building, frame, 1, palette, options.showAgentNumbers);
+    effects(canvas, building, frame, seconds, 1);
   };
 }
