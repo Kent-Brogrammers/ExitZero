@@ -34,6 +34,14 @@ fn stress_test_with(
         building
             .blocked_exit_ids
             .extend(planned.modifications.blocked_exit_ids.iter().cloned());
+        // A forced closure lasts for the whole experiment, regardless of its schedule.
+        building.opening_events.retain(|event| {
+            event.blocked
+                || !planned
+                    .modifications
+                    .blocked_exit_ids
+                    .contains(&event.opening_id)
+        });
         building
             .obstructions
             .extend(planned.modifications.added_obstructions.iter().cloned());
@@ -469,6 +477,55 @@ mod tests {
         );
         assert!(calls[1].obstructions.is_empty());
         assert_eq!(calls[2].obstructions.len(), 1);
+    }
+
+    #[test]
+    fn forced_exit_closures_remove_only_conflicting_reopening_events() {
+        let mut request = request();
+        request.building.doors.push(Opening {
+            id: "door".into(),
+            name: None,
+            wall_id: "north".into(),
+            offset: 10.0,
+            width: 1.0,
+        });
+        request.building.opening_events = serde_json::from_value(serde_json::json!([
+            {"step": 0, "opening_id": "left", "blocked": false},
+            {"step": 1, "opening_id": "right", "blocked": false},
+            {"step": 2, "opening_id": "left", "blocked": true},
+            {"step": 3, "opening_id": "left", "blocked": false},
+            {"step": 4, "opening_id": "door", "blocked": false},
+            {"step": 5, "opening_id": "right", "blocked": true}
+        ]))
+        .unwrap();
+        let original = to_value(&request).unwrap();
+        let events = original["building"]["opening_events"].as_array().unwrap();
+        let mut calls = vec![];
+        stress_test_with(&request, |building| {
+            calls.push(building.clone());
+            Ok(synthetic_run(building, completed(100)))
+        })
+        .unwrap();
+
+        assert_eq!(calls.len(), 5);
+        assert_eq!(to_value(&calls[0]).unwrap(), original["building"]);
+        assert_eq!(calls[1].blocked_exit_ids, ["left"]);
+        assert_eq!(
+            to_value(&calls[1].opening_events).unwrap(),
+            to_value([&events[1], &events[2], &events[4], &events[5]]).unwrap()
+        );
+        assert_eq!(calls[2].blocked_exit_ids, ["right"]);
+        assert_eq!(
+            to_value(&calls[2].opening_events).unwrap(),
+            to_value([&events[0], &events[2], &events[3], &events[4], &events[5]]).unwrap()
+        );
+        for building in &calls[3..] {
+            assert_eq!(
+                to_value(&building.opening_events).unwrap(),
+                original["building"]["opening_events"]
+            );
+        }
+        assert_eq!(to_value(&request).unwrap(), original);
     }
 
     #[test]
@@ -1407,6 +1464,64 @@ pub(crate) mod real_integration {
             to_value(metrics).unwrap()["clearance_steps"],
             serde_json::Value::Null
         );
+    }
+
+    #[test]
+    fn real_forced_exit_closures_cannot_reopen_or_receive_false_low_severity() {
+        for reopen_step in [0, 10] {
+            let mut building = room();
+            building.exits.truncate(1);
+            building
+                .opening_events
+                .push(crate::models::OpeningStateChange {
+                    step: reopen_step,
+                    opening_id: "left".into(),
+                    blocked: false,
+                });
+            let request = stress_request(building);
+            let original = to_value(&request).unwrap();
+            let baseline = crate::simulation::simulate(&request.building).unwrap();
+            assert_eq!(baseline.metrics.status, SimulationStatus::Completed);
+            let mut calls = 0;
+            let result = stress_test_with(&request, |scenario| {
+                calls += 1;
+                let run = crate::simulation::simulate(scenario)?;
+                assert_eq!(initial_positions(&run), initial_positions(&baseline));
+                if !scenario.blocked_exit_ids.is_empty() {
+                    assert!(run.frames.iter().all(|frame| {
+                        frame
+                            .blocked_opening_ids
+                            .as_ref()
+                            .is_some_and(|ids| ids.iter().any(|id| id == "left"))
+                    }));
+                }
+                Ok(run)
+            })
+            .unwrap();
+            assert_eq!(calls, 2);
+            assert_eq!(
+                to_value(&result.baseline).unwrap(),
+                to_value(&baseline.metrics).unwrap()
+            );
+            let scenario = &result.scenarios[0];
+            assert_eq!(scenario.metrics.status, SimulationStatus::Incomplete);
+            assert_eq!(
+                (
+                    scenario.metrics.evacuated,
+                    scenario.metrics.remaining,
+                    scenario.metrics.trapped
+                ),
+                (0, 1, 1)
+            );
+            assert!(scenario.metrics.clearance_steps.is_none());
+            assert!(matches!(scenario.severity, Severity::Critical));
+            assert!(scenario.description.contains("fairness verified"));
+            assert_eq!(to_value(&request).unwrap(), original);
+            assert_eq!(
+                to_value(&result).unwrap(),
+                to_value(stress_test(&request).unwrap()).unwrap()
+            );
+        }
     }
 
     #[test]
