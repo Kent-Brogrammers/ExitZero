@@ -300,10 +300,10 @@ and optimization calls clone configuration and create fresh service state per ru
 
 | Developer   | First feature                                                   | Following feature                                     |
 | ----------- | --------------------------------------------------------------- | ----------------------------------------------------- |
-| Developer 1 | Freeform layout editing                                         | Real-frame playback controls                          |
+| Chris       | Freeform layout editing                                         | Real-frame playback controls                          |
 | Connor      | Deterministic spawning, continuous navigation, and collisions   | Evacuation ticks, stopping rules, frames, and metrics |
 | Nick        | Blocked-exit/obstruction scenarios and real simulation rankings | Bounded layout improvement candidates                 |
-| Developer 4 | Result metrics and world-space traffic heatmaps                 | Scenario/optimization comparison and API integration  |
+| Layth       | Result metrics and world-space traffic heatmaps                 | Scenario/optimization comparison and API integration  |
 
 Use the checked-in example for real end-to-end verification and the labeled synthetic fixtures for focused contract/UI tests. Keep changes within the assigned workstream and test shared-contract integration before merging.
 
