@@ -11,6 +11,9 @@ import { AppearanceSelector } from "./styles/StudioAppearance";
 import { StudioWelcome } from "./studio/StudioWelcome";
 import { StudioAbout } from "./studio/StudioAbout";
 import { TemplatesPage } from "./templates/TemplatesPage";
+import { LayoutNameDialog } from "./templates/LayoutNameDialog";
+import { storeLayout } from "./templates/layouts";
+import type { UserTemplate } from "./templates/templates";
 import { loadOfficeDemo, officeDemoBuilding } from "./studio/officeDemo";
 import {
   OfficeDemoNotice,
@@ -71,9 +74,71 @@ export default function App() {
     JSON.stringify(building),
   );
   const [layoutRevision, setLayoutRevision] = useState(0);
-  function markSaved(next: BuildingScenario) {
+  const [activeLayout, setActiveLayout] = useState<UserTemplate | null>(null);
+  const [saveMode, setSaveMode] = useState<
+    "save" | "saveAs" | "template" | null
+  >(null);
+  const [libraryRevision, setLibraryRevision] = useState(0);
+  const dirty = JSON.stringify(building) !== savedLayoutJson;
+  function markSaved(next: BuildingScenario, reason?: "export" | "replace") {
+    if (reason === "replace") setActiveLayout(null);
+    // A JSON backup does not update the opened browser copy.
+    if (reason === "export" && activeLayout) return;
     setSavedLayoutJson(JSON.stringify(next));
   }
+  function saveNamed(name: string, mode: "save" | "saveAs" | "template") {
+    const entry = storeLayout(
+      window.localStorage,
+      building,
+      name,
+      mode === "template" ? "template" : "layout",
+      mode === "save" ? (activeLayout ?? undefined) : undefined,
+    );
+    if (mode !== "template") {
+      setActiveLayout(entry);
+      markSaved(building);
+    }
+    setLibraryRevision((revision) => revision + 1);
+    setMessage(
+      mode === "template"
+        ? `“${entry.name}” added to My Templates.`
+        : `“${entry.name}” saved in this browser.`,
+    );
+  }
+  function save() {
+    if (busy || buildingError(building, false)) return;
+    if (!activeLayout) {
+      setSaveMode("save");
+      return;
+    }
+    try {
+      saveNamed(activeLayout.name, "save");
+    } catch (error) {
+      setMessage(
+        `${error instanceof Error ? error.message : "Could not save in this browser."} Use Save As or export JSON to keep a backup.`,
+      );
+    }
+  }
+  const saveActions = {
+    save,
+    saveAs: () => setSaveMode("saveAs"),
+    saveTemplate: () => setSaveMode("template"),
+    open: () => {
+      navigate("templates");
+      requestAnimationFrame(() =>
+        document.getElementById("saved-layouts")?.scrollIntoView(),
+      );
+    },
+  };
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
   function canReplace(name: string) {
     return (
       JSON.stringify(building) === savedLayoutJson ||
@@ -86,11 +151,13 @@ export default function App() {
     next: BuildingScenario,
     name: string,
     action: "edit" | "simulate",
+    source?: UserTemplate,
   ) {
     if (busy || !canReplace(name)) return;
     // Pass this same independent copy to run(), without waiting for React state.
     const selected = structuredClone(next);
     setBuilding(selected);
+    setActiveLayout(source?.kind === "layout" ? structuredClone(source) : null);
     markSaved(selected);
     setResult(null);
     setStressResult(null);
@@ -164,6 +231,7 @@ export default function App() {
     stressResult: StressTestResult | null;
     optimization: OptimizationEvaluation | null;
     savedLayoutJson: string;
+    activeLayout: UserTemplate | null;
   } | null>(null);
 
   async function openOfficeDemo() {
@@ -178,9 +246,11 @@ export default function App() {
         stressResult,
         optimization,
         savedLayoutJson,
+        activeLayout,
       };
       setBuilding(structuredClone(officeDemoBuilding));
       markSaved(officeDemoBuilding);
+      setActiveLayout(null);
       setLayoutRevision((revision) => revision + 1);
       setReplayTarget(null);
       setResult(recording);
@@ -207,6 +277,7 @@ export default function App() {
     setStressResult(previous.stressResult);
     setOptimization(previous.optimization);
     setSavedLayoutJson(previous.savedLayoutJson);
+    setActiveLayout(previous.activeLayout);
     setLayoutRevision((revision) => revision + 1);
     setReplayTarget(null);
     previousWorkspace.current = null;
@@ -368,6 +439,38 @@ export default function App() {
             </div>
           </nav>
           <div className="studio-header-actions">
+            {(view === "edit" || view === "simulation") && (
+              <div className="layout-save-controls">
+                <button
+                  type="button"
+                  className="studio-control"
+                  disabled={busy || !!buildingError(building, false)}
+                  onClick={save}
+                >
+                  Save
+                </button>
+                <div
+                  className="layout-save-indicator"
+                  role="status"
+                  aria-label="Layout save status"
+                  data-dirty={dirty}
+                  title={activeLayout?.name}
+                >
+                  <span>
+                    {dirty
+                      ? "Unsaved changes"
+                      : activeLayout
+                        ? "Saved"
+                        : "Not saved locally"}
+                  </span>
+                  {activeLayout && (
+                    <span className="layout-save-name">
+                      {activeLayout.name}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
             <StudioPopover
               label="Settings"
               className="app-settings"
@@ -519,11 +622,17 @@ export default function App() {
           >
             {view === "templates" && (
               <TemplatesPage
+                key={libraryRevision}
                 building={building}
                 busy={busy}
                 online={connection === "online"}
                 onOpen={loadTemplate}
                 onSaved={markSaved}
+                onSaveLayout={() => setSaveMode("saveAs")}
+                onSaveTemplate={() => setSaveMode("template")}
+                onEntryChanged={(id, entry) => {
+                  if (activeLayout?.id === id) setActiveLayout(entry);
+                }}
                 onOfficeRecording={() => void openOfficeDemo()}
               />
             )}
@@ -543,6 +652,7 @@ export default function App() {
               disabled={busy}
               savedLayoutJson={savedLayoutJson}
               onSaved={markSaved}
+              saveActions={saveActions}
               mode={view === "simulation" ? "simulation" : "edit"}
               active={view === "edit" || view === "simulation"}
               onOpenAnalytics={() => {
@@ -607,6 +717,29 @@ export default function App() {
             </Suspense>
           </section>
         </main>
+        {saveMode && (
+          <LayoutNameDialog
+            title={
+              saveMode === "template"
+                ? "Save as template"
+                : saveMode === "saveAs"
+                  ? "Save layout as"
+                  : "Save layout"
+            }
+            initialName={
+              activeLayout
+                ? saveMode === "saveAs"
+                  ? `${activeLayout.name.slice(0, 75)} copy`
+                  : activeLayout.name
+                : saveMode === "template"
+                  ? "My template"
+                  : "My layout"
+            }
+            action={saveMode === "template" ? "Save as Template" : "Save"}
+            onConfirm={(name) => saveNamed(name, saveMode)}
+            onClose={() => setSaveMode(null)}
+          />
+        )}
         {message && (
           <div className="studio-notice" role="status">
             <span>{message}</span>

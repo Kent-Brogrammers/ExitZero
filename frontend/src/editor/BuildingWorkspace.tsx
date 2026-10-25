@@ -1,4 +1,5 @@
 import type { ReplayTarget } from "../simulation/replayTarget";
+import type { LayoutSaveActions } from "../templates/layouts";
 import { useEffect, useState } from "react";
 import type {
   BuildingScenario,
@@ -19,7 +20,8 @@ interface BuildingWorkspaceProps {
   replayTarget?: ReplayTarget | null;
   disabled?: boolean;
   savedLayoutJson?: string;
-  onSaved?: (building: BuildingScenario) => void;
+  onSaved?: (building: BuildingScenario, reason?: "export" | "replace") => void;
+  saveActions?: LayoutSaveActions;
   mode?: Mode;
   active?: boolean;
   allowSyntheticPreview?: boolean;
@@ -39,6 +41,7 @@ export function BuildingWorkspace({
   allowSyntheticPreview = true,
   onOpenAnalytics,
   replayTarget,
+  saveActions,
 }: BuildingWorkspaceProps) {
   const [localMode, setMode] = useState<Mode>(() =>
     typeof window !== "undefined" && window.location.hash === "#simulation"
@@ -78,6 +81,7 @@ export function BuildingWorkspace({
           disabled={disabled}
           savedLayoutJson={savedLayoutJson}
           onSaved={onSaved}
+          saveActions={saveActions}
         />
       </div>
       <div

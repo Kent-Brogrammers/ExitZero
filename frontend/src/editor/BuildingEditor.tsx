@@ -5,6 +5,7 @@ import {
   lengthFromInput,
 } from "../utils/units";
 import DxfImport from "./dxf/DxfImport";
+import type { LayoutSaveActions } from "../templates/layouts";
 import { DisasterControls } from "./DisasterControls";
 import {
   addFurniture,
@@ -84,7 +85,8 @@ interface BuildingEditorProps {
   onChange: (building: BuildingScenario) => void;
   disabled?: boolean;
   savedLayoutJson?: string;
-  onSaved?: (building: BuildingScenario) => void;
+  onSaved?: (building: BuildingScenario, reason?: "export" | "replace") => void;
+  saveActions?: LayoutSaveActions;
 }
 
 function NumberField({
@@ -128,6 +130,7 @@ export function BuildingEditor({
   disabled = false,
   savedLayoutJson,
   onSaved,
+  saveActions,
 }: BuildingEditorProps) {
   const theme = useStudioTheme();
   const [drafting, setDrafting] = useDraftingPreferences();
@@ -936,7 +939,7 @@ export function BuildingEditor({
       curveGroups.current.clear();
       setFurnitureSymbols(new Map());
       savedLayout.current = JSON.stringify(next);
-      onSaved?.(next);
+      onSaved?.(next, "replace");
       selectElement(null);
       setGesture(null);
 
@@ -946,7 +949,7 @@ export function BuildingEditor({
   }
   function exportLayout() {
     savedLayout.current = JSON.stringify(building);
-    onSaved?.(building);
+    onSaved?.(building, "export");
     const url = URL.createObjectURL(
       new Blob([JSON.stringify(building, null, 2) + "\n"], {
         type: "application/json",
@@ -1024,6 +1027,7 @@ export function BuildingEditor({
               onOpenPanel={() => setPropertiesOpen(false)}
             />
             <EditorUtilityRail
+              saveActions={saveActions}
               disabled={disabled}
               canUndo={history.length > 0}
               canRedo={redo.length > 0}

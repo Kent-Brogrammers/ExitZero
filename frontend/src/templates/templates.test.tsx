@@ -166,7 +166,7 @@ describe("Templates presentation", () => {
     );
     expect(html).toContain("View saved office recording");
     expect(html).toContain("My Templates");
-    expect(html).toContain("Save Current Layout");
+    expect(html).toContain("Save as Template");
   });
   it("renders local templates and disables simulation while offline without disabling Edit", () => {
     const storage = memoryStorage();
