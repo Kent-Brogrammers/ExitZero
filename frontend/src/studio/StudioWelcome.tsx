@@ -1,4 +1,7 @@
 import type { BuildingScenario } from "../types/simulation";
+import { useRef } from "react";
+import { buildingPresets } from "../editor/presets";
+import { TemplateCard } from "../templates/TemplateCard";
 import { repositoryUrl } from "./credits";
 import { WelcomePreview } from "./WelcomePreview";
 import "./StudioWelcome.css";
@@ -9,6 +12,12 @@ interface StudioWelcomeProps {
   onLoadExample: () => void;
   onOpenDemo?: () => void;
   onTemplates?: () => void;
+  onOpenTemplate?: (
+    building: BuildingScenario,
+    name: string,
+    action: "edit" | "simulate",
+  ) => void;
+  online?: boolean;
   disabled?: boolean;
 }
 
@@ -18,10 +27,30 @@ export function StudioWelcome({
   onLoadExample,
   onOpenDemo,
   onTemplates,
+  onOpenTemplate,
+  online = false,
   disabled = false,
 }: StudioWelcomeProps) {
+  const templatesHeading = useRef<HTMLHeadingElement>(null);
+  function browseTemplates() {
+    const heading = templatesHeading.current;
+    if (!heading) {
+      onTemplates?.();
+      return;
+    }
+    heading.focus({ preventScroll: true });
+    heading.scrollIntoView({
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "instant"
+        : "smooth",
+      block: "start",
+    });
+  }
   return (
-    <section className="studio-welcome" aria-label="Welcome to ExitZero Studio">
+    <section
+      className={`studio-welcome${onOpenTemplate ? " has-templates" : ""}`}
+      aria-label="Welcome to ExitZero Studio"
+    >
       <header className="welcome-header">
         <div className="studio-brand">
           <span className="studio-symbol" aria-hidden="true">
@@ -43,21 +72,28 @@ export function StudioWelcome({
             Design a floor plan. Run an evacuation. Examine the traffic.
           </p>
           <div className="welcome-actions">
-            <button className="entry-action" onClick={onOpen}>
+            <button
+              type="button"
+              className="entry-action"
+              disabled={disabled}
+              onClick={onOpen}
+            >
               Open Studio <span aria-hidden="true">↗</span>
             </button>
-            {onTemplates && (
+            {(onTemplates || onOpenTemplate) && (
               <button
                 type="button"
-                className="welcome-example"
+                className="welcome-action-secondary"
                 disabled={disabled}
-                onClick={onTemplates}
+                onClick={browseTemplates}
+                aria-controls={onOpenTemplate ? "welcome-templates" : undefined}
               >
-                Browse templates <span aria-hidden="true">→</span>
+                Browse templates <span aria-hidden="true">↓</span>
               </button>
             )}
             <button
-              className="welcome-example"
+              type="button"
+              className="welcome-action-tertiary"
               disabled={disabled}
               onClick={onLoadExample}
             >
@@ -88,6 +124,53 @@ export function StudioWelcome({
           )}
         </div>
       </div>
+      {onOpenTemplate && (
+        <section
+          id="welcome-templates"
+          className="welcome-templates"
+          aria-labelledby="welcome-templates-heading"
+        >
+          <div className="welcome-templates-heading">
+            <div>
+              <h2
+                id="welcome-templates-heading"
+                ref={templatesHeading}
+                tabIndex={-1}
+              >
+                Building templates
+              </h2>
+              <p>Click a floor plan to open it in the editor.</p>
+            </div>
+            {onTemplates && (
+              <button
+                type="button"
+                className="studio-control"
+                disabled={disabled}
+                onClick={onTemplates}
+              >
+                Open Templates <span aria-hidden="true">↗</span>
+              </button>
+            )}
+          </div>
+          <div className="template-gallery">
+            {buildingPresets.map((preset) => (
+              <TemplateCard
+                key={preset.id}
+                name={preset.label}
+                building={preset.building}
+                busy={disabled}
+                online={online}
+                onEdit={() =>
+                  onOpenTemplate(preset.building, preset.label, "edit")
+                }
+                onRun={() =>
+                  onOpenTemplate(preset.building, preset.label, "simulate")
+                }
+              />
+            ))}
+          </div>
+        </section>
+      )}
       <footer className="welcome-bottom">
         <span>© 2026 Kent Brogrammers</span>
         <a href={repositoryUrl} target="_blank" rel="noreferrer">
