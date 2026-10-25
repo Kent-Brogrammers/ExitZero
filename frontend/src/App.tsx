@@ -1,3 +1,5 @@
+import { LengthInput } from "./ui/LengthInput";
+import { formatDimensions } from "./utils/units";
 import type { ReplayTarget } from "./simulation/replayTarget";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import example from "../../shared/examples/building.json";
@@ -394,24 +396,21 @@ export default function App() {
                     <legend>Agent awareness</legend>
                     {(
                       [
-                        ["sight_range_metres", "Sight range (m)", 8],
+                        ["sight_range_metres", "Sight range (ft)", 8],
                         [
                           "communication_range_metres",
-                          "Communication range (m)",
+                          "Communication range (ft)",
                           3,
                         ],
                       ] as const
                     ).map(([key, label, fallback]) => (
                       <label key={key}>
                         {label}
-                        <input
-                          type="number"
+                        <LengthInput
                           min={0}
                           max={1000}
-                          step={0.5}
                           value={building.awareness?.[key] ?? fallback}
-                          onChange={(event) => {
-                            const value = event.currentTarget.valueAsNumber;
+                          onValue={(value) => {
                             if (
                               !Number.isFinite(value) ||
                               value < 0 ||
@@ -439,10 +438,13 @@ export default function App() {
                   </fieldset>
                   <dl className="settings-values">
                     <div>
-                      <dt>Coordinates</dt>
-                      <dd>Metres</dd>
+                      <dt>Display units</dt>
+                      <dd>Feet (ft)</dd>
                     </div>
                   </dl>
+                  <p className="note">
+                    Layout JSON and simulation coordinates stay in meters.
+                  </p>
                   <div className="settings-connection" role="status">
                     <span>
                       <i
@@ -465,7 +467,7 @@ export default function App() {
                     )}
                   </div>
                   <p className="settings-layout">
-                    {building.width} × {building.height} m ·{" "}
+                    {formatDimensions(building.width, building.height)} ·{" "}
                     {building.exits.length} exits ·{" "}
                     {building.spawn_zones.reduce(
                       (total, zone) => total + zone.count,

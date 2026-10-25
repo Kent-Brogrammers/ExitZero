@@ -1,4 +1,5 @@
 import Ajv from "ajv";
+import { formatLength } from "../utils/units";
 import schema from "../../../shared/schemas/contracts.schema.json";
 import type {
   BuildingScenario,
@@ -132,7 +133,7 @@ export function buildingError(
     p.x >= 0 && p.y >= 0 && p.x <= b.width && p.y <= b.height;
   for (const wall of b.walls) {
     if (!inside(wall.start) || !inside(wall.end) || wallLength(wall) < 0.1)
-      return "Walls need endpoints inside the workspace and length of at least 0.1 m.";
+      return `Walls need endpoints inside the workspace and length of at least ${formatLength(0.1, 2)}.`;
   }
   const openings = [...b.doors, ...b.exits, ...(b.windows ?? [])];
   for (let index = 0; index < openings.length; index++) {

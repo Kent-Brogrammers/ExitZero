@@ -1,3 +1,4 @@
+import { formatDimensions, formatLength } from "../utils/units";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { BuildingScenario } from "../types/simulation";
 import { drawLayout } from "../editor/draw";
@@ -149,9 +150,7 @@ export function WelcomePreview({
             </button>
           </div>
         )}
-        <span>
-          {building.width} × {building.height} m
-        </span>
+        <span>{formatDimensions(building.width, building.height)}</span>
       </div>
       <canvas
         data-world-canvas
@@ -185,7 +184,7 @@ export function WelcomePreview({
               ? "Recorded traffic unavailable · Floor plan shown"
               : officeDemo && !traffic
                 ? "Loading recorded traffic…"
-                : "Blueprint floor plan · 1 m grid"}
+                : `Blueprint floor plan · ${formatLength(1)} grid`}
           </span>
         )}
       </div>

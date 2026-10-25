@@ -128,7 +128,7 @@ describe("playback Canvas", () => {
       undefined,
       { showDimensions: false },
     );
-    const dimensions = `${syntheticBuilding.width} × ${syntheticBuilding.height} m`;
+    const dimensions = "13.1 × 9.8 ft";
     expect(
       normal.context.fillText.mock.calls.some(([text]) => text === dimensions),
     ).toBe(true);

@@ -1,3 +1,4 @@
+import { formatLength } from "../utils/units";
 import type {
   BuildingScenario,
   Point,
@@ -118,7 +119,7 @@ export function openingLabels(
         kind === "Window"
           ? windowStates.find((s) => s.window_id === o.id)?.state
           : undefined;
-      const text = `${openingStartsBlocked(building, o.id) ? `Blocked ${kind.toLowerCase()}` : kind} · ${o.width.toFixed(1)} m${state ? ` · ${state}` : ""}`;
+      const text = `${openingStartsBlocked(building, o.id) ? `Blocked ${kind.toLowerCase()}` : kind} · ${formatLength(o.width)}${state ? ` · ${state}` : ""}`;
       const width = Math.min(measure(text), building.width),
         height = 13 * px;
       const x = Math.max(

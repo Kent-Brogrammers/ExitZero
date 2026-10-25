@@ -1,3 +1,4 @@
+import { formatDimensions } from "../utils/units";
 import { snapshotFrameIndex, type ReplayTarget } from "./replayTarget";
 import {
   useEffect,
@@ -249,7 +250,7 @@ function Playback({
           />
           <div className="canvas-caption">
             <span>
-              {building.width} × {building.height} m ·{" "}
+              {formatDimensions(building.width, building.height)} ·{" "}
               {recording ? "Recording layout" : "Current layout"}
             </span>
             <span>{frames.length} recorded frames</span>
@@ -638,8 +639,9 @@ export function SimulationView({
       </div>
       {preview && !live && (
         <p className="playback-synthetic-note" role="note">
-          Synthetic preview: two occupants in a separate 4 × 3 m layout. No
-          simulation was run for your building. Full Analytics uses API results.
+          Synthetic preview: two occupants in a separate{" "}
+          {formatDimensions(4, 3)} layout. No simulation was run for your
+          building. Full Analytics uses API results.
         </p>
       )}
       {live ? (

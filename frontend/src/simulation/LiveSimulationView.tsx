@@ -1,3 +1,4 @@
+import { formatDimensions } from "../utils/units";
 import { useEffect, useRef } from "react";
 import { SimulationDetails } from "./SimulationDetails";
 import type {
@@ -148,9 +149,7 @@ export function LiveSimulationView({
             }
           />
           <div className="canvas-caption">
-            <span>
-              {building.width} × {building.height} m
-            </span>
+            <span>{formatDimensions(building.width, building.height)}</span>
             <span>
               {frame
                 ? building.disaster
@@ -216,7 +215,7 @@ export function LiveSimulationView({
                         building.height,
                       ).map((spot) => spot.count),
                     )}{" "}
-                    occupants in a 2 × 2 m zone.
+                    occupants in a {formatDimensions(2, 2)} zone.
                   </p>
                   <p className="note">
                     Colors show current positions, relative to this frame. They

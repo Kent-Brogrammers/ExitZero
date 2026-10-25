@@ -81,7 +81,7 @@ describe("assisted DXF import", () => {
       buildDxf(drawing, { ...options, maxGap: 0 }, example).openings,
     ).toHaveLength(0);
     expect(() => buildDxf(drawing, { ...options, scale: 1 }, example)).toThrow(
-      "1000 m",
+      "3280.8 ft",
     );
     expect(() =>
       buildDxf(drawing, { ...options, scale: NaN }, example),

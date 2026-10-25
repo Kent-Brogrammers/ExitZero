@@ -1,3 +1,9 @@
+import { LengthInput } from "../../ui/LengthInput";
+import {
+  formatDimensions,
+  formatLength,
+  lengthInputValue,
+} from "../../utils/units";
 import { classifyOpenings } from "./classify";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { BuildingScenario } from "../../types/simulation";
@@ -337,36 +343,31 @@ export default function DxfImport({
                     : " — verify dimensions below."}
                 </p>
                 <label>
-                  Metres per DXF unit
-                  <input
-                    type="number"
-                    min="0.000001"
-                    step="any"
+                  Feet per DXF unit
+                  <LengthInput
+                    min={0.000001}
+                    precision={8}
                     value={scale}
-                    onChange={(e) => setScale(e.target.valueAsNumber)}
+                    onValue={setScale}
                   />
                 </label>
-                <p>Millimetres: 0.001 · metres: 1 · inches: 0.0254</p>
+                <p>Feet: 1 · Inches: 0.08333333 · Millimeters: 0.00328084</p>
                 <label>
-                  Line-wall thickness (m)
-                  <input
-                    type="number"
-                    min="0.01"
-                    max="2"
-                    step="0.01"
+                  Line-wall thickness (ft)
+                  <LengthInput
+                    min={0.01}
+                    max={2}
                     value={thickness}
-                    onChange={(e) => setThickness(e.target.valueAsNumber)}
+                    onValue={setThickness}
                   />
                 </label>
                 <label>
-                  Detect gaps up to (m)
-                  <input
-                    type="number"
-                    min="0"
-                    max="5"
-                    step="0.1"
+                  Detect gaps up to (ft)
+                  <LengthInput
+                    min={0}
+                    max={5}
                     value={maxGap}
-                    onChange={(e) => setMaxGap(e.target.valueAsNumber)}
+                    onValue={setMaxGap}
                   />
                 </label>
                 <label>
@@ -405,8 +406,8 @@ export default function DxfImport({
               <>
                 <h3>3 · Review detected geometry</h3>
                 <p>
-                  {preview.width.toFixed(2)} × {preview.height.toFixed(2)} m
-                  workspace (includes 1 m margins) · {preview.walls.length}{" "}
+                  {formatDimensions(preview.width, preview.height, 2)} workspace
+                  (includes {formatLength(1)} margins) · {preview.walls.length}{" "}
                   walls · {candidates.length} opening suggestions
                 </p>
                 <Preview building={preview} candidates={candidates} />
@@ -433,9 +434,11 @@ export default function DxfImport({
                             })
                           }
                         />
-                        {w.id} · ({w.start.x.toFixed(2)}, {w.start.y.toFixed(2)}
-                        ) → ({w.end.x.toFixed(2)}, {w.end.y.toFixed(2)}) m ·
-                        thickness {w.thickness.toFixed(2)} m
+                        {w.id} · ({lengthInputValue(w.start.x, 2)},{" "}
+                        {lengthInputValue(w.start.y, 2)}) → (
+                        {lengthInputValue(w.end.x, 2)},{" "}
+                        {lengthInputValue(w.end.y, 2)}) ft · thickness{" "}
+                        {formatLength(w.thickness, 2)}
                       </label>
                     ))}
                   </div>
@@ -464,7 +467,7 @@ export default function DxfImport({
                     <div className="dxf-opening-list">
                       {candidates.map((o) => (
                         <label key={o.id}>
-                          {o.id} · {o.wall_id} · {o.width.toFixed(2)} m
+                          {o.id} · {o.wall_id} · {formatLength(o.width, 2)}
                           <select
                             aria-label={`Role for ${o.id}`}
                             value={selectedChoices[o.id] ?? "review"}

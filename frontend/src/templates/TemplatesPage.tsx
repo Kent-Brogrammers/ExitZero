@@ -1,3 +1,4 @@
+import { formatDimensions } from "../utils/units";
 import { useState } from "react";
 import type { BuildingScenario } from "../types/simulation";
 import { buildingPresets } from "../editor/presets";
@@ -215,7 +216,8 @@ export function TemplatesPage({
             <span aria-hidden="true">＋</span>
             <strong>Save Current Layout</strong>
             <span>
-              {building.width} × {building.height} m · Name your template
+              {formatDimensions(building.width, building.height)} · Name your
+              template
             </span>
           </button>
           {templates.map((template) =>

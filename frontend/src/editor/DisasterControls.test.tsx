@@ -75,10 +75,10 @@ it("exposes kind-specific evolution parameters and validates their bounds", asyn
     />,
   );
   for (const label of [
-    "Growth rate (m/s)",
+    "Growth rate (ft/s)",
     "New patch every (s)",
     "Maximum patches",
-    "Maximum patch radius (m)",
+    "Maximum patch radius (ft)",
     "Scenario random seed",
   ])
     expect(html).toContain(label);
@@ -103,16 +103,41 @@ it("exposes kind-specific evolution parameters and validates their bounds", asyn
     />,
   );
   for (const label of [
-    "Speed (m/s)",
+    "Speed (ft/s)",
     "Turning speed (deg/s)",
-    "Extra shelter clearance (m)",
+    "Extra shelter clearance (ft)",
   ])
     expect(html).toContain(label);
-  expect(html).not.toContain("Growth rate (m/s)");
+  expect(html).not.toContain("Growth rate (ft/s)");
   expect(buildingError(building)).toBeNull();
   building.disaster.dynamics!.speed = 11;
   expect(buildingError(building)).not.toBeNull();
   expect(defaultDynamics("gas_leak", 1).growth_rate).toBeGreaterThan(
     defaultDynamics("fire", 1).growth_rate,
   );
+});
+
+it("uses a compact native radio group with one selected mode and feet-only distance labels", () => {
+  for (const kind of [undefined, "fire", "gas_leak", "tornado"] as const) {
+    const building = fixture();
+    if (kind) building.disaster = { kind, center: { x: 5, y: 5 }, radius: 1 };
+    const before = JSON.stringify(building);
+    const html = renderToStaticMarkup(
+      <DisasterControls
+        building={building}
+        onChange={() => {}}
+        onLocate={() => {}}
+      />,
+    );
+    expect(html).toContain("<legend>Scenario</legend>");
+    expect(html.match(/type="radio"/g)).toHaveLength(4);
+    expect(html.match(/checked=""/g)).toHaveLength(1);
+    expect(html).not.toContain("<select");
+    expect(html).not.toContain("(m)");
+    if (kind) {
+      expect(html).toContain("Hazard radius (ft)");
+      expect(html).toContain('value="3.2808"');
+    }
+    expect(JSON.stringify(building)).toBe(before);
+  }
 });

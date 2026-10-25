@@ -129,7 +129,7 @@ describe("initial door and exit blocking", () => {
     const closed = setOpeningBlocked(b, "doors", "door", true);
     expect(solidWallSegments(closed, wall)).toEqual([[wall.start, wall.end]]);
     expect(openingLabels(closed, 0.02, () => 1)[0]!.text).toBe(
-      "Blocked door · 2.0 m",
+      "Blocked door · 6.6 ft",
     );
     expect(
       solidWallSegments(

@@ -1,3 +1,4 @@
+import { formatDimensions } from "../utils/units";
 import type { ReactNode } from "react";
 import type { BuildingScenario } from "../types/simulation";
 import { buildingError } from "../editor/geometry";
@@ -28,7 +29,7 @@ export function TemplateCard({
       <div className="template-card-content">
         <h3>{name}</h3>
         <p className="template-metadata">
-          {building.width} × {building.height} m{" "}
+          {formatDimensions(building.width, building.height)}{" "}
           <span aria-hidden="true">·</span>{" "}
           {building.spawn_zones.reduce((count, zone) => count + zone.count, 0)}{" "}
           occupants

@@ -1,3 +1,4 @@
+import { formatDimensions } from "../utils/units";
 import type {
   BuildingScenario,
   Point,
@@ -496,6 +497,10 @@ export function drawLayout(
   if (options?.showDimensions !== false) {
     ctx.fillStyle = palette.muted;
     ctx.font = `${12 * px}px system-ui`;
-    ctx.fillText(`${building.width} × ${building.height} m`, 12 * px, 20 * px);
+    ctx.fillText(
+      formatDimensions(building.width, building.height),
+      12 * px,
+      20 * px,
+    );
   }
 }
