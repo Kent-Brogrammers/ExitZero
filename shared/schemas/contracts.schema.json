@@ -160,6 +160,7 @@
             "$ref": "#/$defs/OpeningStateChange"
           }
         },
+<<<<<<< HEAD
         "windows": {
           "type": "array",
           "maxItems": 100,
@@ -169,6 +170,17 @@
         },
         "window_escape_context": {
           "$ref": "#/$defs/WindowEscapeContext"
+=======
+        "disaster": {
+          "$ref": "#/$defs/Disaster"
+        },
+        "tornado_zones": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/Obstruction"
+          }
+>>>>>>> connor/catastrophes
         }
       }
     },
@@ -212,8 +224,15 @@
           "minimum": 0,
           "maximum": 100000
         },
+<<<<<<< HEAD
         "evacuated_by_route": {
           "$ref": "#/$defs/EvacuatedByRoute"
+=======
+        "sheltered": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+>>>>>>> connor/catastrophes
         }
       },
       "allOf": [
@@ -275,6 +294,11 @@
           "type": "number",
           "maximum": 1000,
           "minimum": 0
+        },
+        "injury": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
         }
       }
     },
@@ -306,12 +330,22 @@
             "pattern": "\\S"
           }
         },
+<<<<<<< HEAD
         "window_states": {
           "type": "array",
           "maxItems": 100,
           "items": {
             "$ref": "#/$defs/WindowFrameState"
           }
+=======
+        "sheltered": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "disaster_state": {
+          "$ref": "#/$defs/DisasterState"
+>>>>>>> connor/catastrophes
         }
       }
     },
@@ -391,8 +425,15 @@
         "analytics": {
           "$ref": "#/$defs/SimulationAnalytics"
         },
+<<<<<<< HEAD
         "evacuated_by_route": {
           "$ref": "#/$defs/EvacuatedByRoute"
+=======
+        "sheltered": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+>>>>>>> connor/catastrophes
         }
       },
       "allOf": [
@@ -837,6 +878,7 @@
         "route_found": {
           "type": "boolean"
         },
+<<<<<<< HEAD
         "escape_route": {
           "anyOf": [
             {
@@ -846,6 +888,20 @@
               "$ref": "#/$defs/EscapeRoute"
             }
           ]
+=======
+        "shelter": {
+          "$ref": "#/$defs/ShelterArrival"
+        },
+        "injury": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "exposure_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100000
+>>>>>>> connor/catastrophes
         }
       },
       "allOf": [
@@ -1091,11 +1147,60 @@
         }
       }
     },
+<<<<<<< HEAD
     "WindowEscape": {
+=======
+    "Disaster": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "center", "radius"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["fire", "gas_leak", "tornado"]
+        },
+        "center": {
+          "$ref": "#/$defs/Point"
+        },
+        "radius": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1000
+        },
+        "dynamics": {
+          "$ref": "#/$defs/DisasterDynamics"
+        }
+      }
+    },
+    "ShelterArrival": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "step", "seconds"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "step": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100000
+        },
+        "seconds": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100000
+        }
+      }
+    },
+    "DisasterDynamics": {
+>>>>>>> connor/catastrophes
       "type": "object",
       "additionalProperties": false,
       "required": [
         "enabled",
+<<<<<<< HEAD
         "preparation",
         "clear_width_metres",
         "clear_height_metres",
@@ -1103,11 +1208,22 @@
         "traversal_seconds",
         "exterior_side",
         "exterior_available"
+=======
+        "growth_rate",
+        "spread_interval_seconds",
+        "max_patches",
+        "max_radius",
+        "speed",
+        "turn_rate_degrees",
+        "wander_interval_seconds",
+        "shelter_clearance"
+>>>>>>> connor/catastrophes
       ],
       "properties": {
         "enabled": {
           "type": "boolean"
         },
+<<<<<<< HEAD
         "preparation": {
           "enum": ["open", "break"]
         },
@@ -1196,12 +1312,76 @@
           "type": "boolean"
         },
         "required_clear_height_metres": {
+=======
+        "growth_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "spread_interval_seconds": {
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 60
+        },
+        "max_patches": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "max_radius": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 1000
+        },
+        "speed": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 10
+        },
+        "turn_rate_degrees": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 180
+        },
+        "wander_interval_seconds": {
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 60
+        },
+        "shelter_clearance": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 20
+        }
+      }
+    },
+    "HazardArea": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "revision", "center", "radius"],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 63
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100000
+        },
+        "center": {
+          "$ref": "#/$defs/Point"
+        },
+        "radius": {
+>>>>>>> connor/catastrophes
           "type": "number",
           "exclusiveMinimum": 0,
           "maximum": 1000
         }
       }
     },
+<<<<<<< HEAD
     "WindowFrameState": {
       "type": "object",
       "additionalProperties": false,
@@ -1280,6 +1460,24 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 10000
+=======
+    "DisasterState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "areas"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["fire", "gas_leak", "tornado"]
+        },
+        "areas": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/HazardArea"
+          }
+>>>>>>> connor/catastrophes
         }
       }
     }

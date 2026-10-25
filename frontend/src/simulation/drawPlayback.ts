@@ -29,7 +29,11 @@ export function drawPlayback(
     undefined,
     pixelRatio,
     palette,
+<<<<<<< HEAD
     { windowStates: frame?.window_states },
+=======
+    { disasterState: frame?.disaster_state },
+>>>>>>> connor/catastrophes
   );
   drawAgents(canvas, building, frame, pixelRatio, palette);
 }
@@ -51,18 +55,41 @@ export function drawAgents(
   context.fillStyle = palette.selection;
   context.strokeStyle = palette.background;
   context.lineWidth = ratio;
-  context.beginPath();
-  for (const agent of frame.agents) {
-    const point = worldToCanvas(agent, view);
-    context.moveTo(point.x + building.agent_radius * view.scale, point.y);
-    context.arc(
-      point.x,
-      point.y,
-      building.agent_radius * view.scale,
-      0,
-      Math.PI * 2,
-    );
+  const groups = [
+    {
+      color: palette.selection,
+      agents: frame.agents.filter((a) => !(a.injury && a.injury > 0.01)),
+    },
+    {
+      color: "#f6a54c",
+      agents: frame.agents.filter(
+        (a) => (a.injury ?? 0) > 0.01 && (a.injury ?? 0) < 0.5,
+      ),
+    },
+    {
+      color: "#ef5b65",
+      agents: frame.agents.filter((a) => (a.injury ?? 0) >= 0.5),
+    },
+  ];
+  for (const group of groups) {
+    if (!group.agents.length) continue;
+    context.fillStyle = group.color;
+    context.beginPath();
+    for (const agent of group.agents) {
+      const point = worldToCanvas(agent, view);
+      context.moveTo(point.x + building.agent_radius * view.scale, point.y);
+      context.arc(
+        point.x,
+        point.y,
+        building.agent_radius * view.scale,
+        0,
+        Math.PI * 2,
+      );
+    }
+    context.fill();
+    context.stroke();
   }
+<<<<<<< HEAD
   context.fill();
   context.stroke();
   // Queue membership is recorded by Rust, never inferred from proximity or missing IDs.
@@ -88,6 +115,8 @@ export function drawAgents(
       : palette.door;
     context.stroke();
   }
+=======
+>>>>>>> connor/catastrophes
   context.restore();
 }
 
@@ -116,7 +145,11 @@ export function createPlaybackRenderer(
     }
     const nextOpeningState = JSON.stringify([
       frame?.blocked_opening_ids,
+<<<<<<< HEAD
       frame?.window_states?.map((s) => [s.window_id, s.state]),
+=======
+      frame?.disaster_state,
+>>>>>>> connor/catastrophes
     ]);
     if (
       width !== nextWidth ||
@@ -132,7 +165,11 @@ export function createPlaybackRenderer(
         undefined,
         nextRatio,
         palette,
+<<<<<<< HEAD
         { windowStates: frame?.window_states },
+=======
+        { disasterState: frame?.disaster_state },
+>>>>>>> connor/catastrophes
       );
       width = canvas.width;
       height = canvas.height;

@@ -44,6 +44,7 @@ struct ExitTarget {
     id: String,
     start: Point,
     end: Point,
+    shelter: bool,
 }
 
 /// A graph is shared by agents with the same discovered openings and blockers.
@@ -51,12 +52,13 @@ pub(super) struct Navigation {
     exits: Vec<ExitTarget>,
     points: Vec<Point>,
     connections: Vec<Vec<Connection>>,
+    agent_radius: f64,
 }
 
 impl Navigation {
     /// Build for the supplied geometry, which may represent an agent's beliefs.
     pub(super) fn new(scenario: &BuildingScenario, geometry: &Geometry<'_>) -> Self {
-        let exits: Vec<ExitTarget> = scenario
+        let mut exits: Vec<ExitTarget> = scenario
             .exits
             .iter()
             .filter(|exit| !geometry.opening_is_blocked(&exit.id))
@@ -66,10 +68,12 @@ impl Navigation {
                     id: exit.id.clone(),
                     start,
                     end,
+                    shelter: false,
                 })
             })
             .collect();
 
+<<<<<<< HEAD
         Self::with_targets(scenario, geometry, exits)
     }
 
@@ -96,6 +100,30 @@ impl Navigation {
         geometry: &Geometry<'_>,
         exits: Vec<ExitTarget>,
     ) -> Self {
+=======
+        if scenario
+            .disaster
+            .is_some_and(|d| d.kind == crate::models::DisasterKind::Tornado)
+        {
+            let r = scenario.agent_radius;
+            exits = scenario
+                .tornado_zones
+                .iter()
+                .map(|zone| ExitTarget {
+                    id: zone.id.clone(),
+                    start: Point {
+                        x: zone.x + r,
+                        y: zone.y + r,
+                    },
+                    end: Point {
+                        x: zone.x + zone.width - r,
+                        y: zone.y + zone.height - r,
+                    },
+                    shelter: true,
+                })
+                .collect();
+        }
+>>>>>>> connor/catastrophes
         let mut points = Vec::new();
         let mut add_point = |point: Point| {
             if geometry.can_stand_at(point)
@@ -112,6 +140,16 @@ impl Navigation {
         for exit in &exits {
             add_point(exit.start);
             add_point(exit.end);
+            if exit.shelter {
+                add_point(Point {
+                    x: exit.start.x,
+                    y: exit.end.y,
+                });
+                add_point(Point {
+                    x: exit.end.x,
+                    y: exit.start.y,
+                });
+            }
             add_point(math::interpolate(exit.start, exit.end, 0.5));
         }
 
@@ -199,6 +237,37 @@ impl Navigation {
             }
         }
 
+        if let Some(disaster) = geometry.disaster {
+            // Sample only the outer frontier of overlapping patches. Bound the
+            // added graph size as spread grows; these are not physical blockers.
+            let mut frontier = Vec::new();
+            for area in &geometry.hazard_areas {
+                let mut footprint = disaster;
+                footprint.radius = area.radius;
+                let radius = (footprint.exposure_radius() + scenario.agent_radius + 1e-4)
+                    / (std::f64::consts::PI / 16.0).cos();
+                for i in 0..16 {
+                    let angle = std::f64::consts::TAU * i as f64 / 16.0;
+                    let point = Point {
+                        x: area.center.x + radius * angle.cos(),
+                        y: area.center.y + radius * angle.sin(),
+                    };
+                    if !geometry.hazard_areas.iter().any(|other| {
+                        let mut footprint = disaster;
+                        footprint.radius = other.radius;
+                        math::distance_to_point(point, other.center)
+                            < footprint.exposure_radius() + scenario.agent_radius
+                    }) {
+                        frontier.push(point);
+                    }
+                }
+            }
+            let stride = frontier.len().div_ceil(64).max(1);
+            for point in frontier.into_iter().step_by(stride) {
+                add_point(point);
+            }
+        }
+
         let mut connections: Vec<Vec<Connection>> = (0..points.len()).map(|_| Vec::new()).collect();
         for a in 0..points.len() {
             for b in a + 1..points.len() {
@@ -214,6 +283,7 @@ impl Navigation {
             exits,
             points,
             connections,
+            agent_radius: scenario.agent_radius,
         }
     }
 
@@ -221,7 +291,12 @@ impl Navigation {
     /// route was found with these waypoints, not proof of physical entrapment.
     /// Use the same unchanged scenario for this graph and the supplied Geometry.
     pub(super) fn find_route(&self, from: Point, geometry: &Geometry<'_>) -> Option<Route> {
-        self.find_route_with_forecast(from, geometry, &CrowdForecast::default(), 0.0)
+        self.find_route_with_forecast(
+            from,
+            geometry,
+            &CrowdForecast::for_geometry(geometry),
+            self.agent_radius,
+        )
     }
 
     #[cfg(test)]
@@ -271,7 +346,14 @@ impl Navigation {
         let mut best: Option<(f64, usize, Point, Option<usize>)> = None;
         let mut consider = |start: Point, distance: f64, parent: Option<usize>| {
             for (index, exit) in self.exits.iter().enumerate() {
-                let target = math::closest_point_on_segment(start, exit.start, exit.end);
+                let target = if exit.shelter {
+                    Point {
+                        x: start.x.clamp(exit.start.x, exit.end.x),
+                        y: start.y.clamp(exit.start.y, exit.end.y),
+                    }
+                } else {
+                    math::closest_point_on_segment(start, exit.start, exit.end)
+                };
                 if geometry.can_move(start, target) {
                     let cost = distance
                         + math::distance_to_point(start, target)

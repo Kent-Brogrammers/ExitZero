@@ -95,7 +95,11 @@ export function LiveSimulationView({
         window.devicePixelRatio || 1,
         palette,
         {
+<<<<<<< HEAD
           windowStates: frame?.window_states,
+=======
+          disasterState: frame?.disaster_state,
+>>>>>>> connor/catastrophes
           underlay: (ctx) => {
             const layer = heatLayer.current;
             if (!layer) return;
@@ -147,7 +151,13 @@ export function LiveSimulationView({
             <span>
               {building.width} × {building.height} m
             </span>
-            <span>{frame ? "Live · recording" : "Preparing simulation…"}</span>
+            <span>
+              {frame
+                ? building.disaster
+                  ? `Alarm: ${building.disaster.kind.replace("_", " ")} · live`
+                  : "Live · recording"
+                : "Preparing simulation…"}
+            </span>
           </div>
         </div>
         <p className="note live-trails-note">
@@ -180,8 +190,20 @@ export function LiveSimulationView({
                 <dd>{frame?.agents.length ?? "—"}</dd>
               </div>
               <div>
-                <dt>Evacuated</dt>
-                <dd>{frame ? population - frame.agents.length : "—"}</dd>
+                <dt>
+                  {building.disaster?.kind === "tornado"
+                    ? "Sheltered"
+                    : "Evacuated"}
+                </dt>
+                <dd>
+                  {frame
+                    ? building.disaster?.kind === "tornado"
+                      ? (frame.sheltered ?? 0)
+                      : population -
+                        frame.agents.length -
+                        (frame.sheltered ?? 0)
+                    : "—"}
+                </dd>
               </div>
               <div>
                 <dt>Status</dt>

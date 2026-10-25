@@ -32,8 +32,12 @@ export function drawLayout(
     furniture?: ReadonlyMap<string, FurnitureKind>;
     underlay?: (ctx: CanvasRenderingContext2D) => void;
     showDimensions?: boolean;
+<<<<<<< HEAD
     showLabels?: boolean;
     windowStates?: readonly WindowFrameState[];
+=======
+    disasterState?: import("../types/simulation").DisasterState;
+>>>>>>> connor/catastrophes
   },
 ) {
   const ctx = canvas.getContext("2d");
@@ -63,6 +67,47 @@ export function drawLayout(
   options?.underlay?.(ctx);
   if (options?.grid)
     drawGrid(ctx, building, { scale, x, y }, ratio, options.grid, palette);
+  if (building.disaster) {
+    const kind = options?.disasterState?.kind ?? building.disaster.kind;
+    const color =
+      kind === "fire" ? "#f47b39" : kind === "gas_leak" ? "#9abf3f" : "#a58bd4";
+    const areas = options?.disasterState?.areas ?? [
+      { center: building.disaster.center, radius: building.disaster.radius },
+    ];
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, building.width, building.height);
+    ctx.clip();
+    for (const [index, area] of areas.entries()) {
+      const exposure =
+        area.radius * (kind === "fire" ? 1.6 : kind === "gas_leak" ? 2 : 1.3);
+      ctx.fillStyle = color + "24";
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2 * px;
+      ctx.beginPath();
+      ctx.arc(area.center.x, area.center.y, exposure, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = color + "60";
+      ctx.beginPath();
+      ctx.arc(area.center.x, area.center.y, area.radius, 0, Math.PI * 2);
+      ctx.fill();
+      if (index === 0) {
+        ctx.fillStyle = palette.wall;
+        ctx.font = `${12 * px}px system-ui`;
+        ctx.fillText(
+          kind === "fire"
+            ? "FIRE"
+            : kind === "gas_leak"
+              ? "GAS LEAK"
+              : "TORNADO",
+          area.center.x + 5 * px,
+          area.center.y - 5 * px,
+        );
+      }
+    }
+    ctx.restore();
+  }
   ctx.lineCap = "round";
   const selections: readonly Selection[] = selected
     ? Array.isArray(selected)
@@ -75,10 +120,16 @@ export function drawLayout(
     ...building.spawn_zones,
     ...building.obstructions,
     ...(building.stair_areas ?? []),
+    ...(building.tornado_zones ?? []),
   ]) {
     const spawn = "count" in rectangle;
+    const shelter = building.tornado_zones?.some((a) => a.id === rectangle.id);
     const stair = building.stair_areas?.some((a) => a.id === rectangle.id);
-    ctx.fillStyle = spawn || stair ? palette.spawn : palette.obstacle;
+    ctx.fillStyle = shelter
+      ? "#287c6840"
+      : spawn || stair
+        ? palette.spawn
+        : palette.obstacle;
     ctx.strokeStyle = selectedIds.has(rectangle.id)
       ? palette.selection
       : stair
@@ -95,7 +146,7 @@ export function drawLayout(
       drawFurniture(ctx, furniture, rectangle, px);
       continue;
     }
-    if (!spawn && !stair && palette.blueprint === "1") {
+    if (!spawn && !stair && !shelter && palette.blueprint === "1") {
       // Unclassified imported blockers retain an honest technical footprint.
       const inset = Math.min(0.08, rectangle.width / 5, rectangle.height / 5);
       ctx.lineWidth = px;
@@ -149,6 +200,7 @@ export function drawLayout(
       ctx.stroke();
       continue;
     }
+<<<<<<< HEAD
     if (options?.showLabels !== false) {
       ctx.fillStyle = spawn ? palette.wall : palette.obstacleText;
       ctx.font = `${12 * px}px system-ui`;
@@ -161,6 +213,20 @@ export function drawLayout(
         Math.max(rectangle.width - 8 * px, px),
       );
     }
+=======
+    ctx.fillStyle = spawn ? palette.wall : palette.obstacleText;
+    ctx.font = `${12 * px}px system-ui`;
+    ctx.fillText(
+      spawn
+        ? `${rectangle.count} ${rectangle.count === 1 ? "occupant" : "occupants"}`
+        : shelter
+          ? (rectangle.name ?? "Tornado zone")
+          : "Obstruction",
+      rectangle.x + 6 * px,
+      rectangle.y + 17 * px,
+      Math.max(rectangle.width - 8 * px, px),
+    );
+>>>>>>> connor/catastrophes
   }
   ctx.lineCap = "round";
   for (const wall of building.walls) {
@@ -397,6 +463,27 @@ export function drawLayout(
       ctx.strokeRect(r.x, r.y, r.width, r.height);
     }
     ctx.setLineDash([]);
+  }
+  if (building.disaster) {
+    const center =
+      options?.disasterState?.kind === "tornado"
+        ? (options.disasterState.areas[0]?.center ?? building.disaster.center)
+        : building.disaster.center;
+    ctx.save();
+    ctx.fillStyle = palette.surface;
+    ctx.strokeStyle = palette.wall;
+    ctx.lineWidth = 2 * px;
+    ctx.beginPath();
+    ctx.arc(center.x, center.y, 6 * px, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(center.x - 9 * px, center.y);
+    ctx.lineTo(center.x + 9 * px, center.y);
+    ctx.moveTo(center.x, center.y - 9 * px);
+    ctx.lineTo(center.x, center.y + 9 * px);
+    ctx.stroke();
+    ctx.restore();
   }
   if (options?.showDimensions !== false) {
     ctx.fillStyle = palette.muted;

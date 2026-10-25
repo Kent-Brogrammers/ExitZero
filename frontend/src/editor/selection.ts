@@ -14,6 +14,7 @@ export const elementKinds = [
   "spawn_zones",
   "obstructions",
   "stair_areas",
+  "tornado_zones",
 ] as const;
 export interface Bounds {
   x: number;

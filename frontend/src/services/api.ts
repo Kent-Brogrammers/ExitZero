@@ -46,12 +46,18 @@ export class ApiError extends Error {
 
 function checkMetrics(metrics: SimulationMetrics): void {
   if (
+<<<<<<< HEAD
     metrics.evacuated + metrics.remaining !== metrics.total_population ||
     metrics.trapped > metrics.remaining ||
     (metrics.evacuated_by_route &&
       metrics.evacuated_by_route.normal_exit +
         metrics.evacuated_by_route.emergency_window !==
         metrics.evacuated)
+=======
+    metrics.evacuated + (metrics.sheltered ?? 0) + metrics.remaining !==
+      metrics.total_population ||
+    metrics.trapped > metrics.remaining
+>>>>>>> connor/catastrophes
   ) {
     throw new ApiError(
       200,
@@ -112,6 +118,12 @@ function checkSimulation(
         frame.agents.length > result.total_population ||
         new Set(frame.agents.map((agent) => agent.id)).size !==
           frame.agents.length ||
+        frame.disaster_state?.areas.some(
+          (area) =>
+            area.center.x > result.width ||
+            area.center.y > result.height ||
+            area.revision > frame.step,
+        ) ||
         frame.agents.some(
           (agent) => agent.x > result.width || agent.y > result.height,
         ),

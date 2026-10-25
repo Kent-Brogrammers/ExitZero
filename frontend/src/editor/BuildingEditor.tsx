@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 import DxfImport from "./dxf/DxfImport";
+=======
+import { DisasterControls } from "./DisasterControls";
+>>>>>>> connor/catastrophes
 import {
   addFurniture,
   furnitureKind,
@@ -61,6 +65,7 @@ type Gesture = {
   current: Point;
   base: BuildingScenario;
   selection?: Selection;
+  hazard?: boolean;
   items?: Selection[];
   marquee?: boolean;
   initial?: Selection[];
@@ -302,7 +307,12 @@ export function BuildingEditor({
         project(point, w).distance < Math.max(tolerance(), w.thickness / 2),
     );
     if (wall) return { kind: "walls", id: wall.id };
-    for (const kind of ["obstructions", "spawn_zones", "stair_areas"] as const)
+    for (const kind of [
+      "obstructions",
+      "spawn_zones",
+      "stair_areas",
+      "tornado_zones",
+    ] as const)
       for (const rectangle of building[kind] ?? []) {
         if (
           point.x >= rectangle.x &&
@@ -432,7 +442,20 @@ export function BuildingEditor({
           .map((id) => ({ kind: "walls", id }))
       : [item];
   }
-  const movement = gesture?.selection ? moved(gesture) : null;
+  function movedHazard(g: Gesture): BuildingScenario {
+    const hazard = g.base.disaster;
+    if (!hazard) return g.base;
+    const center = {
+      x: clamp(hazard.center.x + g.current.x - g.start.x, 0, g.base.width),
+      y: clamp(hazard.center.y + g.current.y - g.start.y, 0, g.base.height),
+    };
+    return { ...g.base, disaster: { ...hazard, center } };
+  }
+  const movement = gesture?.hazard
+    ? { building: movedHazard(gesture), snapped: false }
+    : gesture?.selection
+      ? moved(gesture)
+      : null;
   const placement =
     !gesture &&
     (tool === "door" || tool === "exit" || tool === "window") &&
@@ -519,7 +542,7 @@ export function BuildingEditor({
                     }
                   : item,
               ),
-        gesture && !gesture.selection
+        gesture && !gesture.selection && !gesture.hazard
           ? {
               start: gesture.start,
               end: gesture.current,
@@ -567,6 +590,14 @@ export function BuildingEditor({
     const point = world(event);
     setError("");
     setNotice("");
+    if (tool === "hazard" && building.disaster) {
+      commit({
+        ...building,
+        disaster: { ...building.disaster, center: point },
+      });
+      setNotice("Hazard location updated. Agents discover it during the run.");
+      return;
+    }
     if (tool === "wall-freehand") {
       if (gesture?.curve && gesture.tracing) {
         finishCurve({
@@ -603,6 +634,23 @@ export function BuildingEditor({
     }
     event.currentTarget.setPointerCapture(event.pointerId);
     if (tool === "select") {
+      if (
+        building.disaster &&
+        distance(point, building.disaster.center) <=
+          Math.max(tolerance(), Math.min(building.disaster.radius, 0.75))
+      ) {
+        selectElement(null);
+        setNotice(
+          "Moving hazard · release to place · Undo restores its location",
+        );
+        setGesture({
+          start: point,
+          current: point,
+          base: building,
+          hazard: true,
+        });
+        return;
+      }
       let item = hit(point);
       let endpoint: "start" | "end" | undefined;
       if (
@@ -682,7 +730,10 @@ export function BuildingEditor({
       return {
         ...g,
         current:
-          !g.selection && !g.marquee && (tool === "wall" || drafting.snap)
+          !g.selection &&
+          !g.hazard &&
+          !g.marquee &&
+          (tool === "wall" || drafting.snap)
             ? snap(point)
             : point,
         constrain: event.shiftKey,
@@ -713,6 +764,7 @@ export function BuildingEditor({
       ...gesture,
       current:
         !gesture.selection &&
+        !gesture.hazard &&
         !gesture.marquee &&
         (tool === "wall" || drafting.snap)
           ? snap(world(event))
@@ -722,6 +774,12 @@ export function BuildingEditor({
     setGesture(null);
     if (event.currentTarget.hasPointerCapture(event.pointerId))
       event.currentTarget.releasePointerCapture(event.pointerId);
+    if (g.hazard) {
+      if (distance(g.start, g.current) >= 0.02 && commit(movedHazard(g)))
+        setNotice("Hazard moved · Undo restores its previous location");
+      else setNotice("");
+      return;
+    }
     if (g.marquee) {
       setSelections(
         distance(g.start, g.current) < 0.02
@@ -772,6 +830,19 @@ export function BuildingEditor({
           kind: "walls",
           id: next.walls[building.walls.length]!.id,
         });
+    } else if (tool === "tornado-zone") {
+      const zone = {
+        id: `shelter_${crypto.randomUUID()}`,
+        name: nextObjectName(building, "tornado_zones"),
+        ...dragRectangle(g.start, g.current, building),
+      };
+      if (
+        commit({
+          ...building,
+          tornado_zones: [...(building.tornado_zones ?? []), zone],
+        })
+      )
+        selectElement({ kind: "tornado_zones", id: zone.id });
     } else if (tool === "stairs") {
       const area = {
         id: `stairs_${crypto.randomUUID()}`,
@@ -924,6 +995,14 @@ export function BuildingEditor({
         onApply={(next) => replaceLayout(next, "the reviewed DXF layout")}
       />
       <fieldset className="editor-controls" disabled={disabled}>
+        <DisasterControls
+          building={building}
+          onChange={(next) => {
+            commit(next);
+            if (!next.disaster && tool === "hazard") changeTool("select");
+          }}
+          onLocate={() => changeTool("hazard")}
+        />
         <div className="editor-workspace">
           <div className="editor-commandbar">
             <EditorDrawingRail
@@ -953,6 +1032,8 @@ export function BuildingEditor({
                     ...(building.opening_events ? { opening_events: [] } : {}),
                     obstructions: [],
                     ...(building.stair_areas ? { stair_areas: [] } : {}),
+                    tornado_zones: [],
+                    disaster: undefined,
                   },
                   "an empty layout",
                 )
@@ -1049,6 +1130,7 @@ export function BuildingEditor({
             <p className={`editor-help${spawnProblem ? " is-invalid" : ""}`}>
               {furnitureKind(tool)
                 ? "Click to place or drag a footprint. Furniture blocks its full rectangle."
+<<<<<<< HEAD
                 : tool === "select"
                   ? "Drag to move or marquee select · Shift-click to add · Double-click for Properties"
                   : tool === "wall-freehand"
@@ -1075,6 +1157,33 @@ export function BuildingEditor({
                                     ? `${spawnDraft.spawn_zones.at(-1)!.width.toFixed(2)} × ${spawnDraft.spawn_zones.at(-1)!.height.toFixed(2)} m · ${spawnDraft.spawn_zones.at(-1)!.count} occupants · Release to place`
                                     : "Drag a rectangular spawn area · Shift for square · Set occupants in Properties"))
                                 : "Drag a rectangle · Shift for square · Edit dimensions in Properties"}
+=======
+                : tool === "hazard"
+                  ? "Click to set the hazard's origin. Agents learn its location during the run."
+                  : tool === "tornado-zone"
+                    ? "Drag a safe shelter area for tornado response."
+                    : tool === "select"
+                      ? "Drag objects or a hazard's centre marker to move · Shift-click to add · Double-click for Properties"
+                      : tool === "wall-freehand"
+                        ? freehand?.error &&
+                          gesture?.curve &&
+                          gesture.curve.length > 1
+                          ? freehand.error
+                          : "Drag or click–trace–click · Escape cancels · Alt-click selects one segment"
+                        : tool === "wall"
+                          ? "Drag a straight wall at any angle. Nearby endpoints snap together."
+                          : tool === "wall-rectangle"
+                            ? "Drag opposite corners · Shift for square · Creates four walls"
+                            : tool === "wall-circle"
+                              ? "Drag an ellipse · Shift for circle · Saves 32 connected wall segments"
+                              : tool === "door" || tool === "exit"
+                                ? `Click a wall to place ${tool === "exit" ? "an exit" : "a door"}. Adjust its width in Properties.`
+                                : tool === "stairs"
+                                  ? "Drag a walkable stair-area marker. It does not connect floors or block occupants."
+                                  : tool === "spawn"
+                                    ? "Drag a spawn area, then set its name and occupant count in Properties."
+                                    : "Drag a rectangle · Shift for square · Edit dimensions in Properties"}
+>>>>>>> connor/catastrophes
             </p>
             <div className="canvas-wrap editor-canvas-wrap">
               <canvas
@@ -1196,6 +1305,7 @@ export function BuildingEditor({
                     "spawn_zones",
                     "obstructions",
                     "stair_areas",
+                    "tornado_zones",
                   ] as const
                 ).flatMap((kind) =>
                   (building[kind] ?? []).map((v) => (

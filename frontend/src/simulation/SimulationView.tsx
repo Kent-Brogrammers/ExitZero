@@ -404,8 +404,9 @@ function Playback({
                   <p className="playback-outcome">
                     Recorded outcome: <strong>{recording.status}</strong> ·{" "}
                     {recording.evacuated} / {recording.total_population}{" "}
-                    evacuated · {recording.remaining} remaining (
-                    {recording.trapped} trapped).{" "}
+                    evacuated · {recording.sheltered ?? 0} sheltered ·{" "}
+                    {recording.remaining} remaining ({recording.trapped}{" "}
+                    trapped).{" "}
                     {recording.status !== "completed" &&
                       "Recording ended before full evacuation."}
                   </p>
