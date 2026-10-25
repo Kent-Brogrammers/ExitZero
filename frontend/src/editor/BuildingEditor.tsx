@@ -6,6 +6,7 @@ import {
   type FurnitureKind,
 } from "./furniture";
 import { hitOpening } from "./openings";
+import { openingStartsBlocked, setOpeningBlocked } from "./openingState";
 import { mergeEditedOpenings, snapOpeningToNeighbor } from "./doorEditing";
 import {
   addFreehandWalls,
@@ -1273,6 +1274,32 @@ export function BuildingEditor({
                     commit(renameObject(building, selected, name))
                   }
                 />
+                {(selected.kind === "doors" || selected.kind === "exits") && (
+                  <>
+                    <label className="block-toggle">
+                      <input
+                        type="checkbox"
+                        aria-describedby="opening-block-help"
+                        checked={openingStartsBlocked(building, selected.id)}
+                        onChange={(event) =>
+                          commit(
+                            setOpeningBlocked(
+                              building,
+                              selected.kind === "doors" ? "doors" : "exits",
+                              selected.id,
+                              event.target.checked,
+                            ),
+                          )
+                        }
+                      />
+                      Blocked
+                    </label>
+                    <p className="note" id="opening-block-help">
+                      Initial state for the next simulation run. Later scheduled
+                      changes are preserved. Physical barriers still apply.
+                    </p>
+                  </>
+                )}
                 {selected.kind === "obstructions" && (
                   <>
                     <label className="number-field">
@@ -1337,7 +1364,7 @@ export function BuildingEditor({
                 )}
                 <p className="note">
                   {"wall_id" in selectedElement
-                    ? `On ${objectName(building, { kind: "walls", id: selectedElement.wall_id })}. ${selected.kind === "windows" ? "Windows stay distinct and solid until serviced by the engine." : "Touching doors merge; exits merge only with matching blocked states. Blocked exits stay solid."}`
+                    ? `On ${objectName(building, { kind: "walls", id: selectedElement.wall_id })}. ${selected.kind === "windows" ? "Windows stay distinct and solid until serviced by the engine." : "Touching openings merge only with matching blocked states and compatible schedules. Blocked openings stay solid."}`
                     : "Dimensions in metres"}
                 </p>
                 {"start" in selectedElement ? (
@@ -1390,25 +1417,6 @@ export function BuildingEditor({
                     )!}
                     onChange={commit}
                   />
-                )}
-                {selected.kind === "exits" && (
-                  <label className="block-toggle">
-                    <input
-                      type="checkbox"
-                      checked={building.blocked_exit_ids.includes(selected.id)}
-                      onChange={(event) =>
-                        commit({
-                          ...building,
-                          blocked_exit_ids: event.target.checked
-                            ? [...building.blocked_exit_ids, selected.id]
-                            : building.blocked_exit_ids.filter(
-                                (id) => id !== selected.id,
-                              ),
-                        })
-                      }
-                    />
-                    Block this exit
-                  </label>
                 )}
                 <button
                   className="delete-button"
