@@ -25,7 +25,7 @@ import { WindowProperties } from "./WindowProperties";
 import { objectName, nextObjectName, renameObject } from "./names";
 import { EditorUtilityRail } from "./EditorUtilityRail";
 import { EditorDrawingRail } from "./EditorDrawingRail";
-import { addObject, addWallShape, dragRectangle } from "./shapes";
+import { addObject, addWallShape, addSpawnZone, dragRectangle } from "./shapes";
 import { useStudioTheme } from "../styles/appearance";
 import { isWallTool, type EditorTool } from "./tools";
 import example from "../../../shared/examples/building.json";
@@ -69,6 +69,7 @@ type Gesture = {
   curve?: Point[];
   tracing?: boolean;
   overflow?: boolean;
+  spawnId?: string;
 };
 interface BuildingEditorProps {
   building: BuildingScenario;
@@ -115,6 +116,8 @@ export function BuildingEditor({
 }: BuildingEditorProps) {
   const theme = useStudioTheme();
   const [drafting, setDrafting] = useDraftingPreferences();
+  const editor = useRef<HTMLElement>(null);
+  const [expandedView, setExpandedView] = useState(false);
   const canvas = useRef<HTMLCanvasElement>(null);
   const importInput = useRef<HTMLInputElement>(null);
   const dxfDialog = useRef<HTMLDialogElement>(null);
@@ -138,6 +141,27 @@ export function BuildingEditor({
   const selectedElement = selected
     ? (building[selected.kind] ?? []).find((v) => v.id === selected.id)
     : null;
+
+  useEffect(() => {
+    const update = () =>
+      setExpandedView(document.fullscreenElement === editor.current);
+    document.addEventListener("fullscreenchange", update);
+    return () => document.removeEventListener("fullscreenchange", update);
+  }, []);
+
+  async function toggleExpandedView() {
+    if (!editor.current) return;
+    setGesture(null);
+    try {
+      if (document.fullscreenElement === editor.current)
+        await document.exitFullscreen();
+      else await editor.current.requestFullscreen();
+    } catch {
+      setError(
+        "Fullscreen is unavailable in this browser. Canvas size controls still work.",
+      );
+    }
+  }
 
   function snapshot(): EditorSnapshot {
     return { building, furniture: new Map(furnitureSymbols) };
@@ -433,6 +457,17 @@ export function BuildingEditor({
     ? (draftEdit?.building ?? building)
     : (openingPreview?.building ?? building);
   const freehand = gesture?.curve ? curveDraft(gesture) : null;
+  const spawnDraft =
+    tool === "spawn" && gesture && !gesture.selection
+      ? addSpawnZone(
+          gesture.base,
+          gesture.start,
+          gesture.current,
+          !!gesture.constrain,
+          gesture.spawnId,
+        )
+      : null;
+  const spawnProblem = spawnDraft ? buildingError(spawnDraft, false) : null;
   const displaySelection = gesture?.marquee
     ? combineSelection(
         gesture.initial ?? [],
@@ -491,11 +526,17 @@ export function BuildingEditor({
               shape: gesture.marquee ? "marquee" : tool,
               constrain: gesture.constrain,
               points: freehand?.points,
+              invalid: !!spawnProblem,
             }
           : undefined,
         window.devicePixelRatio,
         undefined,
-        { grid: drafting, furniture: furnitureSymbols },
+        {
+          grid: drafting,
+          furniture: furnitureSymbols,
+          showLabels: tool === "select" && !gesture,
+          showDimensions: tool === "select" && !gesture,
+        },
       );
     redraw();
     const observer = new ResizeObserver(redraw);
@@ -517,6 +558,7 @@ export function BuildingEditor({
     placement,
     openingPreview,
     furnitureSymbols,
+    spawnProblem,
   ]);
 
   function pointerDown(event: PointerEvent<HTMLCanvasElement>) {
@@ -618,6 +660,7 @@ export function BuildingEditor({
         current: start,
         base: building,
         constrain: event.shiftKey,
+        spawnId: tool === "spawn" ? `spawn_${crypto.randomUUID()}` : undefined,
       });
     }
   }
@@ -744,18 +787,15 @@ export function BuildingEditor({
       )
         selectElement({ kind: "stair_areas", id: area.id });
     } else if (tool === "spawn") {
-      const rectangle = dragRectangle(g.start, g.current, building);
-      const zone = {
-        id: `spawn_${crypto.randomUUID()}`,
-        name: nextObjectName(building, "spawn_zones"),
-        ...rectangle,
-        count: Math.min(
-          10000,
-          Math.max(1, Math.floor((rectangle.width * rectangle.height) / 1.5)),
-        ),
-      };
-      if (commit({ ...building, spawn_zones: [...building.spawn_zones, zone] }))
-        selectElement({ kind: "spawn_zones", id: zone.id });
+      const next = addSpawnZone(
+        building,
+        g.start,
+        g.current,
+        !!g.constrain,
+        g.spawnId,
+      );
+      const zone = next.spawn_zones.at(-1)!;
+      if (commit(next)) selectElement({ kind: "spawn_zones", id: zone.id });
     } else if (tool === "object-square" || tool === "object-rectangle") {
       const next = addObject(building, g.start, g.current, !!g.constrain);
       if (commit(next))
@@ -858,9 +898,17 @@ export function BuildingEditor({
 
   return (
     <section
+      ref={editor}
       className="panel editor-panel"
       id="building"
       aria-labelledby="building-title"
+      onKeyDownCapture={(event) => {
+        if (event.key === "Escape" && expandedView) {
+          event.preventDefault();
+          event.stopPropagation();
+          void toggleExpandedView();
+        }
+      }}
     >
       <div className="panel-heading">
         <div>
@@ -919,6 +967,57 @@ export function BuildingEditor({
               onImportDxf={() => dxfDialog.current?.showModal()}
               onExport={exportLayout}
               onProperties={() => setPropertiesOpen(!propertiesOpen)}
+              canvasControls={
+                <div className="canvas-size-controls">
+                  <h3>Drawing area</h3>
+                  <NumberField
+                    label="Width (m)"
+                    value={building.width}
+                    onCommit={(width) => commit({ ...building, width })}
+                  />
+                  <NumberField
+                    label="Height (m)"
+                    value={building.height}
+                    onCommit={(height) => commit({ ...building, height })}
+                  />
+                  <button
+                    type="button"
+                    className="studio-control"
+                    disabled={building.width >= 1000 && building.height >= 1000}
+                    onClick={() =>
+                      commit({
+                        ...building,
+                        width: Math.min(
+                          1000,
+                          Math.ceil(building.width * 125) / 100,
+                        ),
+                        height: Math.min(
+                          1000,
+                          Math.ceil(building.height * 125) / 100,
+                        ),
+                      })
+                    }
+                  >
+                    Expand drawing area +25%
+                  </button>
+                  <p className="note">
+                    Up to 1,000 m per side. Existing objects keep their size and
+                    position. Undo restores the previous area.
+                  </p>
+                  <hr />
+                  <button
+                    type="button"
+                    className="studio-control"
+                    aria-pressed={expandedView}
+                    onClick={() => void toggleExpandedView()}
+                  >
+                    {expandedView ? "Restore view" : "Expand view"}
+                  </button>
+                  <p className="note">
+                    Fullscreen drawing. Press Esc to return.
+                  </p>
+                </div>
+              }
               drafting={drafting}
               onDrafting={setDrafting}
             />
@@ -947,7 +1046,7 @@ export function BuildingEditor({
                       : `Selected: ${objectName(building, selected!)}`}
               </p>
             )}
-            <p className="editor-help">
+            <p className={`editor-help${spawnProblem ? " is-invalid" : ""}`}>
               {furnitureKind(tool)
                 ? "Click to place or drag a footprint. Furniture blocks its full rectangle."
                 : tool === "select"
@@ -971,7 +1070,10 @@ export function BuildingEditor({
                             : tool === "stairs"
                               ? "Drag a walkable stair-area marker. It does not connect floors or block occupants."
                               : tool === "spawn"
-                                ? "Drag a spawn area, then set its name and occupant count in Properties."
+                                ? (spawnProblem ??
+                                  (spawnDraft
+                                    ? `${spawnDraft.spawn_zones.at(-1)!.width.toFixed(2)} × ${spawnDraft.spawn_zones.at(-1)!.height.toFixed(2)} m · ${spawnDraft.spawn_zones.at(-1)!.count} occupants · Release to place`
+                                    : "Drag a rectangular spawn area · Shift for square · Set occupants in Properties"))
                                 : "Drag a rectangle · Shift for square · Edit dimensions in Properties"}
             </p>
             <div className="canvas-wrap editor-canvas-wrap">
@@ -1322,19 +1424,6 @@ export function BuildingEditor({
                 Select an object. Export JSON to save your layout.
               </p>
             )}
-            <details className="workspace-settings">
-              <summary>Canvas size</summary>
-              <NumberField
-                label="Width (m)"
-                value={building.width}
-                onCommit={(width) => commit({ ...building, width })}
-              />
-              <NumberField
-                label="Height (m)"
-                value={building.height}
-                onCommit={(height) => commit({ ...building, height })}
-              />
-            </details>
           </aside>
         </div>
       </fieldset>

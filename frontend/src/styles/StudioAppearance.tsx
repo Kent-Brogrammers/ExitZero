@@ -1,76 +1,36 @@
+import { useLayoutEffect, type ReactNode } from "react";
 import {
-  useContext,
-  useEffect,
-  useLayoutEffect,
-  useState,
-  type ReactNode,
-} from "react";
-import {
-  AppearanceContext,
-  appearanceOptions,
-  initialTheme,
+  STUDIO_THEME,
+  CANVAS_THEME,
   THEME_STORAGE_KEY,
   LEGACY_THEME_STORAGE_KEY,
-  type StudioTheme,
 } from "./appearance";
 
 export function StudioAppearance({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<StudioTheme>(initialTheme);
   useLayoutEffect(() => {
-    document.documentElement.dataset.studioTheme = theme;
-    document.documentElement.dataset.canvasTheme = theme;
+    document.documentElement.dataset.studioTheme = STUDIO_THEME;
+    document.documentElement.dataset.canvasTheme = CANVAS_THEME;
     try {
-      window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+      window.localStorage.setItem(THEME_STORAGE_KEY, CANVAS_THEME);
+      window.localStorage.setItem(LEGACY_THEME_STORAGE_KEY, STUDIO_THEME);
     } catch {
-      /* Appearance still works when browser storage is unavailable. */
+      /* The fixed appearance also works without browser storage. */
     }
-  }, [theme]);
-  useEffect(() => {
-    const update = (event: StorageEvent) => {
-      if (
-        event.key === THEME_STORAGE_KEY ||
-        event.key === LEGACY_THEME_STORAGE_KEY ||
-        event.key === null
-      )
-        setTheme(initialTheme());
-    };
-    window.addEventListener("storage", update);
-    return () => window.removeEventListener("storage", update);
   }, []);
-  return (
-    <AppearanceContext value={{ theme, setTheme }}>
-      {children}
-    </AppearanceContext>
-  );
+  return children;
 }
 
 export function AppearanceSelector() {
-  const { theme, setTheme } = useContext(AppearanceContext);
   return (
-    <div>
-      <label className="appearance-setting">
-        Studio appearance
-        <select
-          aria-label="Studio appearance"
-          value={theme}
-          onChange={(event) => setTheme(event.target.value as StudioTheme)}
-        >
-          {appearanceOptions.map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-      </label>
-      <p className="note">
-        Applies to the floor plan, Studio controls, and analytics.
-      </p>
-      {theme.startsWith("blueprint") && (
-        <p className="note">
-          Blueprint symbols change appearance only. Walls keep their full
-          thickness and openings; stair markers remain walkable.
-        </p>
-      )}
-    </div>
+    <dl className="settings-values">
+      <div>
+        <dt>Studio</dt>
+        <dd>Black</dd>
+      </div>
+      <div>
+        <dt>Floor plan</dt>
+        <dd>Blue blueprint</dd>
+      </div>
+    </dl>
   );
 }

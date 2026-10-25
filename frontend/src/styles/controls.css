@@ -119,24 +119,6 @@
   }
 }
 
-.appearance-setting {
-  display: grid;
-  gap: 8px;
-  margin: 16px 0;
-  font-size: var(--text-small);
-  color: var(--cad-muted);
-}
-.appearance-setting select {
-  width: 100%;
-  height: var(--control-height);
-  border: 1px solid var(--cad-border-strong);
-  border-radius: var(--radius-control);
-  color: var(--cad-text);
-  background: var(--cad-surface);
-  padding: 0 8px;
-  font-size: var(--text-control);
-}
-
 .note > summary,
 .shape-note > summary {
   width: fit-content;
