@@ -168,6 +168,7 @@ function Playback({
         palette,
         {
           windowStates: agents?.window_states,
+          disasterState: agents?.disaster_state,
           underlay: (ctx) => {
             ctx.save();
             ctx.beginPath();

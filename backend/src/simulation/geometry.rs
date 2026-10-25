@@ -6,6 +6,88 @@ use std::collections::BTreeSet;
 // Match the opening bounds/overlap tolerance in BuildingScenario validation.
 const OPENING_EPSILON: f64 = 1e-8;
 
+// Intersect a movement segment with a box expressed in two orthonormal axes.
+fn box_interval(
+    from: Point,
+    to: Point,
+    origin: Point,
+    axes: [(Point, f64, f64); 2],
+) -> Option<(f64, f64)> {
+    let (mut enter, mut leave) = (0.0_f64, 1.0_f64);
+    for (axis, low, high) in axes {
+        let offset = (from.x - origin.x) * axis.x + (from.y - origin.y) * axis.y;
+        let delta = (to.x - from.x) * axis.x + (to.y - from.y) * axis.y;
+        if delta.abs() < 1e-12 {
+            if offset < low || offset > high {
+                return None;
+            }
+        } else {
+            let a = (low - offset) / delta;
+            let b = (high - offset) / delta;
+            enter = enter.max(a.min(b));
+            leave = leave.min(a.max(b));
+            if enter > leave {
+                return None;
+            }
+        }
+    }
+    Some((enter, leave))
+}
+
+// A capsule is its rectangular body plus circular end caps. Its intersection
+// with a line is one interval; no sampling can miss a thin partition.
+fn capsule_interval(
+    from: Point,
+    to: Point,
+    start: Point,
+    end: Point,
+    radius: f64,
+) -> Option<(f64, f64)> {
+    let length = math::distance_to_point(start, end);
+    let mut intervals = Vec::new();
+    if length > math::EPSILON {
+        let tangent = Point {
+            x: (end.x - start.x) / length,
+            y: (end.y - start.y) / length,
+        };
+        let normal = Point {
+            x: -tangent.y,
+            y: tangent.x,
+        };
+        if let Some(interval) = box_interval(
+            from,
+            to,
+            start,
+            [(tangent, 0.0, length), (normal, -radius, radius)],
+        ) {
+            intervals.push(interval);
+        }
+    }
+    let dx = to.x - from.x;
+    let dy = to.y - from.y;
+    let square = dx * dx + dy * dy;
+    if square <= math::EPSILON * math::EPSILON {
+        return (math::distance_to_segment(from, start, end) <= radius).then_some((0.0, 1.0));
+    }
+    for center in [start, end] {
+        let x = from.x - center.x;
+        let y = from.y - center.y;
+        let dot = x * dx + y * dy;
+        let discriminant = dot * dot - square * (x * x + y * y - radius * radius);
+        if discriminant >= 0.0 {
+            let half = discriminant.sqrt();
+            let enter = ((-dot - half) / square).max(0.0);
+            let leave = ((-dot + half) / square).min(1.0);
+            if enter <= leave {
+                intervals.push((enter, leave));
+            }
+        }
+    }
+    intervals
+        .into_iter()
+        .reduce(|a, b| (a.0.min(b.0), a.1.max(b.1)))
+}
+
 pub(super) struct Geometry<'a> {
     scenario: &'a BuildingScenario,
     emergencies: Vec<Emergency>,
@@ -365,40 +447,15 @@ impl<'a> Geometry<'a> {
         if super::catastrophe::blocks_opening(scenario, opening) {
             return true;
         }
-        let center = Self::opening_center(scenario, opening);
-        // Test the other walls' actual solid portions. Their own open doors
-        // must not become phantom closures, especially on short curve segments.
-        let layout = Geometry {
-            disaster: None,
-            hazard_areas: vec![],
-            scenario,
-            emergencies: Vec::new(),
-            obstructions: Vec::new(),
-            solid_walls: Vec::new(),
-            blocked_openings: scenario.blocked_exit_ids.iter().cloned().collect(),
-            partial_knowledge: false,
-            observed_openings: BTreeSet::new(),
-            service_apertures: Vec::new(),
-        };
-        scenario.walls.iter().any(|wall| {
-            wall.id != opening.wall_id
-                && math::distance_to_segment(center, wall.start, wall.end)
-                    < scenario.agent_radius + wall.thickness / 2.0
-                && layout
-                    .solid_wall_segments(wall)
-                    .iter()
-                    .any(|&(start, end)| {
-                        let dx = end.x - start.x;
-                        let dy = end.y - start.y;
-                        let projection = ((center.x - start.x) * dx + (center.y - start.y) * dy)
-                            / (dx * dx + dy * dy);
-                        // Nearby jamb caps constrain body clearance, but do not
-                        // mean a neighboring opening has physically closed.
-                        (0.0..=1.0).contains(&projection)
-                            && math::distance_to_segment(center, start, end)
-                                < scenario.agent_radius + wall.thickness / 2.0
-                    })
-        })
+        // Test material with this aperture open, so scheduled reopenings remain
+        // possible. Other walls retain their actual openings and rounded caps.
+        let mut blocked: BTreeSet<_> = scenario.blocked_exit_ids.iter().cloned().collect();
+        blocked.remove(&opening.id);
+        let mut layout = Geometry::build(scenario, &[], blocked, false, BTreeSet::new());
+        layout.obstructions.clear();
+        layout
+            .opening_segment(opening)
+            .is_some_and(|(start, end)| layout.clear_segments(start, end).is_empty())
     }
 
     /// Local cut used only to see a closure without that closure occluding
@@ -560,6 +617,10 @@ impl<'a> Geometry<'a> {
             return None;
         }
         let exit = self.scenario.exits.iter().find(|exit| exit.id == exit_id)?;
+        self.opening_segment(exit)
+    }
+
+    fn opening_segment(&self, exit: &Opening) -> Option<(Point, Point)> {
         let wall = self
             .scenario
             .walls
@@ -581,6 +642,80 @@ impl<'a> Geometry<'a> {
                 (exit.offset + exit.width - clearance) / wall.length(),
             ),
         ))
+    }
+
+    /// Body-clear intervals on the exit plane, using only this geometry's
+    /// material (including remembered fragments when planning with beliefs).
+    pub(super) fn exit_segments(&self, exit_id: &str) -> Vec<(Point, Point)> {
+        self.exit_segment(exit_id)
+            .map_or_else(Vec::new, |(start, end)| self.clear_segments(start, end))
+    }
+
+    fn clear_segments(&self, start: Point, end: Point) -> Vec<(Point, Point)> {
+        let mut blocked = Vec::new();
+        for &(a, b, half_thickness, _) in &self.solid_walls {
+            if let Some(interval) = capsule_interval(
+                start,
+                end,
+                a,
+                b,
+                self.scenario.agent_radius + half_thickness + 1e-6,
+            ) {
+                blocked.push(interval);
+            }
+        }
+        for obstacle in &self.obstructions {
+            if let Some(interval) = box_interval(
+                start,
+                end,
+                Point {
+                    x: obstacle.x,
+                    y: obstacle.y,
+                },
+                [
+                    (Point { x: 1.0, y: 0.0 }, 0.0, obstacle.width),
+                    (Point { x: 0.0, y: 1.0 }, 0.0, obstacle.height),
+                ],
+            ) {
+                blocked.push(interval);
+            }
+            let vertices = math::rectangle_vertices(
+                Point {
+                    x: obstacle.x + obstacle.width / 2.0,
+                    y: obstacle.y + obstacle.height / 2.0,
+                },
+                obstacle.width,
+                obstacle.height,
+                0.0,
+            );
+            for i in 0..4 {
+                if let Some(interval) = capsule_interval(
+                    start,
+                    end,
+                    vertices[i],
+                    vertices[(i + 1) % 4],
+                    self.scenario.agent_radius + 1e-6,
+                ) {
+                    blocked.push(interval);
+                }
+            }
+        }
+        blocked.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.total_cmp(&b.1)));
+        let mut cursor = 0.0_f64;
+        let mut clear = Vec::new();
+        for (enter, leave) in blocked {
+            if enter > cursor {
+                clear.push((
+                    math::interpolate(start, end, cursor),
+                    math::interpolate(start, end, enter),
+                ));
+            }
+            cursor = cursor.max(leave);
+        }
+        if cursor < 1.0 {
+            clear.push((math::interpolate(start, end, cursor), end));
+        }
+        clear
     }
 
     pub(super) fn at_exit(&self, position: Point, exit_id: &str) -> bool {

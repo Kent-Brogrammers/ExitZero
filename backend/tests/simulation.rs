@@ -286,3 +286,43 @@ fn opening_passability_includes_body_radius_and_rounded_jambs() {
     assert_eq!(result.metrics.status, SimulationStatus::Completed);
     assert_eq!(result.metrics.evacuated, 1);
 }
+
+#[test]
+fn wide_exit_partition_keeps_safe_side_passages_in_real_simulation() {
+    let mut building = symmetric_exit(6.0, false, 42);
+    building.walls.push(exitzero::models::Wall {
+        id: "partition".into(),
+        name: None,
+        start: exitzero::models::Point { x: 5.0, y: 0.0 },
+        end: exitzero::models::Point { x: 5.0, y: 2.0 },
+        thickness: 0.2,
+    });
+    let result = simulate(&building).unwrap();
+    result.validate().unwrap();
+    assert_eq!(result.metrics.status, SimulationStatus::Completed);
+    assert_eq!(result.metrics.evacuated, 2);
+    assert!(
+        result.frames[0]
+            .blocked_opening_ids
+            .as_ref()
+            .unwrap()
+            .is_empty()
+    );
+    for pair in result.frames.windows(2) {
+        for agent in &pair[0].agents {
+            if let Some(next) = pair[1].agents.iter().find(|next| next.id == agent.id) {
+                // Each side remains on its side of the thin partition until it evacuates.
+                assert!((agent.x - 5.0) * (next.x - 5.0) > 0.0);
+                for point in [agent, next] {
+                    if point.y <= 2.0 {
+                        assert!((point.x - 5.0).abs() >= 0.3 - 1e-8);
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(
+        serde_json::to_value(&result).unwrap(),
+        serde_json::to_value(simulate(&building).unwrap()).unwrap()
+    );
+}

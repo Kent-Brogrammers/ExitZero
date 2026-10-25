@@ -1,12 +1,12 @@
 import type { ReplayTarget } from "../simulation/replayTarget";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type Ref } from "react";
 import type {
   BuildingScenario,
   LiveSimulation,
   SimulationResult,
 } from "../types/simulation";
 import { SimulationView } from "../simulation/SimulationView";
-import { BuildingEditor } from "./BuildingEditor";
+import { BuildingEditor, type BuildingEditorHandle } from "./BuildingEditor";
 import "./BuildingWorkspace.css";
 
 type Mode = "edit" | "simulation";
@@ -24,6 +24,7 @@ interface BuildingWorkspaceProps {
   active?: boolean;
   allowSyntheticPreview?: boolean;
   onOpenAnalytics?: () => void;
+  editorRef?: Ref<BuildingEditorHandle>;
 }
 
 export function BuildingWorkspace({
@@ -39,6 +40,7 @@ export function BuildingWorkspace({
   allowSyntheticPreview = true,
   onOpenAnalytics,
   replayTarget,
+  editorRef,
 }: BuildingWorkspaceProps) {
   const [localMode, setMode] = useState<Mode>(() =>
     typeof window !== "undefined" && window.location.hash === "#simulation"
@@ -73,6 +75,7 @@ export function BuildingWorkspace({
         hidden={mode !== "edit"}
       >
         <BuildingEditor
+          editorRef={editorRef}
           building={building}
           onChange={onChange}
           disabled={disabled}

@@ -16,7 +16,14 @@ import {
   MAX_CURVE_SAMPLES,
   CURVE_SAMPLE_METRES,
 } from "./freehand";
-import { useEffect, useRef, useState, type PointerEvent } from "react";
+import {
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type PointerEvent,
+  type Ref,
+} from "react";
 import {
   gridSpacings,
   snapGridPoint,
@@ -73,12 +80,17 @@ type Gesture = {
   overflow?: boolean;
   spawnId?: string;
 };
+export interface BuildingEditorHandle {
+  applyBuilding: (next: BuildingScenario) => boolean;
+}
+
 interface BuildingEditorProps {
   building: BuildingScenario;
   onChange: (building: BuildingScenario) => void;
   disabled?: boolean;
   savedLayoutJson?: string;
   onSaved?: (building: BuildingScenario) => void;
+  editorRef?: Ref<BuildingEditorHandle>;
 }
 
 function NumberField({
@@ -119,6 +131,7 @@ export function BuildingEditor({
   disabled = false,
   savedLayoutJson,
   onSaved,
+  editorRef,
 }: BuildingEditorProps) {
   const theme = useStudioTheme();
   const [drafting, setDrafting] = useDraftingPreferences();
@@ -243,6 +256,13 @@ export function BuildingEditor({
     onChange(next);
     return true;
   }
+  useImperativeHandle(editorRef, () => ({
+    applyBuilding(next) {
+      setGesture(null);
+      return commit(next, false, []);
+    },
+  }));
+
   function changeTool(next: EditorTool) {
     setPropertiesOpen(false);
     setTool(next);
