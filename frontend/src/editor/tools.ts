@@ -10,6 +10,8 @@ export type EditorTool =
   | "exit"
   | "spawn"
   | "stairs"
+  | "tornado-zone"
+  | "hazard"
   | "object-square"
   | "object-rectangle";
 

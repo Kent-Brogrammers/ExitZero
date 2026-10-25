@@ -189,3 +189,68 @@ describe("visual-only frame interpolation", () => {
     expect(sample(1.5)).toBe(first);
   });
 });
+
+it("smooths only received hazard positions and growth while keeping recordings immutable", () => {
+  const building: BuildingScenario = {
+    ...empty,
+    disaster: { kind: "fire", center: { x: 2, y: 2 }, radius: 1 },
+  };
+  const recorded: AnimationFrame[] = [
+    {
+      step: 0,
+      agents: [],
+      disaster_state: {
+        kind: "fire",
+        areas: [{ id: 0, revision: 0, center: { x: 2, y: 2 }, radius: 1 }],
+      },
+    },
+    {
+      step: 10,
+      agents: [],
+      disaster_state: {
+        kind: "fire",
+        areas: [
+          { id: 0, revision: 10, center: { x: 4, y: 2 }, radius: 2 },
+          { id: 1, revision: 10, center: { x: 5, y: 3 }, radius: 0.2 },
+        ],
+      },
+    },
+  ];
+  const original = structuredClone(recorded);
+  const sample = createFrameSampler(building, recorded, 0.1);
+  const midpoint = sample(0.5)!.disaster_state!;
+  expect(midpoint.areas).toHaveLength(1);
+  expect(midpoint.areas[0]!.center).toEqual({ x: 3, y: 2 });
+  expect(midpoint.areas[0]!.radius).toBe(1.5);
+  expect(sample(1)!.disaster_state!.areas).toHaveLength(2);
+  expect(recorded).toEqual(original);
+});
+
+it("does not interpolate a tornado through a protected shelter between coarse samples", () => {
+  const building: BuildingScenario = {
+    ...empty,
+    disaster: { kind: "tornado", center: { x: 1, y: 5 }, radius: 0.5 },
+    tornado_zones: [{ id: "safe", x: 4, y: 4, width: 2, height: 2 }],
+  };
+  const recorded: AnimationFrame[] = [
+    {
+      step: 0,
+      agents: [],
+      disaster_state: {
+        kind: "tornado",
+        areas: [{ id: 0, revision: 0, center: { x: 1, y: 5 }, radius: 0.5 }],
+      },
+    },
+    {
+      step: 10,
+      agents: [],
+      disaster_state: {
+        kind: "tornado",
+        areas: [{ id: 0, revision: 10, center: { x: 9, y: 5 }, radius: 0.5 }],
+      },
+    },
+  ];
+  const sample = createFrameSampler(building, recorded, 0.1);
+  expect(sample(0.5)!.disaster_state!.areas[0]!.center.x).toBe(1);
+  expect(sample(1)!.disaster_state!.areas[0]!.center.x).toBe(9);
+});

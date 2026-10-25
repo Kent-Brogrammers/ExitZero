@@ -3,6 +3,7 @@ import type {
   AnimationFrame,
   BuildingScenario,
   Point,
+  HazardArea,
 } from "../types/simulation";
 import { frameIndexAtTime } from "./playback";
 import { solidWallSegments } from "../editor/openings";
@@ -133,6 +134,12 @@ export function createFrameSampler(
     target: AgentPosition;
     display: AgentPosition;
   }[] = [];
+  let hazardEntries: {
+    source: HazardArea;
+    target: HazardArea;
+    display: HazardArea;
+    blend: boolean;
+  }[] = [];
   return (seconds: number): AnimationFrame | null => {
     const index = frameIndexAtTime(frames, timeStep, seconds);
     const source = frames[index];
@@ -153,8 +160,53 @@ export function createFrameSampler(
           display: { ...agent },
         };
       });
+      const nextAreas = new Map(
+        next.disaster_state?.areas.map((area) => [area.id, area]),
+      );
+      hazardEntries = (source.disaster_state?.areas ?? []).map((area) => {
+        const target = nextAreas.get(area.id) ?? area;
+        const padding =
+          Math.max(area.radius, target.radius) * 1.3 +
+          building.agent_radius +
+          (building.disaster?.dynamics?.enabled
+            ? building.disaster.dynamics.shelter_clearance
+            : 0);
+        const blend =
+          source.disaster_state?.kind !== "tornado" ||
+          (building.tornado_zones ?? []).every((zone) => {
+            const corners = [
+              { x: zone.x, y: zone.y },
+              { x: zone.x + zone.width, y: zone.y },
+              { x: zone.x + zone.width, y: zone.y + zone.height },
+              { x: zone.x, y: zone.y + zone.height },
+            ];
+            return corners.every(
+              (corner, index) =>
+                segmentDistance(
+                  area.center,
+                  target.center,
+                  corner,
+                  corners[(index + 1) % 4]!,
+                ) >=
+                padding - 1e-8,
+            );
+          });
+        return {
+          source: area,
+          target,
+          display: { ...area, center: { ...area.center } },
+          blend,
+        };
+      });
       display = {
         step: source.step,
+        sheltered: source.sheltered,
+        disaster_state: source.disaster_state
+          ? {
+              kind: source.disaster_state.kind,
+              areas: hazardEntries.map((entry) => entry.display),
+            }
+          : undefined,
         blocked_opening_ids: source.blocked_opening_ids,
         agents: entries.map((entry) => entry.display),
       };
@@ -167,6 +219,18 @@ export function createFrameSampler(
           ((next.step - source.step) * timeStep),
       ),
     );
+    for (const entry of hazardEntries) {
+      const blend = entry.blend ? alpha : 0;
+      entry.display.center.x =
+        entry.source.center.x +
+        (entry.target.center.x - entry.source.center.x) * blend;
+      entry.display.center.y =
+        entry.source.center.y +
+        (entry.target.center.y - entry.source.center.y) * blend;
+      entry.display.radius =
+        entry.source.radius +
+        (entry.target.radius - entry.source.radius) * blend;
+    }
     for (const entry of entries) {
       entry.display.x =
         entry.source.x + (entry.target.x - entry.source.x) * alpha;

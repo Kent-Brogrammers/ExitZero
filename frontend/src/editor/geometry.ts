@@ -17,7 +17,8 @@ export type Selection = {
     | "exits"
     | "spawn_zones"
     | "obstructions"
-    | "stair_areas";
+    | "stair_areas"
+    | "tornado_zones";
   id: string;
 };
 export const distance = (a: Point, b: Point) =>
@@ -120,6 +121,7 @@ export function buildingError(
     ...b.spawn_zones,
     ...b.obstructions,
     ...(b.stair_areas ?? []),
+    ...(b.tornado_zones ?? []),
   ]) {
     if (ids.has(element.id)) return "Every layout element needs a unique ID.";
     ids.add(element.id);
@@ -167,6 +169,7 @@ export function buildingError(
     ...b.obstructions,
     ...b.spawn_zones,
     ...(b.stair_areas ?? []),
+    ...(b.tornado_zones ?? []),
   ]) {
     if (
       !inside(rectangle) ||
@@ -176,6 +179,43 @@ export function buildingError(
       })
     )
       return "Rectangles must fit inside the workspace.";
+  }
+  if (b.disaster && !inside(b.disaster.center))
+    return "Place the disaster inside the workspace.";
+  if (
+    (b.tornado_zones ?? []).some(
+      (zone) =>
+        zone.width <= 2 * b.agent_radius || zone.height <= 2 * b.agent_radius,
+    )
+  )
+    return "Tornado zones must be wider than one occupant.";
+  if (
+    requireReady &&
+    b.disaster?.kind === "tornado" &&
+    !b.tornado_zones?.length
+  )
+    return "Place a tornado zone before running a tornado simulation.";
+  if (
+    b.disaster?.dynamics?.enabled &&
+    b.disaster.kind !== "tornado" &&
+    b.disaster.dynamics.max_radius < b.disaster.radius
+  )
+    return "Maximum patch radius must be at least the initial radius.";
+  if (requireReady && b.disaster?.kind === "tornado") {
+    const danger = b.disaster;
+    if (
+      (b.tornado_zones ?? []).some(
+        (zone) =>
+          Math.hypot(
+            clamp(danger.center.x, zone.x, zone.x + zone.width) -
+              danger.center.x,
+            clamp(danger.center.y, zone.y, zone.y + zone.height) -
+              danger.center.y,
+          ) <=
+          danger.radius * 1.3 + b.agent_radius,
+      )
+    )
+      return "Tornado zones must be outside the tornado exposure area.";
   }
   let population = 0;
   for (let index = 0; index < b.spawn_zones.length; index++) {
@@ -215,6 +255,11 @@ export function removeElement(
       break;
     case "spawn_zones":
       next.spawn_zones = next.spawn_zones.filter((v) => v.id !== selection.id);
+      break;
+    case "tornado_zones":
+      next.tornado_zones = (next.tornado_zones ?? []).filter(
+        (v) => v.id !== selection.id,
+      );
       break;
     case "stair_areas":
       next.stair_areas = (next.stair_areas ?? []).filter(

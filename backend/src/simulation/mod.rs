@@ -7,8 +7,10 @@ use std::{collections::BTreeMap, fmt};
 mod agent;
 mod analytics;
 mod awareness;
+mod catastrophe;
 mod congestion;
 mod emergency;
+mod evolution;
 mod geometry;
 mod math;
 mod motion;
@@ -117,10 +119,19 @@ fn run(
         .iter()
         .map(|_| congestion::RouteCommitment::default())
         .collect();
+    let mut routed_disaster = vec![Vec::new(); agents.len()];
+    let mut last_disaster_replan = vec![f64::NEG_INFINITY; agents.len()];
+    let mut sheltered_count = 0;
+    let tornado = scenario
+        .disaster
+        .is_some_and(|d| d.kind == crate::models::DisasterKind::Tornado);
     let mut statistics: Vec<_> = agents
         .iter()
         .zip(&routes)
         .map(|(agent, route)| AgentStatistics {
+            shelter: None,
+            injury: 0.0,
+            exposure_seconds: 0.0,
             id: agent.id,
             distance_metres: 0.0,
             waiting_steps: 0,
@@ -156,19 +167,22 @@ fn run(
     record_traffic(scenario, &agents, &evacuated, &mut traffic);
 
     let status = loop {
-        if evacuated_count == total_population {
+        if evacuated_count + sheltered_count == total_population {
             break SimulationStatus::Completed;
         }
         let now = f64::from(step) * scenario.time_step_seconds;
         let (changed_beliefs, information_changed) =
             awareness::update_knowledge(&mut agents, &evacuated, &world, &geometry);
         for i in 0..agents.len() {
-            if evacuated[i] || !changed_beliefs[i] {
+            let versions: Vec<_> = agents[i]
+                .known_hazards
+                .values()
+                .map(|area| (area.id, area.revision))
+                .collect();
+            let changed_disaster = versions != routed_disaster[i];
+            if evacuated[i] || (!changed_beliefs[i] && !changed_disaster) {
                 continue;
             }
-            // Keep useful guidance as visible fragments grow. Rebuild the
-            // graph only when new knowledge invalidates the current route.
-            // Newly available alternatives go through congestion commitment.
             let map = beliefs.geometry_for_agent(&agents[i]);
             let mut from = agents[i].position;
             let valid = routes[i].as_ref().is_some_and(|route| {
@@ -179,15 +193,63 @@ fn run(
                         clear
                     })
             });
-            if valid {
+            if valid && (!changed_disaster || now - last_disaster_replan[i] < 0.5) {
+                continue;
+            }
+            let forecast = congestion::CrowdForecast::for_geometry(map);
+            let current_cost = routes[i].as_ref().map(|route| {
+                navigation::route_cost(
+                    agents[i].position,
+                    &route.waypoints[next_waypoint[i]..],
+                    &forecast,
+                    scenario.agent_radius,
+                )
+            });
+            // Changing danger that does not intersect the remaining route
+            // cannot improve safety. Avoid rebuilding a graph on every sighting.
+            if valid
+                && current_cost.is_some_and(|cost| {
+                    let route = routes[i].as_ref().unwrap();
+                    let distance = navigation::route_cost(
+                        agents[i].position,
+                        &route.waypoints[next_waypoint[i]..],
+                        &congestion::CrowdForecast::default(),
+                        scenario.agent_radius,
+                    );
+                    cost <= distance + math::EPSILON
+                })
+            {
+                routed_disaster[i] = versions;
+                last_disaster_replan[i] = now;
                 continue;
             }
             let (map, navigation) = beliefs.for_agent(&agents[i]);
-            routes[i] = navigation.find_route(agents[i].position, map);
-            statistics[i].route_found = routes[i].is_some();
-            next_waypoint[i] = 0;
-            stalled_ticks[i] = 0;
-            commitments[i].forced(now);
+            let candidate = navigation.find_route_with_forecast(
+                agents[i].position,
+                map,
+                &forecast,
+                scenario.agent_radius,
+            );
+            let improves = candidate.as_ref().is_some_and(|route| {
+                current_cost.is_none_or(|current| {
+                    navigation::route_cost(
+                        agents[i].position,
+                        &route.waypoints,
+                        &forecast,
+                        scenario.agent_radius,
+                    ) + scenario.agent_radius
+                        < current
+                })
+            });
+            if !valid || improves {
+                routes[i] = candidate;
+                statistics[i].route_found = routes[i].is_some();
+                next_waypoint[i] = 0;
+                stalled_ticks[i] = 0;
+                commitments[i].forced(now);
+            }
+            routed_disaster[i] = versions;
+            last_disaster_replan[i] = now;
         }
         if !routes
             .iter()
@@ -195,6 +257,7 @@ fn run(
             .any(|(i, route)| !evacuated[i] && route.is_some())
             && !world.has_pending_changes()
             && !information_changed
+            && scenario.disaster.is_none()
         {
             break SimulationStatus::Incomplete;
         }
@@ -407,6 +470,9 @@ fn run(
             let waypoint = route.waypoints[next_waypoint[i]];
             targets[i] = Some(waypoint);
             velocity_limits[i] = geometry.velocity_limits(before[i], scenario.time_step_seconds);
+            if agents[i].injury > 0.0 {
+                velocity_limits[i].extend(motion::injury_speed_limits(agents[i].injury));
+            }
             if geometry.can_move(before[i], *route.waypoints.last().unwrap()) {
                 velocity_limits[i].extend(geometry.exit_approach_limits(
                     before[i],
@@ -500,7 +566,7 @@ fn run(
             {
                 let speed = (previous_velocities[i].x.hypot(previous_velocities[i].y)
                     + motion::ACCELERATION * scenario.time_step_seconds)
-                    .min(motion::WALKING_SPEED);
+                    .min(motion::WALKING_SPEED * (1.0 - 0.75 * agents[i].injury));
                 candidate = math::move_toward(before[i], exit, speed * scenario.time_step_seconds);
             }
             if math::distance_to_point(candidate, waypoint) < 1e-8 {
@@ -552,12 +618,23 @@ fn run(
         motion::resolve_collisions(&before, &mut proposed, &active, scenario.agent_radius);
         #[cfg(test)]
         tests::assert_accepted_moves(scenario, &geometry, &before, &proposed, &active);
+        let previous_hazard = world.prepare_hazards(step + 1);
         let mut leaving = Vec::new();
         let mut progress = false;
         for i in 0..agents.len() {
             if evacuated[i] {
                 continue;
             }
+            catastrophe::expose_between(
+                &mut agents[i],
+                before[i],
+                proposed[i],
+                scenario,
+                previous_hazard.as_ref(),
+                world.disaster_state(),
+            );
+            statistics[i].injury = agents[i].injury;
+            statistics[i].exposure_seconds = agents[i].exposure_seconds;
             let Some(waypoint) = targets[i] else {
                 continue;
             };
@@ -577,7 +654,9 @@ fn run(
             }
             progress |= travelled > math::EPSILON;
             let route = routes[i].as_ref().unwrap();
-            if geometry.at_exit(proposed[i], &route.exit_id) {
+            if (tornado && catastrophe::shelter_at(scenario, proposed[i]).is_some())
+                || (!tornado && geometry.at_exit(proposed[i], &route.exit_id))
+            {
                 leaving.push(i);
                 progress = true;
             } else if math::distance_to_point(proposed[i], waypoint) <= math::EPSILON {
@@ -594,15 +673,31 @@ fn run(
         record_traffic(scenario, &agents, &evacuated, &mut traffic);
         for i in leaving {
             evacuated[i] = true;
-            evacuated_count += 1;
-            statistics[i].evacuation_step = Some(step);
-            statistics[i].evacuation_seconds = Some(f64::from(step) * scenario.time_step_seconds);
-            statistics[i].exit_id = routes[i].as_ref().map(|route| route.exit_id.clone());
+            if tornado {
+                sheltered_count += 1;
+                agents[i].sheltered = true;
+                statistics[i].shelter = Some(crate::models::ShelterArrival {
+                    id: catastrophe::shelter_at(scenario, agents[i].position)
+                        .unwrap()
+                        .into(),
+                    step,
+                    seconds: f64::from(step) * scenario.time_step_seconds,
+                });
+            } else {
+                evacuated_count += 1;
+                statistics[i].evacuation_step = Some(step);
+                statistics[i].evacuation_seconds =
+                    Some(f64::from(step) * scenario.time_step_seconds);
+                statistics[i].exit_id = routes[i].as_ref().map(|route| route.exit_id.clone());
+            }
         }
         if world.apply(step, &agents, &evacuated) {
             geometry =
                 geometry::Geometry::with_blocked_openings(scenario, emergencies, world.blocked());
         }
+        geometry.hazard_areas = world
+            .disaster_state()
+            .map_or_else(Vec::new, |state| state.areas.clone());
         if step % frame_stride == 0 {
             frames.push(frame(step, &agents, &evacuated, &world));
         }
@@ -641,19 +736,28 @@ fn run(
         .exits
         .iter()
         .all(|exit| world.states[&exit.id].blocked);
-    let remaining = total_population - evacuated_count;
+    let remaining = total_population - evacuated_count - sheltered_count;
     for agent in &mut statistics {
-        agent.elapsed_seconds =
-            f64::from(agent.evacuation_step.unwrap_or(step)) * scenario.time_step_seconds;
+        agent.elapsed_seconds = f64::from(
+            agent
+                .evacuation_step
+                .or_else(|| agent.shelter.as_ref().map(|s| s.step))
+                .unwrap_or(step),
+        ) * scenario.time_step_seconds;
         agent.waiting_seconds = f64::from(agent.waiting_steps) * scenario.time_step_seconds;
     }
     let analytics = analytics::summarize(statistics, f64::from(step) * scenario.time_step_seconds);
     Ok(SimulationResult {
         metrics: SimulationMetrics {
+            sheltered: sheltered_count,
             status,
             total_population,
             evacuated: evacuated_count,
-            trapped: if no_available_exits { remaining } else { 0 },
+            trapped: if no_available_exits && !tornado {
+                remaining
+            } else {
+                0
+            },
             remaining,
             clearance_steps: (status == SimulationStatus::Completed).then_some(step),
         },
@@ -673,6 +777,11 @@ fn frame(
     world: &awareness::OpeningStates,
 ) -> AnimationFrame {
     AnimationFrame {
+        disaster_state: world.disaster_state().cloned(),
+        sheltered: {
+            let count = agents.iter().filter(|agent| agent.sheltered).count() as u32;
+            (count > 0).then_some(count)
+        },
         blocked_opening_ids: Some(world.blocked().into_iter().collect()),
         step,
         agents: agents
@@ -680,6 +789,7 @@ fn frame(
             .zip(evacuated)
             .filter(|(_, gone)| !**gone)
             .map(|(agent, _)| AgentPosition {
+                injury: (agent.injury > 0.0).then_some(agent.injury),
                 id: agent.id,
                 x: agent.position.x,
                 y: agent.position.y,

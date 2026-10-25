@@ -29,6 +29,8 @@ struct BeliefKey {
     emergencies: BTreeSet<usize>,
     obstructions: BTreeSet<String>,
     walls: WallKnowledge,
+    knows_disaster: bool,
+    hazard_versions: Vec<(u32, u32)>,
 }
 
 impl BeliefKey {
@@ -39,6 +41,12 @@ impl BeliefKey {
             emergencies: agent.known_emergencies.clone(),
             obstructions: agent.known_obstructions.clone(),
             walls: agent.known_walls.clone(),
+            knows_disaster: agent.knows_disaster,
+            hazard_versions: agent
+                .known_hazards
+                .values()
+                .map(|area| (area.id, area.revision))
+                .collect(),
         }
     }
 }
@@ -49,6 +57,8 @@ struct Report {
     emergencies: BTreeSet<usize>,
     obstructions: BTreeSet<String>,
     walls: WallKnowledge,
+    knows_disaster: bool,
+    hazards: BTreeMap<u32, crate::models::HazardArea>,
 }
 
 impl Report {
@@ -58,11 +68,24 @@ impl Report {
             emergencies: agent.known_emergencies.clone(),
             obstructions: agent.known_obstructions.clone(),
             walls: agent.known_walls.clone(),
+            knows_disaster: agent.knows_disaster,
+            hazards: agent.known_hazards.clone(),
         }
     }
 
     fn share_with(&self, agent: &mut Agent) -> bool {
-        let mut changed = false;
+        let mut changed = self.knows_disaster && !agent.knows_disaster;
+        agent.knows_disaster |= self.knows_disaster;
+        for (&id, area) in &self.hazards {
+            if agent
+                .known_hazards
+                .get(&id)
+                .is_none_or(|known| known.revision < area.revision)
+            {
+                agent.known_hazards.insert(id, *area);
+                changed = true;
+            }
+        }
         for (id, &observation) in &self.openings {
             changed |= learn(agent, id, observation);
         }
@@ -94,6 +117,8 @@ pub(super) struct OpeningStates<'a> {
     desired: BTreeMap<String, bool>,
     event_index: usize,
     revision: u32,
+    hazard: Option<super::evolution::HazardEvolution>,
+    hazard_changed: bool,
 }
 
 impl<'a> OpeningStates<'a> {
@@ -123,7 +148,23 @@ impl<'a> OpeningStates<'a> {
             desired,
             event_index: 0,
             revision: 1,
+            hazard: scenario
+                .disaster
+                .map(|d| super::evolution::HazardEvolution::new(d, scenario.seed)),
+            hazard_changed: false,
         }
+    }
+
+    pub fn disaster_state(&self) -> Option<&crate::models::DisasterState> {
+        self.hazard.as_ref().map(|hazard| &hazard.state)
+    }
+
+    pub fn prepare_hazards(&mut self, step: u32) -> Option<crate::models::DisasterState> {
+        let previous = self.disaster_state().cloned();
+        if let Some(hazard) = &mut self.hazard {
+            self.hazard_changed |= hazard.advance(step, self.scenario);
+        }
+        previous
     }
 
     pub fn blocked(&self) -> BTreeSet<String> {
@@ -135,7 +176,8 @@ impl<'a> OpeningStates<'a> {
     }
 
     pub fn has_pending_changes(&self) -> bool {
-        self.event_index < self.scenario.opening_events.len()
+        self.hazard.as_ref().is_some_and(|h| h.is_changing())
+            || self.event_index < self.scenario.opening_events.len()
             || self
                 .desired
                 .iter()
@@ -143,6 +185,24 @@ impl<'a> OpeningStates<'a> {
     }
 
     pub fn apply(&mut self, step: u32, agents: &[Agent], evacuated: &[bool]) -> bool {
+        if let Some(hazard) = &mut self.hazard {
+            self.hazard_changed |= hazard.advance(step, self.scenario);
+        }
+        if let Some(state) = self.disaster_state() {
+            let affected: Vec<_> = self
+                .scenario
+                .doors
+                .iter()
+                .chain(&self.scenario.exits)
+                .filter(|opening| {
+                    super::catastrophe::state_blocks_opening(self.scenario, opening, state)
+                })
+                .map(|opening| opening.id.clone())
+                .collect();
+            for id in affected {
+                self.desired.insert(id, true);
+            }
+        }
         while let Some(event) = self.scenario.opening_events.get(self.event_index) {
             if event.step > step {
                 break;
@@ -160,7 +220,7 @@ impl<'a> OpeningStates<'a> {
             );
             self.event_index += 1;
         }
-        let mut changed = false;
+        let mut changed = std::mem::take(&mut self.hazard_changed);
         for (id, blocked) in &self.desired {
             if self.states[id].blocked == *blocked {
                 continue;
@@ -250,6 +310,28 @@ pub(super) fn update_knowledge(
         for (i, agent) in agents.iter_mut().enumerate() {
             if evacuated[i] {
                 continue;
+            }
+            if let Some(disaster) = scenario.disaster {
+                for area in &geometry.hazard_areas {
+                    let mut footprint = disaster;
+                    footprint.center = area.center;
+                    footprint.radius = area.radius;
+                    let distance = math::distance_to_point(agent.position, area.center);
+                    let surface =
+                        math::move_toward(area.center, agent.position, footprint.exposure_radius());
+                    if distance - footprint.exposure_radius()
+                        <= scenario.awareness.sight_range_metres
+                        && geometry.has_line_of_sight(agent.position, surface)
+                        && agent
+                            .known_hazards
+                            .get(&area.id)
+                            .is_none_or(|known| known.revision < area.revision)
+                    {
+                        agent.knows_disaster = true;
+                        agent.known_hazards.insert(area.id, *area);
+                        informed = true;
+                    }
+                }
             }
             let visible = geometry.visible_walls(
                 agent.position,
@@ -350,7 +432,7 @@ impl<'a> BeliefMaps<'a> {
             if self.maps.len() >= 64 {
                 self.maps.clear();
             }
-            let geometry = Geometry::for_beliefs(
+            let mut geometry = Geometry::for_beliefs(
                 self.scenario,
                 self.emergencies,
                 key.blocked_openings.clone(),
@@ -359,6 +441,10 @@ impl<'a> BeliefMaps<'a> {
                 &key.obstructions,
                 &key.walls,
             );
+            if key.knows_disaster {
+                geometry.disaster = self.scenario.disaster;
+                geometry.hazard_areas = agent.known_hazards.values().copied().collect();
+            }
             self.maps.insert(key.clone(), (geometry, None));
         }
         key

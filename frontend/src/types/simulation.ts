@@ -36,6 +36,40 @@ export interface SpawnZone extends Obstruction {
 export interface StairArea extends Obstruction {
   orientation_degrees?: 0 | 90 | 180 | 270;
 }
+export type DisasterKind = "fire" | "gas_leak" | "tornado";
+export interface Disaster {
+  kind: DisasterKind;
+  center: Point;
+  radius: number;
+  dynamics?: DisasterDynamics;
+}
+export interface DisasterDynamics {
+  enabled: boolean;
+  growth_rate: number;
+  spread_interval_seconds: number;
+  max_patches: number;
+  max_radius: number;
+  speed: number;
+  turn_rate_degrees: number;
+  wander_interval_seconds: number;
+  shelter_clearance: number;
+}
+export interface HazardArea {
+  id: number;
+  revision: number;
+  center: Point;
+  radius: number;
+}
+export interface DisasterState {
+  kind: DisasterKind;
+  areas: HazardArea[];
+}
+export interface ShelterArrival {
+  id: string;
+  step: number;
+  seconds: number;
+}
+
 export interface BuildingScenario {
   width: number;
   height: number;
@@ -49,6 +83,8 @@ export interface BuildingScenario {
   opening_events?: OpeningStateChange[];
   obstructions: Obstruction[];
   stair_areas?: StairArea[];
+  tornado_zones?: Obstruction[];
+  disaster?: Disaster;
   agent_radius: number;
   time_step_seconds: number;
   seed: number;
@@ -72,6 +108,7 @@ export interface SimulationMetrics {
   status: SimulationStatus;
   total_population: number;
   evacuated: number;
+  sheltered?: number;
   /** A subset of remaining, not an additional population category. */
   trapped: number;
   remaining: number;
@@ -80,6 +117,7 @@ export interface SimulationMetrics {
 
 export interface AgentPosition extends Point {
   id: number;
+  injury?: number;
 }
 
 export interface AnimationFrame {
@@ -87,6 +125,8 @@ export interface AnimationFrame {
   agents: AgentPosition[];
   /** Physical state at this time; absent in older recordings. */
   blocked_opening_ids?: string[];
+  sheltered?: number;
+  disaster_state?: DisasterState;
 }
 
 export interface AgentStatistics {
@@ -105,6 +145,9 @@ export interface AgentStatistics {
   exit_id: string | null;
   /** Latest route search using personal opening knowledge; false does not prove entrapment. */
   route_found: boolean;
+  shelter?: ShelterArrival;
+  injury?: number;
+  exposure_seconds?: number;
 }
 
 export interface SimulationAnalytics {

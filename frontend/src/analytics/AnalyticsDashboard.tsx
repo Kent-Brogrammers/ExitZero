@@ -37,7 +37,11 @@ export default function AnalyticsDashboard({
       <div className="panel">
         <div className="panel-heading">
           <div>
-            <h2>Evacuation metrics</h2>
+            <h2>
+              {building?.disaster?.kind === "tornado"
+                ? "Shelter response metrics"
+                : "Evacuation metrics"}
+            </h2>
           </div>
           <span className="badge">
             {result
@@ -77,6 +81,22 @@ export default function AnalyticsDashboard({
                   {metrics.evacuated} / {metrics.total_population}
                 </strong>
               </div>
+              {(metrics.sheltered ?? 0) > 0 && (
+                <div>
+                  <span>Sheltered</span>
+                  <strong>{metrics.sheltered}</strong>
+                </div>
+              )}
+              {building?.disaster && (
+                <div>
+                  <span>Injured during run</span>
+                  <strong>
+                    {result?.analytics?.agents.filter(
+                      (a) => (a.injury ?? 0) > 0,
+                    ).length ?? "—"}
+                  </strong>
+                </div>
+              )}
               <div>
                 <span>Trapped</span>
                 <strong>{metrics.trapped}</strong>

@@ -217,6 +217,7 @@ fn continuous_simulation_fixture_round_trips_and_validates() {
 #[test]
 fn severity_prioritizes_occupants_and_handles_null_clearance() {
     let complete = SimulationMetrics {
+        sheltered: 0,
         status: SimulationStatus::Completed,
         total_population: 2,
         evacuated: 2,
@@ -225,6 +226,7 @@ fn severity_prioritizes_occupants_and_handles_null_clearance() {
         clearance_steps: Some(1000),
     };
     let incomplete = SimulationMetrics {
+        sheltered: 0,
         status: SimulationStatus::Incomplete,
         total_population: 2,
         evacuated: 1,

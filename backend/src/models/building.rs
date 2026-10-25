@@ -130,6 +130,10 @@ pub struct BuildingScenario {
     pub obstructions: Vec<Obstruction>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stair_areas: Vec<StairArea>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tornado_zones: Vec<Obstruction>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disaster: Option<super::Disaster>,
     pub agent_radius: f64,
     pub time_step_seconds: f64,
     pub seed: u64,
@@ -229,6 +233,7 @@ impl BuildingScenario {
             || self.spawn_zones.len() > 100
             || self.obstructions.len() > 100
             || self.stair_areas.len() > 100
+            || self.tornado_zones.len() > 100
         {
             return Err("require 1–1000 exits and 1–100 spawn zones; limits are 500 walls, 1000 doors, 100 obstructions, and 100 stair areas".into());
         }
@@ -241,6 +246,7 @@ impl BuildingScenario {
             .chain(self.spawn_zones.iter().map(|v| &v.name))
             .chain(self.obstructions.iter().map(|v| &v.name))
             .chain(self.stair_areas.iter().map(|v| &v.name))
+            .chain(self.tornado_zones.iter().map(|v| &v.name))
             .flatten()
         {
             if name
@@ -261,6 +267,7 @@ impl BuildingScenario {
             .chain(self.spawn_zones.iter().map(|v| &v.id))
             .chain(self.obstructions.iter().map(|v| &v.id))
             .chain(self.stair_areas.iter().map(|v| &v.id))
+            .chain(self.tornado_zones.iter().map(|v| &v.id))
         {
             if id.trim().is_empty() || id.chars().count() > 64 || !ids.insert(id) {
                 return Err(
@@ -349,6 +356,38 @@ impl BuildingScenario {
                         .into(),
                 );
             }
+        }
+        if let Some(disaster) = &self.disaster {
+            disaster.validate(self)?;
+        }
+        for zone in &self.tornado_zones {
+            if !self.contains_rectangle(zone.x, zone.y, zone.width, zone.height)
+                || zone.width <= 2.0 * self.agent_radius
+                || zone.height <= 2.0 * self.agent_radius
+            {
+                return Err(
+                    "tornado zones must fit the workspace and be wider than one occupant".into(),
+                );
+            }
+        }
+        if self
+            .disaster
+            .filter(|d| d.kind == super::DisasterKind::Tornado)
+            .is_some_and(|disaster| {
+                self.tornado_zones.iter().any(|zone| {
+                    let x = disaster.center.x.clamp(zone.x, zone.x + zone.width);
+                    let y = disaster.center.y.clamp(zone.y, zone.y + zone.height);
+                    (x - disaster.center.x).hypot(y - disaster.center.y)
+                        <= disaster.exposure_radius()
+                            + self.agent_radius
+                            + disaster
+                                .dynamics
+                                .filter(|d| d.enabled)
+                                .map_or(0.0, |d| d.shelter_clearance)
+                })
+            })
+        {
+            return Err("tornado zones must be outside the tornado exposure area".into());
         }
         for obstacle in &self.obstructions {
             if !self.contains_rectangle(obstacle.x, obstacle.y, obstacle.width, obstacle.height) {

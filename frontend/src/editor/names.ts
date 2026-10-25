@@ -9,6 +9,7 @@ const prefixes: Record<Selection["kind"], string> = {
   spawn_zones: "Spawn zone",
   obstructions: "Obstruction",
   stair_areas: "Stair area",
+  tornado_zones: "Tornado zone",
 };
 
 export function objectName(

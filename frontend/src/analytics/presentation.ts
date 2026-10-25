@@ -14,6 +14,8 @@ export function scenarioTitle(scenario: StressScenarioResult): string {
 }
 
 export function outcomeExplanation(metrics: SimulationMetrics): string {
+  if (metrics.status === "completed" && (metrics.sheltered ?? 0) > 0)
+    return `All occupants reached safety: ${metrics.sheltered} sheltered and ${metrics.evacuated} evacuated through exits.`;
   if (metrics.status === "completed")
     return "All occupants evacuated. Clearance was measured for this run.";
   if (metrics.status === "timeout")

@@ -15,6 +15,8 @@ pub(super) struct Geometry<'a> {
     blocked_openings: BTreeSet<String>,
     partial_knowledge: bool,
     observed_openings: BTreeSet<String>,
+    pub(super) disaster: Option<crate::models::Disaster>,
+    pub(super) hazard_areas: Vec<crate::models::HazardArea>,
 }
 
 // Create geometry operations for a borrowed building scenario.
@@ -69,6 +71,8 @@ impl<'a> Geometry<'a> {
             true,
             observed_openings.clone(),
         );
+        geometry.disaster = None;
+        geometry.hazard_areas.clear();
         geometry.emergencies = emergencies
             .iter()
             .enumerate()
@@ -123,6 +127,10 @@ impl<'a> Geometry<'a> {
             blocked_openings,
             partial_knowledge,
             observed_openings,
+            disaster: scenario.disaster,
+            hazard_areas: scenario
+                .disaster
+                .map_or_else(Vec::new, |d| crate::models::DisasterState::initial(d).areas),
         };
         // Match the rounded-wall clearance used by playback and integration
         // checks. Cache the pieces rather than rebuilding them for every move.
@@ -283,10 +291,15 @@ impl<'a> Geometry<'a> {
     }
 
     pub(super) fn layout_blocks_opening(scenario: &BuildingScenario, opening: &Opening) -> bool {
+        if super::catastrophe::blocks_opening(scenario, opening) {
+            return true;
+        }
         let center = Self::opening_center(scenario, opening);
         // Test the other walls' actual solid portions. Their own open doors
         // must not become phantom closures, especially on short curve segments.
         let layout = Geometry {
+            disaster: None,
+            hazard_areas: vec![],
             scenario,
             emergencies: Vec::new(),
             obstructions: Vec::new(),
@@ -497,7 +510,22 @@ impl<'a> Geometry<'a> {
             x: from.x + velocity.x * seconds,
             y: from.y + velocity.y * seconds,
         };
-        for exit in &self.scenario.exits {
+        let tornado = self
+            .scenario
+            .disaster
+            .is_some_and(|d| d.kind == crate::models::DisasterKind::Tornado);
+        if tornado
+            && self.scenario.tornado_zones.iter().any(|zone| {
+                to.x >= zone.x + self.scenario.agent_radius
+                    && to.x <= zone.x + zone.width - self.scenario.agent_radius
+                    && to.y >= zone.y + self.scenario.agent_radius
+                    && to.y <= zone.y + zone.height - self.scenario.agent_radius
+            })
+            && self.can_move(from, to)
+        {
+            return None;
+        }
+        for exit in self.scenario.exits.iter().filter(|_| !tornado) {
             let Some((start, end)) = self.exit_segment(&exit.id) else {
                 continue;
             };

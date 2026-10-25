@@ -29,6 +29,7 @@ export function drawPlayback(
     undefined,
     pixelRatio,
     palette,
+    { disasterState: frame?.disaster_state },
   );
   drawAgents(canvas, building, frame, pixelRatio, palette);
 }
@@ -50,20 +51,40 @@ export function drawAgents(
   context.fillStyle = palette.selection;
   context.strokeStyle = palette.background;
   context.lineWidth = ratio;
-  context.beginPath();
-  for (const agent of frame.agents) {
-    const point = worldToCanvas(agent, view);
-    context.moveTo(point.x + building.agent_radius * view.scale, point.y);
-    context.arc(
-      point.x,
-      point.y,
-      building.agent_radius * view.scale,
-      0,
-      Math.PI * 2,
-    );
+  const groups = [
+    {
+      color: palette.selection,
+      agents: frame.agents.filter((a) => !(a.injury && a.injury > 0.01)),
+    },
+    {
+      color: "#f6a54c",
+      agents: frame.agents.filter(
+        (a) => (a.injury ?? 0) > 0.01 && (a.injury ?? 0) < 0.5,
+      ),
+    },
+    {
+      color: "#ef5b65",
+      agents: frame.agents.filter((a) => (a.injury ?? 0) >= 0.5),
+    },
+  ];
+  for (const group of groups) {
+    if (!group.agents.length) continue;
+    context.fillStyle = group.color;
+    context.beginPath();
+    for (const agent of group.agents) {
+      const point = worldToCanvas(agent, view);
+      context.moveTo(point.x + building.agent_radius * view.scale, point.y);
+      context.arc(
+        point.x,
+        point.y,
+        building.agent_radius * view.scale,
+        0,
+        Math.PI * 2,
+      );
+    }
+    context.fill();
+    context.stroke();
   }
-  context.fill();
-  context.stroke();
   context.restore();
 }
 
@@ -90,7 +111,10 @@ export function createPlaybackRenderer(
       drawPlayback(canvas, building, frame, nextRatio, palette);
       return;
     }
-    const nextOpeningState = JSON.stringify(frame?.blocked_opening_ids);
+    const nextOpeningState = JSON.stringify([
+      frame?.blocked_opening_ids,
+      frame?.disaster_state,
+    ]);
     if (
       width !== nextWidth ||
       height !== nextHeight ||
@@ -105,6 +129,7 @@ export function createPlaybackRenderer(
         undefined,
         nextRatio,
         palette,
+        { disasterState: frame?.disaster_state },
       );
       width = canvas.width;
       height = canvas.height;

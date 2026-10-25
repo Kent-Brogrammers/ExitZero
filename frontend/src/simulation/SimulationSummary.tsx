@@ -81,6 +81,19 @@ export function SimulationSummary({
               <dt>Evacuated</dt>
               <dd>{result.evacuated}</dd>
             </div>
+            {(result.sheltered ?? 0) > 0 && (
+              <div>
+                <dt>Sheltered</dt>
+                <dd>{result.sheltered}</dd>
+              </div>
+            )}
+            <div>
+              <dt>Injured during run</dt>
+              <dd>
+                {result.analytics?.agents.filter((a) => (a.injury ?? 0) > 0)
+                  .length ?? "—"}
+              </dd>
+            </div>
             <div>
               <dt>Remaining</dt>
               <dd>{result.remaining}</dd>

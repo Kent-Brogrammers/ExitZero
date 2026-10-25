@@ -159,6 +159,16 @@
           "items": {
             "$ref": "#/$defs/OpeningStateChange"
           }
+        },
+        "disaster": {
+          "$ref": "#/$defs/Disaster"
+        },
+        "tornado_zones": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/Obstruction"
+          }
         }
       }
     },
@@ -201,6 +211,11 @@
           "type": ["integer", "null"],
           "minimum": 0,
           "maximum": 100000
+        },
+        "sheltered": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
         }
       },
       "allOf": [
@@ -262,6 +277,11 @@
           "type": "number",
           "maximum": 1000,
           "minimum": 0
+        },
+        "injury": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
         }
       }
     },
@@ -292,6 +312,14 @@
             "maxLength": 64,
             "pattern": "\\S"
           }
+        },
+        "sheltered": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "disaster_state": {
+          "$ref": "#/$defs/DisasterState"
         }
       }
     },
@@ -370,6 +398,11 @@
         },
         "analytics": {
           "$ref": "#/$defs/SimulationAnalytics"
+        },
+        "sheltered": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
         }
       },
       "allOf": [
@@ -813,6 +846,19 @@
         },
         "route_found": {
           "type": "boolean"
+        },
+        "shelter": {
+          "$ref": "#/$defs/ShelterArrival"
+        },
+        "injury": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "exposure_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100000
         }
       },
       "allOf": [
@@ -1023,6 +1069,154 @@
         },
         "blocked": {
           "type": "boolean"
+        }
+      }
+    },
+    "Disaster": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "center", "radius"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["fire", "gas_leak", "tornado"]
+        },
+        "center": {
+          "$ref": "#/$defs/Point"
+        },
+        "radius": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1000
+        },
+        "dynamics": {
+          "$ref": "#/$defs/DisasterDynamics"
+        }
+      }
+    },
+    "ShelterArrival": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "step", "seconds"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "step": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100000
+        },
+        "seconds": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100000
+        }
+      }
+    },
+    "DisasterDynamics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "growth_rate",
+        "spread_interval_seconds",
+        "max_patches",
+        "max_radius",
+        "speed",
+        "turn_rate_degrees",
+        "wander_interval_seconds",
+        "shelter_clearance"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "growth_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "spread_interval_seconds": {
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 60
+        },
+        "max_patches": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "max_radius": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 1000
+        },
+        "speed": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 10
+        },
+        "turn_rate_degrees": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 180
+        },
+        "wander_interval_seconds": {
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 60
+        },
+        "shelter_clearance": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 20
+        }
+      }
+    },
+    "HazardArea": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "revision", "center", "radius"],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 63
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100000
+        },
+        "center": {
+          "$ref": "#/$defs/Point"
+        },
+        "radius": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1000
+        }
+      }
+    },
+    "DisasterState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "areas"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["fire", "gas_leak", "tornado"]
+        },
+        "areas": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/HazardArea"
+          }
         }
       }
     }

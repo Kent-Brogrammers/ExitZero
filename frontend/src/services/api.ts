@@ -46,7 +46,8 @@ export class ApiError extends Error {
 
 function checkMetrics(metrics: SimulationMetrics): void {
   if (
-    metrics.evacuated + metrics.remaining !== metrics.total_population ||
+    metrics.evacuated + (metrics.sheltered ?? 0) + metrics.remaining !==
+      metrics.total_population ||
     metrics.trapped > metrics.remaining
   ) {
     throw new ApiError(
@@ -69,6 +70,12 @@ function checkSimulation(result: SimulationResult): SimulationResult {
         frame.agents.length > result.total_population ||
         new Set(frame.agents.map((agent) => agent.id)).size !==
           frame.agents.length ||
+        frame.disaster_state?.areas.some(
+          (area) =>
+            area.center.x > result.width ||
+            area.center.y > result.height ||
+            area.revision > frame.step,
+        ) ||
         frame.agents.some(
           (agent) => agent.x > result.width || agent.y > result.height,
         ),

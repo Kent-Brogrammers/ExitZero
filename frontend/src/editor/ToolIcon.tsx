@@ -13,6 +13,7 @@ const paths: Record<string, string> = {
   rectangle: "M3 6h18v12H3z",
   square: "M4 4h16v16H4z",
   circle: "M21 12a9 9 0 1 0-18 0 9 9 0 0 0 18 0",
+  shelter: "M3 10 12 3l9 7v11H3V10 M8 21v-8h8v8",
   stairs: "M3 20h6v-5h5v-5h5V4 M3 4l17 17",
   properties: "M4 6h16 M4 12h16 M4 18h16 M8 3v6 M16 9v6 M10 15v6",
   select: "M5 3l14 9-7 1-3 7-4-17z M13 14l5 6",

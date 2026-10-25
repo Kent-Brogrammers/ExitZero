@@ -24,7 +24,7 @@ export function PopulationChart({ metrics }: { metrics: SimulationMetrics }) {
       ref={container}
       className="chart"
       role="img"
-      aria-label={`${metrics.evacuated} evacuated and ${metrics.remaining} remaining. Trapped occupants are included in remaining.`}
+      aria-label={`${metrics.evacuated} evacuated, ${metrics.sheltered ?? 0} sheltered and ${metrics.remaining} remaining. Trapped occupants are included in remaining.`}
     >
       {size.width > 0 && size.height > 0 && (
         <BarChart
@@ -32,6 +32,9 @@ export function PopulationChart({ metrics }: { metrics: SimulationMetrics }) {
           height={size.height}
           data={[
             { name: "Evacuated", occupants: metrics.evacuated },
+            ...((metrics.sheltered ?? 0) > 0
+              ? [{ name: "Sheltered", occupants: metrics.sheltered! }]
+              : []),
             { name: "Remaining", occupants: metrics.remaining },
           ]}
           margin={{ top: 12, right: 12, bottom: 0, left: -24 }}

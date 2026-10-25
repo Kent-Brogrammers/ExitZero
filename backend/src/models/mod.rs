@@ -9,3 +9,6 @@ pub use awareness::*;
 pub use building::*;
 pub use live::*;
 pub use simulation::*;
+
+mod disaster;
+pub use disaster::*;
