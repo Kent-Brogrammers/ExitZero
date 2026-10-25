@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { BuildingScenario } from "../types/simulation";
 import { buildingPresets } from "../editor/presets";
+import { emergencyPresets } from "../editor/emergencyPresets";
 import { buildingError } from "../editor/geometry";
 import { TemplateCard } from "./TemplateCard";
 import {
@@ -100,6 +101,7 @@ export function TemplatesPage({
     layout: BuildingScenario,
     custom?: UserTemplate,
     savedRecording = false,
+    description?: string,
   ) {
     return (
       <TemplateCard
@@ -111,6 +113,7 @@ export function TemplatesPage({
         onRun={() => onOpen(layout, name, "simulate")}
         key={custom?.id ?? name}
       >
+        {description && <p className="templates-local-note">{description}</p>}
         {savedRecording && (
           <button
             type="button"
@@ -166,6 +169,24 @@ export function TemplatesPage({
               preset.building,
               undefined,
               preset.id === "office-demo",
+            ),
+          )}
+        </div>
+      </section>
+      <section aria-label="Emergency Scenarios">
+        <h2>Emergency Scenarios</h2>
+        <p className="templates-local-note">
+          Edit the layout or run the scenario as configured. Fire, gas and
+          tornado footprints are fixed by default.
+        </p>
+        <div className="template-gallery">
+          {emergencyPresets.map((preset) =>
+            card(
+              preset.label,
+              preset.building,
+              undefined,
+              false,
+              preset.description,
             ),
           )}
         </div>

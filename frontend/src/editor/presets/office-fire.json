@@ -1,0 +1,202 @@
+{
+  "width": 24,
+  "height": 16,
+  "walls": [
+    {
+      "id": "office-north",
+      "name": "North wall",
+      "start": {
+        "x": 1,
+        "y": 1
+      },
+      "end": {
+        "x": 23,
+        "y": 1
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "office-east",
+      "name": "East wall",
+      "start": {
+        "x": 23,
+        "y": 1
+      },
+      "end": {
+        "x": 23,
+        "y": 15
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "office-south",
+      "name": "South wall",
+      "start": {
+        "x": 23,
+        "y": 15
+      },
+      "end": {
+        "x": 1,
+        "y": 15
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "office-west",
+      "name": "West wall",
+      "start": {
+        "x": 1,
+        "y": 15
+      },
+      "end": {
+        "x": 1,
+        "y": 1
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "office-west-divider",
+      "name": "Partition",
+      "start": {
+        "x": 9,
+        "y": 1
+      },
+      "end": {
+        "x": 9,
+        "y": 15
+      },
+      "thickness": 0.15
+    },
+    {
+      "id": "office-east-divider",
+      "name": "Partition",
+      "start": {
+        "x": 9,
+        "y": 8
+      },
+      "end": {
+        "x": 23,
+        "y": 8
+      },
+      "thickness": 0.15
+    }
+  ],
+  "doors": [
+    {
+      "id": "office-door-a",
+      "name": "Hall door north",
+      "wall_id": "office-west-divider",
+      "offset": 4,
+      "width": 1.2
+    },
+    {
+      "id": "office-door-b",
+      "name": "Hall door south",
+      "wall_id": "office-west-divider",
+      "offset": 10,
+      "width": 1.2
+    },
+    {
+      "id": "office-door-c",
+      "name": "Meeting room entrance",
+      "wall_id": "office-east-divider",
+      "offset": 6,
+      "width": 1.4
+    }
+  ],
+  "exits": [
+    {
+      "id": "office-west-exit",
+      "name": "West exit",
+      "wall_id": "office-west",
+      "offset": 4,
+      "width": 1.6
+    },
+    {
+      "id": "office-east-exit",
+      "name": "East exit",
+      "wall_id": "office-east",
+      "offset": 4,
+      "width": 1.6
+    }
+  ],
+  "spawn_zones": [
+    {
+      "id": "office-open-plan",
+      "name": "Open plan",
+      "x": 3,
+      "y": 4,
+      "width": 3,
+      "height": 2,
+      "count": 8
+    },
+    {
+      "id": "office-team",
+      "name": "Team room",
+      "x": 12,
+      "y": 3,
+      "width": 4,
+      "height": 2,
+      "count": 8
+    },
+    {
+      "id": "office-meeting",
+      "name": "Meeting room",
+      "x": 17,
+      "y": 11,
+      "width": 3,
+      "height": 2,
+      "count": 6
+    }
+  ],
+  "obstructions": [
+    {
+      "id": "office-desks",
+      "name": "Desk bank",
+      "x": 3,
+      "y": 9,
+      "width": 3,
+      "height": 1
+    },
+    {
+      "id": "office-table",
+      "name": "Meeting table",
+      "x": 12,
+      "y": 10,
+      "width": 3,
+      "height": 1
+    },
+    {
+      "id": "office-files",
+      "name": "Storage",
+      "x": 18,
+      "y": 3,
+      "width": 1.5,
+      "height": 0.5
+    }
+  ],
+  "blocked_exit_ids": [],
+  "agent_radius": 0.25,
+  "time_step_seconds": 0.1,
+  "seed": 42,
+  "max_steps": 1200,
+  "stair_areas": [
+    {
+      "id": "office-stairs",
+      "name": "Stair area marker",
+      "x": 20.5,
+      "y": 11,
+      "width": 1.5,
+      "height": 3,
+      "orientation_degrees": 90
+    }
+  ],
+  "disaster": {
+    "kind": "fire",
+    "center": {
+      "x": 1,
+      "y": 10.2
+    },
+    "radius": 0.9
+  }
+}

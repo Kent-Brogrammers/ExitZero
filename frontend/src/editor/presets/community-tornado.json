@@ -1,0 +1,270 @@
+{
+  "width": 28,
+  "height": 22,
+  "walls": [
+    {
+      "id": "center-north",
+      "name": "North exterior",
+      "start": {
+        "x": 1,
+        "y": 1
+      },
+      "end": {
+        "x": 27,
+        "y": 1
+      },
+      "thickness": 0.24
+    },
+    {
+      "id": "center-east",
+      "name": "East exterior",
+      "start": {
+        "x": 27,
+        "y": 1
+      },
+      "end": {
+        "x": 27,
+        "y": 21
+      },
+      "thickness": 0.24
+    },
+    {
+      "id": "center-south",
+      "name": "South exterior",
+      "start": {
+        "x": 1,
+        "y": 21
+      },
+      "end": {
+        "x": 27,
+        "y": 21
+      },
+      "thickness": 0.24
+    },
+    {
+      "id": "center-west",
+      "name": "West exterior",
+      "start": {
+        "x": 1,
+        "y": 1
+      },
+      "end": {
+        "x": 1,
+        "y": 21
+      },
+      "thickness": 0.24
+    },
+    {
+      "id": "refuge-north",
+      "name": "Interior refuge north",
+      "start": {
+        "x": 10,
+        "y": 9
+      },
+      "end": {
+        "x": 18,
+        "y": 9
+      },
+      "thickness": 0.18
+    },
+    {
+      "id": "refuge-east",
+      "name": "Interior refuge east",
+      "start": {
+        "x": 18,
+        "y": 9
+      },
+      "end": {
+        "x": 18,
+        "y": 15
+      },
+      "thickness": 0.18
+    },
+    {
+      "id": "refuge-south",
+      "name": "Interior refuge south",
+      "start": {
+        "x": 10,
+        "y": 15
+      },
+      "end": {
+        "x": 18,
+        "y": 15
+      },
+      "thickness": 0.18
+    },
+    {
+      "id": "refuge-west",
+      "name": "Interior refuge west",
+      "start": {
+        "x": 10,
+        "y": 9
+      },
+      "end": {
+        "x": 10,
+        "y": 15
+      },
+      "thickness": 0.18
+    }
+  ],
+  "doors": [
+    {
+      "id": "refuge-door-west",
+      "name": "Interior refuge west door",
+      "wall_id": "refuge-west",
+      "offset": 1.5,
+      "width": 2
+    },
+    {
+      "id": "refuge-door-east",
+      "name": "Interior refuge east door",
+      "wall_id": "refuge-east",
+      "offset": 1.5,
+      "width": 2
+    }
+  ],
+  "exits": [
+    {
+      "id": "center-exit-west",
+      "name": "West public exit",
+      "wall_id": "center-west",
+      "offset": 9,
+      "width": 2
+    },
+    {
+      "id": "center-exit-east",
+      "name": "East public exit",
+      "wall_id": "center-east",
+      "offset": 9,
+      "width": 2
+    }
+  ],
+  "spawn_zones": [
+    {
+      "id": "center-nw",
+      "name": "Gathering area NW",
+      "x": 3,
+      "y": 3,
+      "width": 5,
+      "height": 3,
+      "count": 8
+    },
+    {
+      "id": "center-ne",
+      "name": "Gathering area NE",
+      "x": 20,
+      "y": 3,
+      "width": 4,
+      "height": 3,
+      "count": 8
+    },
+    {
+      "id": "center-sw",
+      "name": "Gathering area SW",
+      "x": 3,
+      "y": 17,
+      "width": 5,
+      "height": 2,
+      "count": 6
+    },
+    {
+      "id": "center-se",
+      "name": "Gathering area SE",
+      "x": 20,
+      "y": 17,
+      "width": 4,
+      "height": 2,
+      "count": 6
+    },
+    {
+      "id": "center-staff",
+      "name": "Community center staff",
+      "x": 12,
+      "y": 17,
+      "width": 4,
+      "height": 2,
+      "count": 2
+    }
+  ],
+  "blocked_exit_ids": [],
+  "obstructions": [
+    {
+      "id": "center-registration",
+      "name": "Reception desk",
+      "x": 11,
+      "y": 3,
+      "width": 6,
+      "height": 0.8
+    },
+    {
+      "id": "center-table-w1",
+      "name": "Hall table",
+      "x": 3,
+      "y": 8,
+      "width": 2.4,
+      "height": 1
+    },
+    {
+      "id": "center-table-w2",
+      "name": "Hall table",
+      "x": 3,
+      "y": 12,
+      "width": 2.4,
+      "height": 1
+    },
+    {
+      "id": "center-table-e1",
+      "name": "Hall table",
+      "x": 21,
+      "y": 8,
+      "width": 2.4,
+      "height": 1
+    },
+    {
+      "id": "center-table-e2",
+      "name": "Hall table",
+      "x": 21,
+      "y": 12,
+      "width": 2.4,
+      "height": 1
+    },
+    {
+      "id": "center-storage",
+      "name": "Storage cabinets",
+      "x": 25,
+      "y": 3,
+      "width": 0.6,
+      "height": 4
+    }
+  ],
+  "agent_radius": 0.22,
+  "time_step_seconds": 0.1,
+  "seed": 42,
+  "max_steps": 1200,
+  "tornado_zones": [
+    {
+      "id": "center-refuge-north",
+      "name": "Interior refuge north",
+      "x": 10.6,
+      "y": 9.6,
+      "width": 6.8,
+      "height": 1.8
+    },
+    {
+      "id": "center-refuge-south",
+      "name": "Interior refuge south",
+      "x": 10.6,
+      "y": 12.6,
+      "width": 6.8,
+      "height": 1.8
+    }
+  ],
+  "disaster": {
+    "kind": "tornado",
+    "center": {
+      "x": 1,
+      "y": 11
+    },
+    "radius": 0.5
+  }
+}

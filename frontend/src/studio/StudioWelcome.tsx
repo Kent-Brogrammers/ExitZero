@@ -58,7 +58,20 @@ export function StudioWelcome({
           </span>{" "}
           ExitZero <span>Studio</span>
         </div>
-        <span className="welcome-edition">Stark State Hackathon 2026</span>
+        <div className="welcome-header-actions">
+          <span className="welcome-edition">Stark State Hackathon 2026</span>
+          {onTemplates && (
+            <button
+              type="button"
+              className="studio-control welcome-templates-action"
+              disabled={disabled}
+              onClick={onTemplates}
+              title="Browse all templates and emergency scenarios"
+            >
+              Open Templates <span aria-hidden="true">↗</span>
+            </button>
+          )}
+        </div>
       </header>
       <div className="welcome-composition">
         <div className="welcome-copy">
@@ -148,7 +161,7 @@ export function StudioWelcome({
                 disabled={disabled}
                 onClick={onTemplates}
               >
-                Open Templates <span aria-hidden="true">↗</span>
+                View all templates <span aria-hidden="true">↗</span>
               </button>
             )}
           </div>
