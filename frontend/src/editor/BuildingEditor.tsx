@@ -37,6 +37,14 @@ import {
   useDraftingPreferences,
 } from "./drafting";
 import { ObjectNameField } from "./ObjectNameField";
+import { RoomFillDialog } from "./RoomFillDialog";
+import {
+  detectRoom,
+  populateRoom,
+  resizeRoomPopulation,
+  roomFillZones,
+  type Room,
+} from "./roomFill";
 import { WindowProperties } from "./WindowProperties";
 import { objectName, nextObjectName, renameObject } from "./names";
 import { EditorUtilityRail } from "./EditorUtilityRail";
@@ -180,6 +188,8 @@ export function BuildingEditor({
   const selected = selections.at(-1) ?? null;
   const [propertiesOpen, setPropertiesOpen] = useState(false);
   const [gesture, setGesture] = useState<Gesture | null>(null);
+  const [roomDraft, setRoomDraft] = useState<Room | null>(null);
+  const [roomCount, setRoomCount] = useState(10);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [history, setHistory] = useState<EditorSnapshot[]>([]);
@@ -188,6 +198,10 @@ export function BuildingEditor({
   const selectedElement = selected
     ? (building[selected.kind] ?? []).find((v) => v.id === selected.id)
     : null;
+  const selectedRoomZones =
+    selected?.kind === "spawn_zones"
+      ? roomFillZones(building, selected.id)
+      : [];
 
   useEffect(() => {
     const update = () =>
@@ -783,6 +797,18 @@ export function BuildingEditor({
     const point = world(event);
     setError("");
     setNotice("");
+    if (tool === "spawn-room") {
+      try {
+        setRoomDraft(detectRoom(building, point));
+      } catch (reason) {
+        setError(
+          reason instanceof Error
+            ? reason.message
+            : "Could not find an enclosed room.",
+        );
+      }
+      return;
+    }
     if (tool === "hazard" && building.disaster) {
       commit({
         ...extendForPoints(building, point),
@@ -1094,6 +1120,24 @@ export function BuildingEditor({
   }
   function changeSelected(field: string, value: number) {
     if (!selected || !selectedElement) return;
+    if (field === "count" && selectedRoomZones.length) {
+      try {
+        const edit = resizeRoomPopulation(building, selected.id, value);
+        commit(edit.building, false, [
+          {
+            kind: "spawn_zones",
+            id: edit.ids.includes(selected.id) ? selected.id : edit.ids[0]!,
+          },
+        ]);
+      } catch (reason) {
+        setError(
+          reason instanceof Error
+            ? reason.message
+            : "Could not update the room population.",
+        );
+      }
+      return;
+    }
     const next = structuredClone(building);
     const element = (next[selected.kind] ?? []).find(
       (v) => v.id === selected.id,
@@ -1239,6 +1283,38 @@ export function BuildingEditor({
         </div>
         <span className="badge">Freeform · feet</span>
       </div>
+      {roomDraft && (
+        <RoomFillDialog
+          initialCount={
+            building.spawn_zones
+              .filter((z) => roomDraft.spawnIds.includes(z.id))
+              .reduce((sum, z) => sum + z.count, 0) || roomCount
+          }
+          existingCount={building.spawn_zones
+            .filter((z) => roomDraft.spawnIds.includes(z.id))
+            .reduce((sum, z) => sum + z.count, 0)}
+          onClose={() => setRoomDraft(null)}
+          onFill={(count) => {
+            const edit = populateRoom(
+              building,
+              detectRoom(building, roomDraft.point),
+              count,
+            );
+            if (
+              !commit(edit.building, false, [
+                { kind: "spawn_zones", id: edit.ids[0]! },
+              ])
+            )
+              throw new Error(
+                "Could not apply this room fill. Check the layout and try again.",
+              );
+            setRoomCount(count);
+            setNotice(
+              `Room filled · ${count} occupants across ${edit.ids.length} spawn areas · Edit the total in Properties`,
+            );
+          }}
+        />
+      )}
       <DxfImport
         base={building}
         disabled={disabled}
@@ -1407,12 +1483,14 @@ export function BuildingEditor({
                                 ? `Click a wall to place ${tool === "exit" ? "an exit" : tool === "window" ? "a window" : "a door"}. Adjust its width in Properties.`
                                 : tool === "stairs"
                                   ? "Drag a walkable stair-area marker. It does not connect floors or block occupants."
-                                  : tool === "spawn"
-                                    ? (spawnProblem ??
-                                      (spawnDraft
-                                        ? `${formatDimensions(spawnDraft.spawn_zones.at(-1)!.width, spawnDraft.spawn_zones.at(-1)!.height, 2)} · ${spawnDraft.spawn_zones.at(-1)!.count} occupants · Release to place`
-                                        : "Drag across rooms or furniture · Agents spawn in clear space · Shift for square · Set occupants in Properties"))
-                                    : "Drag a rectangle · Shift for square · Edit dimensions in Properties"}
+                                  : tool === "spawn-room"
+                                    ? "Click inside an enclosed room · Set its occupant count · Walls, furniture and body clearance are respected"
+                                    : tool === "spawn"
+                                      ? (spawnProblem ??
+                                        (spawnDraft
+                                          ? `${formatDimensions(spawnDraft.spawn_zones.at(-1)!.width, spawnDraft.spawn_zones.at(-1)!.height, 2)} · ${spawnDraft.spawn_zones.at(-1)!.count} occupants · Release to place`
+                                          : "Drag across rooms or furniture · Agents spawn in clear space · Shift for square · Set occupants in Properties"))
+                                      : "Drag a rectangle · Shift for square · Edit dimensions in Properties"}
             </p>
             <div className="canvas-wrap editor-canvas-wrap">
               <canvas
@@ -1676,6 +1754,13 @@ export function BuildingEditor({
                     commit(renameObject(building, selected, name))
                   }
                 />
+                {selectedRoomZones.length > 0 && (
+                  <p className="note">
+                    Room fill · {selectedRoomZones.length} clear areas. Room
+                    occupants updates the whole fill; positions and sizes below
+                    apply to this area.
+                  </p>
+                )}
                 {(selected.kind === "doors" || selected.kind === "exits") && (
                   <>
                     <label className="block-toggle">
@@ -1796,14 +1881,25 @@ export function BuildingEditor({
                       .map((field) => (
                         <NumberField
                           key={field}
-                          label={field === "count" ? "Occupants" : field}
+                          label={
+                            field === "count"
+                              ? selectedRoomZones.length
+                                ? "Room occupants"
+                                : "Occupants"
+                              : field
+                          }
                           value={
-                            (
-                              selectedElement as unknown as Record<
-                                string,
-                                number
-                              >
-                            )[field]!
+                            field === "count" && selectedRoomZones.length
+                              ? selectedRoomZones.reduce(
+                                  (sum, z) => sum + z.count,
+                                  0,
+                                )
+                              : (
+                                  selectedElement as unknown as Record<
+                                    string,
+                                    number
+                                  >
+                                )[field]!
                           }
                           integer={field === "count"}
                           onCommit={(value) => changeSelected(field, value)}

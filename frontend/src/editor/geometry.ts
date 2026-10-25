@@ -74,6 +74,32 @@ const overlaps = (a: Rectangle, b: Rectangle) =>
   a.y < b.y + b.height &&
   b.y < a.y + a.height;
 
+function intersects(wall: Wall, rectangle: Rectangle) {
+  const padding = wall.thickness / 2;
+  const dx = wall.end.x - wall.start.x;
+  const dy = wall.end.y - wall.start.y;
+  let enter = 0;
+  let leave = 1;
+  for (const [p, q] of [
+    [-dx, wall.start.x - rectangle.x + padding],
+    [dx, rectangle.x + rectangle.width + padding - wall.start.x],
+    [-dy, wall.start.y - rectangle.y + padding],
+    [dy, rectangle.y + rectangle.height + padding - wall.start.y],
+  ] as [number, number][]) {
+    if (Math.abs(p) < 1e-12) {
+      if (q < 0) return false;
+    } else {
+      const ratio = q / p;
+      if (p < 0) enter = Math.max(enter, ratio);
+      else leave = Math.min(leave, ratio);
+      if (enter > leave) return false;
+    }
+  }
+  return true;
+}
+
+export { intersects as wallIntersectsRectangle, overlaps as rectanglesOverlap };
+
 /** Drafts may omit exits and occupants; simulation requests must be ready. */
 export function buildingError(
   value: unknown,

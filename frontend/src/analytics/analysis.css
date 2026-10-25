@@ -24,15 +24,32 @@
   gap: 18px 24px;
   margin: 18px 0;
 }
-.advanced-population {
-  margin-top: 20px;
+.analytics-workspace .analytics-summary {
+  grid-template-columns: minmax(0, 1.35fr) repeat(2, minmax(0, 1fr));
+  gap: 24px 32px;
+  align-items: start;
+  margin-bottom: 24px;
 }
-.advanced-population h3 {
-  font-size: 13px;
-  color: var(--cad-muted);
+.analytics-summary > .panel {
+  min-width: 0;
+  padding: 20px 0;
+}
+.analytics-summary .metrics {
+  gap: 14px 20px;
+  margin: 18px 0;
+}
+.analytics-summary .metrics strong {
+  font-size: 18px;
+}
+.outcome-evidence p {
+  margin: 8px 0 0;
+}
+#analytics-vulnerabilities,
+#analytics-optimization {
+  scroll-margin-top: 80px;
 }
 .analytics-advanced .chart {
-  height: 220px;
+  height: clamp(260px, 25vw, 340px);
 }
 .analytics-advanced .traffic-panel .traffic-canvas {
   height: clamp(280px, 30vw, 400px);
@@ -247,6 +264,10 @@ button.optimization-candidate[aria-selected="true"] {
   }
 }
 @media (max-width: 760px) {
+  .analytics-workspace .analytics-summary {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
   .analytics-workspace .analytics-advanced {
     grid-template-columns: minmax(0, 1fr);
     gap: 20px;

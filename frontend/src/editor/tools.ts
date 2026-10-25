@@ -10,6 +10,7 @@ export type EditorTool =
   | "exit"
   | "window"
   | "spawn"
+  | "spawn-room"
   | "stairs"
   | "tornado-zone"
   | "hazard"

@@ -134,7 +134,38 @@ export function EditorDrawingRail({
       {button("door", "Door", "door")}
       {button("exit", "Exit", "exit")}
       {button("window", "Window", "window")}
-      {button("spawn", "Spawn zone", "spawn")}
+      <StudioPopover
+        label="Spawn zone"
+        side="right"
+        className="editor-shapes"
+        disabled={disabled}
+        indicator={false}
+        triggerClassName={`rail-button${tool === "spawn" || tool === "spawn-room" ? " is-selected" : ""}`}
+        triggerContent={content("spawn", "Spawn zone")}
+        onOpen={onOpenPanel}
+      >
+        {(close) => (
+          <>
+            <div className="control-popover-heading">
+              <h3>Spawn zone</h3>
+            </div>
+            {choice(
+              "spawn",
+              "Draw Zone",
+              "Drag a rectangular area",
+              "rectangle",
+              close,
+            )}
+            {choice(
+              "spawn-room",
+              "Fill Room",
+              "Click inside connected, enclosing walls",
+              "spawn",
+              close,
+            )}
+          </>
+        )}
+      </StudioPopover>
       <StudioPopover
         label="Object / Obstacle"
         side="right"
@@ -211,7 +242,6 @@ export function EditorDrawingRail({
           </>
         )}
       </StudioPopover>
-      {button("stairs", "Stairs", "stairs")}
       {button("tornado-zone", "Tornado zone", "shelter")}
     </div>
   );

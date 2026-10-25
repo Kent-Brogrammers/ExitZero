@@ -760,7 +760,13 @@ export default function App() {
           building={officeDemoBuilding}
           onOpenDemo={() => void openOfficeDemo()}
           disabled={busy}
-          onOpen={() => navigate("edit")}
+          onOpen={() =>
+            loadTemplate(
+              { ...example, walls: [], doors: [], exits: [], spawn_zones: [] },
+              "an empty layout",
+              "edit",
+            )
+          }
           onTemplates={() => navigate("templates")}
           onOpenTemplate={loadTemplate}
           online={connection === "online"}
