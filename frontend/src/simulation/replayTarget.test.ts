@@ -22,7 +22,13 @@ describe("snapshot replay navigation", () => {
     const html = renderToStaticMarkup(
       createElement(CrowdingRanking, {
         building: syntheticBuilding,
-        result: syntheticResult,
+        result: {
+          ...syntheticResult,
+          frames: [
+            { step: 0, agents: [{ id: 0, x: 0.5, y: 1 }] },
+            { step: 10, agents: [{ id: 0, x: 3, y: 1 }] },
+          ],
+        },
         onViewInSimulation: () => {},
       }),
     );

@@ -43,6 +43,8 @@ export function createCrowdingTracker(width: number, height: number) {
   const listeners = new Set<() => void>();
   let snapshot: CrowdingSpot[] = [];
   let lastStep = -1;
+  const starts = new Map<number, { x: number; y: number }>();
+  const moved = new Set<number>();
   return {
     subscribe: (listener: () => void) => {
       listeners.add(listener);
@@ -54,10 +56,25 @@ export function createCrowdingTracker(width: number, height: number) {
     add(frame: AnimationFrame | null) {
       if (!frame || frame.step < lastStep) {
         peaks.clear();
+        starts.clear();
+        moved.clear();
         lastStep = -1;
       }
       if (frame && frame.step > lastStep) {
-        for (const spot of frameCrowding(frame, width, height)) {
+        const agents = frame.agents.filter((agent) => {
+          if (![agent.x, agent.y].every(Number.isFinite)) return false;
+          const start = starts.get(agent.id);
+          if (!start) {
+            starts.set(agent.id, { x: agent.x, y: agent.y });
+            return false;
+          }
+          if (Math.hypot(agent.x - start.x, agent.y - start.y) >= CROWD_ZONE)
+            moved.add(agent.id);
+          return moved.has(agent.id);
+        });
+        // Use the same eligible occupants for both ranks and snapshot heatmaps.
+        const rankedFrame = { ...frame, agents };
+        for (const spot of frameCrowding(rankedFrame, width, height)) {
           const key = `${spot.x},${spot.y}`;
           if (spot.count > (peaks.get(key)?.count ?? 0)) peaks.set(key, spot);
         }
