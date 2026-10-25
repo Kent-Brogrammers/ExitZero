@@ -194,7 +194,9 @@ describe("Templates presentation", () => {
       expect(section).toContain(`${preset.label} floor plan preview`);
       expect(section).toContain(preset.description);
     }
-    expect(section).toContain("footprints are fixed by default");
+    expect(section).toContain(
+      "Evolving hazards and physical escape challenges",
+    );
     expect(section).not.toContain("View saved office recording");
   });
   it("reports unreadable storage and disables saving to avoid destroying it", () => {

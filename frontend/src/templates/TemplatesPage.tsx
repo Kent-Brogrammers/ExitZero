@@ -176,8 +176,8 @@ export function TemplatesPage({
       <section aria-label="Emergency Scenarios">
         <h2>Emergency Scenarios</h2>
         <p className="templates-local-note">
-          Edit the layout or run the scenario as configured. Fire, gas and
-          tornado footprints are fixed by default.
+          Evolving hazards and physical escape challenges. Edit the layout,
+          adjust the emergency, or run the scenario as configured.
         </p>
         <div className="template-gallery">
           {emergencyPresets.map((preset) =>

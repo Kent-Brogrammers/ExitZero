@@ -27,6 +27,7 @@ describe("curated office demo", () => {
       "office",
       "office-demo",
       "school-emergency",
+      "corporate-office",
     ]);
     expect(buildingError(officeDemoBuilding)).toBeNull();
     expect(officeDemoBuilding.spawn_zones).toHaveLength(6);

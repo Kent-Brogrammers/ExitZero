@@ -10,21 +10,21 @@ export const emergencyPresets = [
     id: "office-fire",
     label: "Office Fire Test",
     description:
-      "Fire affects the west exit; an alternative route leads to the east exit.",
+      "A growing fire closes the east passage. Crowded office corridors lead to lobby and west-exit alternatives.",
     building: officeFire as BuildingScenario,
   },
   {
     id: "community-tornado",
     label: "Community Center Tornado Test",
     description:
-      "A gathering hall with two interior refuges for tornado sheltering.",
+      "A moving tornado crosses the assembly hall. Two narrow refuge entrances constrain the crowd.",
     building: communityTornado as BuildingScenario,
   },
   {
     id: "laboratory-gas",
     label: "Laboratory Gas Leak Test",
     description:
-      "Gas affects the upper corridor; a lower corridor remains available.",
+      "Expanding gas patches pressure the upper bypass and lab doors. Support rooms and a lower corridor offer escape routes.",
     building: laboratoryGas as BuildingScenario,
   },
   {

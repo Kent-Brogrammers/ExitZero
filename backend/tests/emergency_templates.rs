@@ -9,6 +9,7 @@ const FIRE: &str = include_str!("../../frontend/src/editor/presets/office-fire.j
 const TORNADO: &str = include_str!("../../frontend/src/editor/presets/community-tornado.json");
 const GAS: &str = include_str!("../../frontend/src/editor/presets/laboratory-gas.json");
 const SCHOOL: &str = include_str!("../../frontend/src/editor/presets/school-emergency.json");
+const CORPORATE: &str = include_str!("../../frontend/src/editor/presets/corporate-office.json");
 
 fn building(json: &str) -> BuildingScenario {
     let b: BuildingScenario = serde_json::from_str(json).unwrap();
@@ -30,27 +31,64 @@ fn run(b: &BuildingScenario) -> SimulationResult {
 fn office_fire_redirects_people_from_the_affected_exit_to_a_reachable_alternative() {
     let b = building(FIRE);
     let fire = run(&b);
-    let mut clear = b.clone();
-    clear.disaster = None;
+    let clear = building(CORPORATE);
+    let mut matching = b.clone();
+    matching.disaster = None;
+    assert_eq!(
+        serde_json::to_value(matching).unwrap(),
+        serde_json::to_value(&clear).unwrap()
+    );
     let baseline = run(&clear);
-    assert_eq!(fire.metrics.evacuated, 22);
+    assert_eq!(fire.metrics.evacuated, 44);
+    assert_eq!(baseline.metrics.evacuated, 44);
+    let baseline_exits: BTreeSet<_> = baseline
+        .analytics
+        .as_ref()
+        .unwrap()
+        .agents
+        .iter()
+        .filter_map(|a| a.exit_id.as_ref())
+        .collect();
+    assert_eq!(
+        baseline_exits.len(),
+        3,
+        "the corporate plan must use all three connected exits"
+    );
+    assert_eq!(
+        baseline
+            .metrics
+            .evacuated_by_route
+            .as_ref()
+            .unwrap()
+            .emergency_window,
+        0
+    );
     assert!(
         fire.frames[0]
             .blocked_opening_ids
             .as_ref()
             .unwrap()
-            .iter()
-            .any(|id| id == "office-west-exit")
+            .is_empty()
     );
+    assert!(
+        fire.frames.iter().any(|f| f
+            .blocked_opening_ids
+            .as_ref()
+            .unwrap()
+            .iter()
+            .any(|id| id == "corp-exit-east")),
+        "east exit must become unavailable during the run, not start blocked"
+    );
+    assert_growth(&fire);
     let baseline_people = &baseline.analytics.as_ref().unwrap().agents;
     let redirected: BTreeSet<_> = baseline_people
         .iter()
-        .filter(|a| a.exit_id.as_deref() == Some("office-west-exit"))
+        .filter(|a| a.exit_id.as_deref() == Some("corp-exit-east"))
         .map(|a| a.id)
         .collect();
     assert!(
         !redirected.is_empty(),
-        "the no-fire baseline must actually use the west exit"
+        "the no-fire baseline must actually use the east exit"
     );
     assert!(
         baseline.frames[0]
@@ -60,11 +98,10 @@ fn office_fire_redirects_people_from_the_affected_exit_to_a_reachable_alternativ
             .is_empty()
     );
     let people = &fire.analytics.as_ref().unwrap().agents;
-    assert!(
-        people
-            .iter()
-            .all(|a| a.exit_id.as_deref() == Some("office-east-exit") && a.injury == 0.0)
-    );
+    assert!(people.iter().all(|a| matches!(
+        a.exit_id.as_deref(),
+        Some("corp-exit-west" | "corp-exit-front")
+    )));
     assert!(
         people
             .iter()
@@ -82,7 +119,7 @@ fn office_fire_redirects_people_from_the_affected_exit_to_a_reachable_alternativ
 fn community_center_tornado_uses_both_indoor_refuges_instead_of_exterior_exits() {
     let b = building(TORNADO);
     let result = run(&b);
-    assert_eq!(result.metrics.sheltered, 30);
+    assert_eq!(result.metrics.sheltered, 48);
     assert_eq!(result.metrics.evacuated, 0);
     let people = &result.analytics.as_ref().unwrap().agents;
     let mut used = BTreeSet::new();
@@ -95,7 +132,42 @@ fn community_center_tornado_uses_both_indoor_refuges_instead_of_exterior_exits()
         used.insert(&shelter.id);
     }
     assert_eq!(used.len(), 2);
-    assert_eq!(result.frames.last().unwrap().sheltered, Some(30));
+    assert_eq!(result.frames.last().unwrap().sheltered, Some(48));
+    let initial = result.frames[0].disaster_state.as_ref().unwrap().areas[0].center;
+    assert!(
+        result.frames.iter().any(|f| {
+            let center = f.disaster_state.as_ref().unwrap().areas[0].center;
+            (center.x - initial.x).hypot(center.y - initial.y) > 2.0
+        }),
+        "the tornado footprint must actually move"
+    );
+    let clearance = b.disaster.unwrap().exposure_radius()
+        + b.agent_radius
+        + b.disaster.unwrap().dynamics.unwrap().shelter_clearance;
+    for frame in &result.frames {
+        let center = frame.disaster_state.as_ref().unwrap().areas[0].center;
+        for zone in &b.tornado_zones {
+            let nearest = Point {
+                x: center.x.clamp(zone.x, zone.x + zone.width),
+                y: center.y.clamp(zone.y, zone.y + zone.height),
+            };
+            assert!(
+                (center.x - nearest.x).hypot(center.y - nearest.y) > clearance,
+                "moving tornado must preserve the engine's shelter clearance"
+            );
+        }
+    }
+}
+
+fn assert_growth(result: &SimulationResult) {
+    let initial = &result.frames[0].disaster_state.as_ref().unwrap().areas;
+    assert!(
+        result.frames.iter().any(|f| {
+            let areas = &f.disaster_state.as_ref().unwrap().areas;
+            areas.len() > initial.len() && areas[0].radius > initial[0].radius
+        }),
+        "actual frames must record expanding connected hazard patches"
+    );
 }
 
 fn crossing_height(result: &SimulationResult, id: u32, x: f64) -> f64 {
@@ -110,19 +182,6 @@ fn crossing_height(result: &SimulationResult, id: u32, x: f64) -> f64 {
         .expect("occupant must actually cross between the west and east corridors")
 }
 
-fn segment_distance(point: Point, from: Point, to: Point) -> f64 {
-    let dx = to.x - from.x;
-    let dy = to.y - from.y;
-    let length_squared = dx * dx + dy * dy;
-    let fraction = if length_squared == 0.0 {
-        0.0
-    } else {
-        ((point.x - from.x) * dx + (point.y - from.y) * dy) / length_squared
-    }
-    .clamp(0.0, 1.0);
-    (point.x - from.x - fraction * dx).hypot(point.y - from.y - fraction * dy)
-}
-
 #[test]
 fn laboratory_gas_redirects_west_foyer_occupants_to_the_safe_lower_corridor() {
     let b = building(GAS);
@@ -130,46 +189,42 @@ fn laboratory_gas_redirects_west_foyer_occupants_to_the_safe_lower_corridor() {
     let mut clear = b.clone();
     clear.disaster = None;
     let baseline = run(&clear);
-    assert_eq!(gas.metrics.evacuated, 18);
+    assert_eq!(gas.metrics.evacuated, 34);
+    assert_growth(&gas);
     assert!(
         gas.analytics
             .as_ref()
             .unwrap()
             .agents
             .iter()
-            .all(|a| a.exit_id.as_deref() == Some("lab-east-exit")
-                && a.injury == 0.0
-                && a.exposure_seconds == 0.0)
+            .all(|a| matches!(
+                a.exit_id.as_deref(),
+                Some("lab-east-exit" | "lab-south-east-exit")
+            ))
     );
     // The first spawn zone uses the production spawner's first stable IDs.
     assert_eq!(b.spawn_zones[0].id, "lab-west-foyer");
     let foyer_count = b.spawn_zones[0].count;
-    assert!((0..foyer_count).any(|id| crossing_height(&baseline, id, 15.0) < 7.0));
+    assert!((0..foyer_count).all(|id| crossing_height(&baseline, id, 17.0) < 9.0));
     for id in 0..foyer_count {
-        assert!(crossing_height(&gas, id, 15.0) > 15.0 + b.agent_radius);
+        assert!(crossing_height(&gas, id, 17.0) > 17.0 + b.agent_radius);
     }
-    // Actual recorded segments stay outside the existing gas exposure footprint.
-    let hazard = b.disaster.unwrap();
-    let clearance = hazard.exposure_radius() + b.agent_radius;
-    for pair in gas.frames.windows(2) {
-        for a in &pair[0].agents {
-            if let Some(next) = pair[1].agents.iter().find(|next| next.id == a.id) {
-                let distance = segment_distance(
-                    hazard.center,
-                    Point { x: a.x, y: a.y },
-                    Point {
-                        x: next.x,
-                        y: next.y,
-                    },
-                );
-                assert!(
-                    distance >= clearance - 1e-6,
-                    "agent {} crossed the gas exposure area",
-                    a.id
-                );
-            }
-        }
-    }
+    assert!(
+        gas.frames[0]
+            .blocked_opening_ids
+            .as_ref()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        gas.frames.iter().any(|f| f
+            .blocked_opening_ids
+            .as_ref()
+            .unwrap()
+            .iter()
+            .any(|id| id == "lab-door-west-north")),
+        "gas growth must make an initially open lab door unavailable"
+    );
 }
 
 #[test]

@@ -14,7 +14,8 @@ describe("editable emergency setups", () => {
       );
       expect(preset.building.blocked_exit_ids).toEqual([]);
       expect(preset.building.opening_events ?? []).toEqual([]);
-      expect(preset.building.disaster?.dynamics?.enabled ?? false).toBe(false);
+      if (preset.building.disaster)
+        expect(preset.building.disaster.dynamics?.enabled).toBe(true);
       expect(
         preset.building.spawn_zones.reduce((n, s) => n + s.count, 0),
       ).toBeGreaterThan(0);
@@ -32,6 +33,19 @@ describe("editable emergency setups", () => {
       expect(copy.building.disaster).toEqual(preset.building.disaster);
     },
   );
+
+  it("uses the new corporate plan as the fire scenario's editable, hazard-free counterpart", () => {
+    const office = buildingPresets.find(
+      (p) => p.id === "corporate-office",
+    )!.building;
+    const clear = structuredClone(emergencyPresets[0].building);
+    delete clear.disaster;
+    expect(clear).toEqual(office);
+    expect(office.disaster).toBeUndefined();
+    expect(office.exits).toHaveLength(3);
+    expect(office.windows!.length).toBeGreaterThan(0);
+    expect(office.stair_areas).toHaveLength(1);
+  });
 
   it("configures existing fire, shelter and gas systems and reuses the actual school", () => {
     expect(emergencyPresets.map((p) => p.building.disaster?.kind)).toEqual([

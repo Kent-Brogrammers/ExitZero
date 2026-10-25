@@ -1,270 +1,547 @@
 {
-  "width": 28,
-  "height": 22,
+  "width": 36,
+  "height": 28,
   "walls": [
     {
-      "id": "center-north",
-      "name": "North exterior",
+      "id": "center-facade-0",
+      "name": "Exterior facade 1",
       "start": {
-        "x": 1,
-        "y": 1
+        "x": 2,
+        "y": 2
       },
       "end": {
-        "x": 27,
-        "y": 1
+        "x": 34,
+        "y": 2
       },
       "thickness": 0.24
     },
     {
-      "id": "center-east",
-      "name": "East exterior",
+      "id": "center-facade-1",
+      "name": "Exterior facade 2",
       "start": {
-        "x": 27,
-        "y": 1
+        "x": 34,
+        "y": 2
       },
       "end": {
-        "x": 27,
-        "y": 21
+        "x": 34,
+        "y": 19
       },
       "thickness": 0.24
     },
     {
-      "id": "center-south",
-      "name": "South exterior",
+      "id": "center-facade-2",
+      "name": "Exterior facade 3",
       "start": {
-        "x": 1,
-        "y": 21
+        "x": 34,
+        "y": 19
       },
       "end": {
-        "x": 27,
-        "y": 21
+        "x": 30,
+        "y": 19
       },
       "thickness": 0.24
     },
     {
-      "id": "center-west",
-      "name": "West exterior",
+      "id": "center-facade-3",
+      "name": "Exterior facade 4",
       "start": {
-        "x": 1,
-        "y": 1
+        "x": 30,
+        "y": 19
       },
       "end": {
-        "x": 1,
-        "y": 21
+        "x": 30,
+        "y": 26
       },
       "thickness": 0.24
     },
     {
-      "id": "refuge-north",
-      "name": "Interior refuge north",
+      "id": "center-facade-4",
+      "name": "Exterior facade 5",
       "start": {
-        "x": 10,
-        "y": 9
+        "x": 30,
+        "y": 26
+      },
+      "end": {
+        "x": 2,
+        "y": 26
+      },
+      "thickness": 0.24
+    },
+    {
+      "id": "center-facade-5",
+      "name": "Exterior facade 6",
+      "start": {
+        "x": 2,
+        "y": 26
+      },
+      "end": {
+        "x": 2,
+        "y": 2
+      },
+      "thickness": 0.24
+    },
+    {
+      "id": "center-hall-east",
+      "name": "Assembly hall / main passage",
+      "start": {
+        "x": 18,
+        "y": 2
       },
       "end": {
         "x": 18,
-        "y": 9
+        "y": 26
       },
       "thickness": 0.18
     },
     {
-      "id": "refuge-east",
-      "name": "Interior refuge east",
+      "id": "center-hall-south",
+      "name": "Assembly hall / reception lobby",
       "start": {
-        "x": 18,
-        "y": 9
+        "x": 2,
+        "y": 18
       },
       "end": {
         "x": 18,
-        "y": 15
+        "y": 18
       },
       "thickness": 0.18
     },
     {
-      "id": "refuge-south",
-      "name": "Interior refuge south",
+      "id": "center-activity-west",
+      "name": "Activity room / main passage",
       "start": {
-        "x": 10,
-        "y": 15
+        "x": 21,
+        "y": 2
       },
       "end": {
-        "x": 18,
-        "y": 15
+        "x": 21,
+        "y": 8
       },
       "thickness": 0.18
     },
     {
-      "id": "refuge-west",
-      "name": "Interior refuge west",
+      "id": "center-activity-south",
+      "name": "Activity room / refuge core",
       "start": {
-        "x": 10,
-        "y": 9
+        "x": 21,
+        "y": 8
       },
       "end": {
-        "x": 10,
-        "y": 15
+        "x": 34,
+        "y": 8
+      },
+      "thickness": 0.18
+    },
+    {
+      "id": "center-refuge-west",
+      "name": "Refuge entrances",
+      "start": {
+        "x": 21,
+        "y": 8
+      },
+      "end": {
+        "x": 21,
+        "y": 17
+      },
+      "thickness": 0.18
+    },
+    {
+      "id": "center-refuge-east",
+      "name": "Refuges / rear passage",
+      "start": {
+        "x": 29,
+        "y": 8
+      },
+      "end": {
+        "x": 29,
+        "y": 17
+      },
+      "thickness": 0.18
+    },
+    {
+      "id": "center-refuge-divider",
+      "name": "North / south refuge partition",
+      "start": {
+        "x": 21,
+        "y": 12
+      },
+      "end": {
+        "x": 29,
+        "y": 12
+      },
+      "thickness": 0.18
+    },
+    {
+      "id": "center-refuge-south-wall",
+      "name": "Refuges / service rooms",
+      "start": {
+        "x": 21,
+        "y": 17
+      },
+      "end": {
+        "x": 30,
+        "y": 17
+      },
+      "thickness": 0.18
+    },
+    {
+      "id": "center-service-west",
+      "name": "Service rooms / main passage",
+      "start": {
+        "x": 21,
+        "y": 17
+      },
+      "end": {
+        "x": 21,
+        "y": 26
+      },
+      "thickness": 0.18
+    },
+    {
+      "id": "center-service-1",
+      "name": "Washrooms partition",
+      "start": {
+        "x": 21,
+        "y": 20
+      },
+      "end": {
+        "x": 30,
+        "y": 20
+      },
+      "thickness": 0.18
+    },
+    {
+      "id": "center-service-2",
+      "name": "Storage partition",
+      "start": {
+        "x": 21,
+        "y": 23
+      },
+      "end": {
+        "x": 30,
+        "y": 23
       },
       "thickness": 0.18
     }
   ],
   "doors": [
     {
-      "id": "refuge-door-west",
-      "name": "Interior refuge west door",
-      "wall_id": "refuge-west",
-      "offset": 1.5,
+      "id": "center-door-hall-north",
+      "name": "Hall North",
+      "wall_id": "center-hall-east",
+      "offset": 4.5,
+      "width": 1.5
+    },
+    {
+      "id": "center-door-hall-south",
+      "name": "Hall South",
+      "wall_id": "center-hall-east",
+      "offset": 13.2,
+      "width": 1.5
+    },
+    {
+      "id": "center-door-lobby",
+      "name": "Lobby",
+      "wall_id": "center-hall-east",
+      "offset": 19,
+      "width": 1.6
+    },
+    {
+      "id": "center-door-assembly-lobby",
+      "name": "Assembly Lobby",
+      "wall_id": "center-hall-south",
+      "offset": 6,
       "width": 2
     },
     {
-      "id": "refuge-door-east",
-      "name": "Interior refuge east door",
-      "wall_id": "refuge-east",
-      "offset": 1.5,
-      "width": 2
+      "id": "center-door-activity-main",
+      "name": "Activity Main",
+      "wall_id": "center-activity-west",
+      "offset": 2,
+      "width": 1.4
+    },
+    {
+      "id": "center-door-activity-rear",
+      "name": "Activity Rear",
+      "wall_id": "center-activity-south",
+      "offset": 9.3,
+      "width": 1.5
+    },
+    {
+      "id": "center-door-refuge-north",
+      "name": "Refuge North",
+      "wall_id": "center-refuge-west",
+      "offset": 1,
+      "width": 1.4
+    },
+    {
+      "id": "center-door-refuge-south",
+      "name": "Refuge South",
+      "wall_id": "center-refuge-west",
+      "offset": 6.2,
+      "width": 1.4
+    },
+    {
+      "id": "center-door-wash-1",
+      "name": "Wash 1",
+      "wall_id": "center-service-west",
+      "offset": 1,
+      "width": 1.2
+    },
+    {
+      "id": "center-door-wash-2",
+      "name": "Wash 2",
+      "wall_id": "center-service-west",
+      "offset": 4,
+      "width": 1.2
+    },
+    {
+      "id": "center-door-storage",
+      "name": "Storage",
+      "wall_id": "center-service-west",
+      "offset": 7,
+      "width": 1.1
     }
   ],
   "exits": [
     {
       "id": "center-exit-west",
       "name": "West public exit",
-      "wall_id": "center-west",
-      "offset": 9,
+      "wall_id": "center-facade-5",
+      "offset": 3.5,
       "width": 2
     },
     {
-      "id": "center-exit-east",
-      "name": "East public exit",
-      "wall_id": "center-east",
-      "offset": 9,
+      "id": "center-exit-south",
+      "name": "South public exit",
+      "wall_id": "center-facade-4",
+      "offset": 14,
       "width": 2
+    },
+    {
+      "id": "center-exit-rear",
+      "name": "Rear public exit",
+      "wall_id": "center-facade-1",
+      "offset": 12,
+      "width": 2
+    }
+  ],
+  "windows": [
+    {
+      "id": "center-window-1",
+      "name": "Community center glazing",
+      "wall_id": "center-facade-0",
+      "offset": 3,
+      "width": 1.7
+    },
+    {
+      "id": "center-window-2",
+      "name": "Community center glazing",
+      "wall_id": "center-facade-0",
+      "offset": 10,
+      "width": 1.7
+    },
+    {
+      "id": "center-window-3",
+      "name": "Community center glazing",
+      "wall_id": "center-facade-0",
+      "offset": 23,
+      "width": 1.7
     }
   ],
   "spawn_zones": [
     {
-      "id": "center-nw",
-      "name": "Gathering area NW",
-      "x": 3,
-      "y": 3,
+      "id": "center-audience-1",
+      "name": "Assembly audience row 1",
+      "x": 4,
+      "y": 8,
+      "width": 11,
+      "height": 1.3,
+      "count": 12
+    },
+    {
+      "id": "center-audience-2",
+      "name": "Assembly audience row 2",
+      "x": 4,
+      "y": 11,
+      "width": 11,
+      "height": 1.3,
+      "count": 12
+    },
+    {
+      "id": "center-audience-3",
+      "name": "Assembly audience row 3",
+      "x": 4,
+      "y": 14,
+      "width": 11,
+      "height": 1.3,
+      "count": 12
+    },
+    {
+      "id": "center-activity",
+      "name": "Activity room participants",
+      "x": 23,
+      "y": 5.8,
       "width": 5,
-      "height": 3,
+      "height": 1.2,
       "count": 8
     },
     {
-      "id": "center-ne",
-      "name": "Gathering area NE",
-      "x": 20,
-      "y": 3,
-      "width": 4,
-      "height": 3,
-      "count": 8
-    },
-    {
-      "id": "center-sw",
-      "name": "Gathering area SW",
-      "x": 3,
-      "y": 17,
-      "width": 5,
-      "height": 2,
-      "count": 6
-    },
-    {
-      "id": "center-se",
-      "name": "Gathering area SE",
-      "x": 20,
-      "y": 17,
-      "width": 4,
-      "height": 2,
-      "count": 6
-    },
-    {
-      "id": "center-staff",
-      "name": "Community center staff",
-      "x": 12,
-      "y": 17,
-      "width": 4,
-      "height": 2,
-      "count": 2
+      "id": "center-lobby",
+      "name": "Reception and lobby visitors",
+      "x": 11,
+      "y": 22,
+      "width": 3,
+      "height": 1.5,
+      "count": 4
     }
   ],
   "blocked_exit_ids": [],
   "obstructions": [
     {
-      "id": "center-registration",
-      "name": "Reception desk",
-      "x": 11,
+      "id": "center-seating-1-1",
+      "name": "Audience seating block 1-1",
+      "x": 4,
+      "y": 7,
+      "width": 4,
+      "height": 0.6
+    },
+    {
+      "id": "center-seating-1-2",
+      "name": "Audience seating block 1-2",
+      "x": 10,
+      "y": 7,
+      "width": 4,
+      "height": 0.6
+    },
+    {
+      "id": "center-seating-2-1",
+      "name": "Audience seating block 2-1",
+      "x": 4,
+      "y": 10,
+      "width": 4,
+      "height": 0.6
+    },
+    {
+      "id": "center-seating-2-2",
+      "name": "Audience seating block 2-2",
+      "x": 10,
+      "y": 10,
+      "width": 4,
+      "height": 0.6
+    },
+    {
+      "id": "center-seating-3-1",
+      "name": "Audience seating block 3-1",
+      "x": 4,
+      "y": 13,
+      "width": 4,
+      "height": 0.6
+    },
+    {
+      "id": "center-seating-3-2",
+      "name": "Audience seating block 3-2",
+      "x": 10,
+      "y": 13,
+      "width": 4,
+      "height": 0.6
+    },
+    {
+      "id": "center-stage-equipment",
+      "name": "Stage equipment",
+      "x": 3,
       "y": 3,
-      "width": 6,
+      "width": 12,
+      "height": 1.5
+    },
+    {
+      "id": "center-reception",
+      "name": "Reception counter",
+      "x": 5,
+      "y": 22,
+      "width": 4,
+      "height": 0.9
+    },
+    {
+      "id": "center-activity-table",
+      "name": "Activity room table",
+      "x": 23,
+      "y": 4,
+      "width": 3,
       "height": 0.8
     },
     {
-      "id": "center-table-w1",
-      "name": "Hall table",
+      "id": "center-coat-store",
+      "name": "Coat storage",
       "x": 3,
-      "y": 8,
-      "width": 2.4,
+      "y": 19.5,
+      "width": 0.7,
+      "height": 2
+    },
+    {
+      "id": "center-wash-1",
+      "name": "Washroom fixture",
+      "x": 28,
+      "y": 18,
+      "width": 0.8,
       "height": 1
     },
     {
-      "id": "center-table-w2",
-      "name": "Hall table",
-      "x": 3,
-      "y": 12,
-      "width": 2.4,
-      "height": 1
-    },
-    {
-      "id": "center-table-e1",
-      "name": "Hall table",
-      "x": 21,
-      "y": 8,
-      "width": 2.4,
-      "height": 1
-    },
-    {
-      "id": "center-table-e2",
-      "name": "Hall table",
-      "x": 21,
-      "y": 12,
-      "width": 2.4,
+      "id": "center-wash-2",
+      "name": "Washroom fixture",
+      "x": 28,
+      "y": 21,
+      "width": 0.8,
       "height": 1
     },
     {
       "id": "center-storage",
-      "name": "Storage cabinets",
-      "x": 25,
-      "y": 3,
-      "width": 0.6,
-      "height": 4
+      "name": "Supply shelving",
+      "x": 28.8,
+      "y": 24,
+      "width": 0.5,
+      "height": 1.2
     }
   ],
   "agent_radius": 0.22,
   "time_step_seconds": 0.1,
   "seed": 42,
-  "max_steps": 1200,
+  "max_steps": 1500,
   "tornado_zones": [
     {
       "id": "center-refuge-north",
-      "name": "Interior refuge north",
-      "x": 10.6,
-      "y": 9.6,
-      "width": 6.8,
-      "height": 1.8
+      "name": "North interior refuge",
+      "x": 22,
+      "y": 8.7,
+      "width": 6,
+      "height": 2.4
     },
     {
       "id": "center-refuge-south",
-      "name": "Interior refuge south",
-      "x": 10.6,
-      "y": 12.6,
-      "width": 6.8,
-      "height": 1.8
+      "name": "South interior refuge",
+      "x": 22,
+      "y": 12.8,
+      "width": 6,
+      "height": 3.3
     }
   ],
   "disaster": {
     "kind": "tornado",
     "center": {
-      "x": 1,
-      "y": 11
+      "x": 6,
+      "y": 5.5
     },
-    "radius": 0.5
+    "radius": 1.1,
+    "dynamics": {
+      "enabled": true,
+      "growth_rate": 0.12,
+      "spread_interval_seconds": 2.5,
+      "max_patches": 4,
+      "max_radius": 2.4,
+      "speed": 0.9,
+      "turn_rate_degrees": 60,
+      "wander_interval_seconds": 3,
+      "shelter_clearance": 0.6
+    }
   }
 }
