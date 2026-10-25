@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef } from "react";
 import type {
   BuildingScenario,
   OptimizationCandidate,
@@ -51,7 +51,8 @@ export default function AnalyticsDashboard({
   baseline,
   onWatchOriginal,
 }: AnalyticsDashboardProps) {
-  const [view, setView] = useState<"overview" | "advanced">("overview");
+  const vulnerabilitySection = useRef<HTMLDivElement>(null);
+  const optimizationSection = useRef<HTMLDivElement>(null);
   const metrics = result ?? stressResult?.baseline ?? null;
   const worst = stressResult?.scenarios.toSorted((a, b) => a.rank - b.rank)[0];
   const best = optimization?.result.candidates.toSorted(
@@ -60,21 +61,7 @@ export default function AnalyticsDashboard({
   const timeStep = result?.time_step_seconds ?? building?.time_step_seconds;
   return (
     <section id="analytics" aria-label="Analytics">
-      <div className="control-buttons" role="group" aria-label="Analytics view">
-        <button
-          aria-pressed={view === "overview"}
-          onClick={() => setView("overview")}
-        >
-          Overview
-        </button>
-        <button
-          aria-pressed={view === "advanced"}
-          onClick={() => setView("advanced")}
-        >
-          Advanced
-        </button>
-      </div>
-      <div className="analytics-grid" hidden={view !== "overview"}>
+      <div className="analytics-grid analytics-summary">
         <section className="panel" aria-label="Outcome overview">
           <h2>What happened?</h2>
           <span className="badge">
@@ -89,6 +76,16 @@ export default function AnalyticsDashboard({
               <p>{outcomeExplanation(metrics, result?.termination_reason)}</p>
               <div className="metrics">
                 <div>
+                  <span>Status</span>
+                  <strong>
+                    {metrics.status === "completed"
+                      ? "Completed"
+                      : metrics.status === "timeout"
+                        ? "Step limit reached"
+                        : "Incomplete"}
+                  </strong>
+                </div>
+                <div>
                   <span>Evacuated</span>
                   <strong>
                     {metrics.evacuated} / {metrics.total_population}
@@ -102,7 +99,11 @@ export default function AnalyticsDashboard({
                   <span>Remaining</span>
                   <strong>{metrics.remaining}</strong>
                 </div>
-                <div title="Only a completed run measures full clearance.">
+                <div title="Remaining occupants when all exits are explicitly blocked and no eligible window or tornado shelter applies.">
+                  <span>Trapped</span>
+                  <strong>{metrics.trapped}</strong>
+                </div>
+                <div title="Full clearance requires everyone to evacuate or reach a designated tornado shelter.">
                   <span>
                     {metrics.clearance_steps === null
                       ? "Elapsed simulated time"
@@ -117,23 +118,7 @@ export default function AnalyticsDashboard({
                   </strong>
                 </div>
               </div>
-              {result?.analytics && building?.disaster && (
-                <p>
-                  Injured during run:{" "}
-                  <strong>
-                    {
-                      result.analytics.agents.filter((a) => (a.injury ?? 0) > 0)
-                        .length
-                    }
-                  </strong>
-                </p>
-              )}
-              <p className="note">
-                Remaining means still inside when the run ended. Deaths are not
-                modeled.
-              </p>
-              <details>
-                <summary>Outcome and opening-state evidence</summary>
+              <div className="note outcome-evidence">
                 {result?.analytics && building?.disaster && (
                   <p title="Occupants with any recorded injury during the run; this count can include evacuated occupants.">
                     Injured during run:{" "}
@@ -154,11 +139,12 @@ export default function AnalyticsDashboard({
                   </p>
                 )}
                 <p className="note">
-                  Remaining occupants are not presumed dead. Trapped is a
+                  Remaining means still inside when the run ended, including
+                  trapped occupants. Deaths are not modeled. Trapped is a
                   narrower engine classification; zero trapped does not prove an
                   available escape route.
                 </p>
-              </details>
+              </div>
             </>
           ) : (
             <p>
@@ -167,7 +153,7 @@ export default function AnalyticsDashboard({
           )}
         </section>
         <section className="panel" aria-label="Vulnerability overview">
-          <h2>What went wrong?</h2>
+          <h2>What if an exit fails?</h2>
           {worst && stressResult ? (
             <>
               <h3>{scenarioTitle(worst)}</h3>
@@ -188,7 +174,13 @@ export default function AnalyticsDashboard({
                   timeStep,
                 )}
               </p>
-              <button onClick={() => setView("advanced")}>
+              <button
+                onClick={() =>
+                  vulnerabilitySection.current?.scrollIntoView({
+                    behavior: "smooth",
+                  })
+                }
+              >
                 Inspect scenario evidence
               </button>
             </>
@@ -227,7 +219,13 @@ export default function AnalyticsDashboard({
                 This improves the optimizer's baseline objective. Run stress
                 testing again to measure failure resilience.
               </p>
-              <button onClick={() => setView("advanced")}>
+              <button
+                onClick={() =>
+                  optimizationSection.current?.scrollIntoView({
+                    behavior: "smooth",
+                  })
+                }
+              >
                 Review recommendation
               </button>
             </>
@@ -248,147 +246,69 @@ export default function AnalyticsDashboard({
           )}
         </section>
       </div>
-      {view === "advanced" && (
+      <div
+        className="analytics-grid analytics-advanced"
+        aria-label="Detailed analytics"
+      >
+        <section className="panel" aria-label="Population breakdown">
+          <h2>Population breakdown</h2>
+          {metrics ? (
+            <>
+              <PopulationChart metrics={metrics} />
+              {result && stressResult && (
+                <p className="note">
+                  Population and traffic use the simulation run; comparisons use
+                  the computed stress-test baseline.
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="note">
+              Run a simulation to see the population breakdown.
+            </p>
+          )}
+        </section>
+        <TrafficHeatmap building={building} result={result} />
+        <CrowdingRanking
+          building={building}
+          result={result}
+          onViewInSimulation={onViewInSimulation}
+        />
         <div
-          className="analytics-grid analytics-advanced"
-          aria-label="Advanced analytics"
+          ref={vulnerabilitySection}
+          id="analytics-vulnerabilities"
+          className="panel comparison-panel"
         >
-          <div className="panel">
-            <div className="panel-heading">
-              <div>
-                <h2>
-                  {building?.disaster?.kind === "tornado"
-                    ? "Shelter response metrics"
-                    : "Evacuation metrics"}
-                </h2>
-              </div>
-              <span className="badge">
-                {result
-                  ? "Computed simulation"
-                  : stressResult
-                    ? "Computed stress-test baseline"
-                    : "Awaiting results"}
-              </span>
-            </div>
-            {metrics ? (
-              <>
-                <p className="note">
-                  {outcomeExplanation(metrics, result?.termination_reason)}
-                </p>
-                {result && stressResult && (
-                  <p className="note">
-                    Metrics use the simulation run; comparisons use the computed
-                    stress-test baseline.
-                  </p>
-                )}
-                <div className="metrics">
-                  <div>
-                    <span>Status</span>
-                    <strong>
-                      {metrics.status === "completed"
-                        ? "Completed"
-                        : metrics.status === "timeout"
-                          ? "Step limit reached"
-                          : "Incomplete"}
-                    </strong>
-                  </div>
-                  <div>
-                    <span title="Occupants still inside when the run ended; includes trapped occupants.">
-                      Remaining
-                    </span>
-                    <strong>{metrics.remaining}</strong>
-                  </div>
-                  <div>
-                    <span>Evacuated</span>
-                    <strong>
-                      {metrics.evacuated} / {metrics.total_population}
-                    </strong>
-                  </div>
-                  {(metrics.sheltered ?? 0) > 0 && (
-                    <div>
-                      <span>Sheltered</span>
-                      <strong>{metrics.sheltered}</strong>
-                    </div>
-                  )}
-                  {building?.disaster && (
-                    <div>
-                      <span>Injured during run</span>
-                      <strong>
-                        {result?.analytics?.agents.filter(
-                          (a) => (a.injury ?? 0) > 0,
-                        ).length ?? "—"}
-                      </strong>
-                    </div>
-                  )}
-                  <div>
-                    <span title="Remaining occupants when all exits are explicitly blocked and no eligible window or tornado shelter applies.">
-                      Trapped
-                    </span>
-                    <strong>{metrics.trapped}</strong>
-                  </div>
-                  <div>
-                    <span title="Full clearance requires everyone to evacuate or reach a designated tornado shelter.">
-                      Clearance
-                    </span>
-                    <strong>
-                      {metrics.clearance_steps === null
-                        ? "No measured clearance"
-                        : `${metrics.clearance_steps} steps`}
-                    </strong>
-                  </div>
-                </div>
-                <section
-                  className="advanced-population"
-                  aria-label="Population breakdown"
-                >
-                  <h3>Population breakdown</h3>
-                  <PopulationChart metrics={metrics} />
-                </section>
-                <p className="note">
-                  Trapped occupants are included in remaining occupants. The
-                  engine only counts trapped occupants when every exit is
-                  explicitly blocked.
-                </p>
-              </>
-            ) : (
-              <div className="empty-state compact">
-                <h3>No computed metrics</h3>
-                <p>Run Simulation to see results.</p>
-              </div>
-            )}
-          </div>
-          <TrafficHeatmap building={building} result={result} />
-          <CrowdingRanking
-            building={building}
-            result={result}
-            onViewInSimulation={onViewInSimulation}
+          <h2>Vulnerability comparison</h2>
+          <ScenarioComparison
+            result={stressResult}
+            onWatch={onWatchScenario}
+            disabled={disabled}
+            timeStep={timeStep}
           />
-          <div className="panel comparison-panel">
-            <h2>Vulnerability comparison</h2>
-            <ScenarioComparison
-              result={stressResult}
-              onWatch={onWatchScenario}
-              disabled={disabled}
-              timeStep={timeStep}
-            />
-          </div>
-          {onApply && (
+        </div>
+        {onApply && (
+          <div
+            ref={optimizationSection}
+            id="analytics-optimization"
+            className="optimization-panel"
+          >
             <OptimizationComparison
               evaluation={optimization}
               onApply={onApply}
               disabled={disabled}
               rerun={result}
             />
-          )}
-        </div>
-      )}
+          </div>
+        )}
+      </div>
       {baseline && building && (
         <LayoutComparison
           before={baseline}
           building={building}
           result={result}
           onWatchOriginal={onWatchOriginal}
-          showLayouts={view === "advanced"}
+          showLayouts
         />
       )}
     </section>
