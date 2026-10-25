@@ -8,6 +8,7 @@ interface StudioWelcomeProps {
   onOpen: () => void;
   onLoadExample: () => void;
   onOpenDemo?: () => void;
+  onTemplates?: () => void;
   disabled?: boolean;
 }
 
@@ -16,6 +17,7 @@ export function StudioWelcome({
   onOpen,
   onLoadExample,
   onOpenDemo,
+  onTemplates,
   disabled = false,
 }: StudioWelcomeProps) {
   return (
@@ -44,6 +46,16 @@ export function StudioWelcome({
             <button className="entry-action" onClick={onOpen}>
               Open Studio <span aria-hidden="true">↗</span>
             </button>
+            {onTemplates && (
+              <button
+                type="button"
+                className="welcome-example"
+                disabled={disabled}
+                onClick={onTemplates}
+              >
+                Browse templates <span aria-hidden="true">→</span>
+              </button>
+            )}
             <button
               className="welcome-example"
               disabled={disabled}

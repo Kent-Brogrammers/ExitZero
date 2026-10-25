@@ -7,6 +7,7 @@ import { canvasView, openingSegment, type Selection } from "./geometry";
 import { drawGrid } from "./drawGrid";
 import type { DraftingPreferences } from "./drafting";
 import { solidWallSegments, openingLabels } from "./openings";
+import { openingStartsBlocked } from "./openingState";
 import { doorLeaves } from "./doorSymbols";
 import { drawFurniture, type FurnitureKind } from "./furniture";
 import { dragRectangle, wallShapePoints } from "./shapes";
@@ -245,20 +246,43 @@ export function drawLayout(
       const wall = building.walls.find((v) => v.id === opening.wall_id);
       if (!wall) continue;
       const [a, b] = openingSegment(opening, wall);
+      const blocked = openingStartsBlocked(building, opening.id);
       const blueprintDoor =
-        palette.blueprint === "1" && openings === building.doors;
+        palette.blueprint === "1" && openings === building.doors && !blocked;
       ctx.lineCap = "butt";
       ctx.lineWidth = selectedIds.has(opening.id) ? 5 * px : 3 * px;
       ctx.strokeStyle =
         blueprintDoor && selectedIds.has(opening.id)
           ? palette.selection
-          : building.blocked_exit_ids.includes(opening.id)
+          : blocked
             ? palette.danger
             : color;
       if (!blueprintDoor) {
         ctx.beginPath();
         ctx.moveTo(a.x, a.y);
         ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+      if (blocked) {
+        // A persistent cross marks closure even when drafting labels are hidden.
+        const length = Math.hypot(b.x - a.x, b.y - a.y),
+          tx = (b.x - a.x) / length,
+          ty = (b.y - a.y) / length,
+          size = Math.min(opening.width / 4, 6 * px),
+          cx = (a.x + b.x) / 2,
+          cy = (a.y + b.y) / 2;
+        ctx.lineWidth = 2 * px;
+        ctx.beginPath();
+        for (const side of [-1, 1]) {
+          ctx.moveTo(
+            cx - tx * size - ty * size * side,
+            cy - ty * size + tx * size * side,
+          );
+          ctx.lineTo(
+            cx + tx * size + ty * size * side,
+            cy + ty * size - tx * size * side,
+          );
+        }
         ctx.stroke();
       }
       if (blueprintDoor) {
@@ -378,7 +402,7 @@ export function drawLayout(
       )) {
     ctx.fillStyle = building.windows?.some((w) => w.id === label.id)
       ? palette.muted
-      : building.blocked_exit_ids.includes(label.id)
+      : openingStartsBlocked(building, label.id)
         ? palette.danger
         : building.exits.some((o) => o.id === label.id)
           ? palette.exit

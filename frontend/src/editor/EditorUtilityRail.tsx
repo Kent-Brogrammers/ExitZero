@@ -1,5 +1,4 @@
 import type { ReactNode, Ref } from "react";
-import { buildingPresets, type BuildingPreset } from "./presets";
 import { StudioPopover } from "../ui/StudioPopover";
 import { DraftingControls } from "./DraftingControls";
 import type { DraftingPreferences } from "./drafting";
@@ -14,8 +13,6 @@ interface EditorUtilityRailProps {
   onUndo: () => void;
   onRedo: () => void;
   onNew: () => void;
-  onExample: () => void;
-  onPreset: (preset: BuildingPreset) => void;
   onImport: () => void;
   onImportDxf: () => void;
   onExport: () => void;
@@ -72,10 +69,9 @@ export function EditorUtilityRail(props: EditorUtilityRailProps) {
           <div className="file-actions">
             {(
               [
-                ["New layout", props.onNew],
-                ["Load example", props.onExample],
+                ["New Layout", props.onNew],
                 ["Import JSON", props.onImport],
-                ["Import DXF floor plan…", props.onImportDxf],
+                ["Import DXF", props.onImportDxf],
                 ["Export JSON", props.onExport],
               ] as const
             ).map(([label, action]) => (
@@ -91,22 +87,6 @@ export function EditorUtilityRail(props: EditorUtilityRailProps) {
                 {label}
               </button>
             ))}
-            <details className="file-presets">
-              <summary>Building presets</summary>
-              {buildingPresets.map((preset) => (
-                <button
-                  key={preset.id}
-                  type="button"
-                  className="studio-control"
-                  onClick={() => {
-                    close();
-                    props.onPreset(preset);
-                  }}
-                >
-                  {preset.label}
-                </button>
-              ))}
-            </details>
           </div>
         )}
       </StudioPopover>
