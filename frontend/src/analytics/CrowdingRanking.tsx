@@ -126,7 +126,6 @@ function Snapshot({
           Math.min(CROWD_ZONE, building.width - spot.x),
           Math.min(CROWD_ZONE, building.height - spot.y),
         )}
-        {spot.frame.step === 0 ? " · Initial occupancy" : ""}
       </p>
       {onViewInSimulation && (
         <button
@@ -162,8 +161,10 @@ function Cards({
       <h2>Peak crowding</h2>
       <p className="note">
         Three busiest {formatDimensions(CROWD_ZONE, CROWD_ZONE)} zones in
-        recorded frames, including initial occupancy. Ranked by occupant count,
-        not density or proven congestion; boundary zones may be smaller.
+        recorded frames after occupants move at least 6.6 ft (2 metres) from
+        their starting positions. Initial spawn crowds are excluded; later
+        queues still count. Ranked by eligible occupant count, not density or
+        proven congestion; boundary zones may be smaller.
       </p>
       <div className="crowding-legend">
         <span>Fewer occupants</span>
@@ -194,7 +195,8 @@ function Cards({
         </div>
       ) : (
         <p className="note">
-          Crowding snapshots will appear as occupant frames arrive.
+          Crowding snapshots appear after occupants move at least 6.6 ft (2
+          metres) from their starting positions.
         </p>
       )}
     </section>
