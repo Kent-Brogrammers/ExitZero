@@ -10,6 +10,7 @@ import {
 import { drawGrid } from "./drawGrid";
 import type { DraftingPreferences } from "./drafting";
 import type { WallSnapTarget } from "./snapping";
+import { wallLengthLabels, type MeasurementVisibility } from "./measurements";
 import {
   solidWallSegments,
   openingLabels,
@@ -51,6 +52,7 @@ export function drawLayout(
     hazardMode?: "filled" | "outline" | "both";
     showBlockedLabels?: boolean;
     snapTarget?: WallSnapTarget | null;
+    measurements?: MeasurementVisibility;
   },
 ) {
   const ctx = canvas.getContext("2d");
@@ -440,14 +442,22 @@ export function drawLayout(
     }
   }
   ctx.font = `${11 * px}px system-ui`;
-  for (const label of options?.showLabels === false
-    ? []
-    : openingLabels(
-        building,
-        px,
-        (text) => ctx.measureText?.(text).width ?? text.length * 6 * px,
-        options?.windowStates,
-      )) {
+  const openingAnnotations =
+    options?.showLabels === false && !options.measurements
+      ? []
+      : openingLabels(
+          building,
+          px,
+          (text) => ctx.measureText?.(text).width ?? text.length * 6 * px,
+          options?.windowStates,
+          options?.measurements
+            ? {
+                measurements: options.measurements,
+                showNames: options.showLabels !== false,
+              }
+            : undefined,
+        );
+  for (const label of openingAnnotations) {
     if (
       options?.showBlockedLabels === false &&
       openingStartsBlocked(building, label.id) &&
@@ -463,6 +473,16 @@ export function drawLayout(
           ? palette.exit
           : palette.door;
     ctx.fillText(label.text, label.x, label.y);
+  }
+  if (options?.measurements?.walls) {
+    ctx.fillStyle = palette.wall;
+    for (const label of wallLengthLabels(
+      building,
+      px,
+      (text) => ctx.measureText(text).width,
+      openingAnnotations,
+    ))
+      ctx.fillText(label.text, label.x, label.y);
   }
   if (single?.kind === "walls") {
     const wall = building.walls.find((v) => v.id === single.id);

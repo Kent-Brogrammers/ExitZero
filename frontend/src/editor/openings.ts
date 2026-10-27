@@ -8,6 +8,7 @@ import type {
 } from "../types/simulation";
 import { openingSegment, wallLength, project, distance } from "./geometry";
 import { openingStartsBlocked } from "./openingState";
+import type { MeasurementVisibility } from "./measurements";
 
 // Match Rust and the shared opening bounds/overlap tolerance, in metres.
 const OPENING_EPSILON = 1e-8;
@@ -204,14 +205,18 @@ export function openingLabels(
   px: number,
   measure: (text: string) => number,
   windowStates: readonly WindowFrameState[] = [],
+  options?: { measurements: MeasurementVisibility; showNames: boolean },
 ): OpeningLabel[] {
   const placed: OpeningLabel[] = [];
-  for (const [kind, items] of [
-    ["Door", building.doors],
-    ["Exit", building.exits],
-    ["Window", building.windows ?? []],
+  for (const [key, kind, items] of [
+    ["doors", "Door", building.doors],
+    ["exits", "Exit", building.exits],
+    ["windows", "Window", building.windows ?? []],
   ] as const)
     for (const o of items) {
+      const showName = options?.showNames !== false;
+      const showWidth = options?.measurements[key] !== false;
+      if (!showName && !showWidth) continue;
       const wall = building.walls.find((w) => w.id === o.wall_id);
       if (!wall) continue;
       const [a, b] = openingSegment(o, wall),
@@ -225,7 +230,13 @@ export function openingLabels(
         : openingStartsBlocked(building, o.id)
           ? `Blocked ${kind.toLowerCase()}`
           : kind;
-      const text = `${label} · ${formatLength(o.width)}${state ? ` · ${state}` : ""}`;
+      const text = [
+        showName ? label : null,
+        showWidth ? formatLength(o.width) : null,
+        showName && state ? state : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
       const width = Math.min(measure(text), building.width),
         height = 13 * px;
       const x = Math.max(

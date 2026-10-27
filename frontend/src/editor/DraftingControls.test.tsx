@@ -50,6 +50,7 @@ it("migrates legacy preferences and persists wall snapping independently of the 
     visible: false,
     snap: true,
     snapEndpoints: false,
+    measurements: { walls: false, doors: true, windows: true, exits: true },
     spacing: "5ft",
     doorMergeTolerance: 0.05,
   });
@@ -57,6 +58,33 @@ it("migrates legacy preferences and persists wall snapping independently of the 
   expect(checkbox("Snap to wall endpoints & corners").checked).toBe(false);
   await act(async () => checkbox("Snap to Grid").click());
   expect(checkbox("Snap to wall endpoints & corners").checked).toBe(false);
+});
+
+it("saves any measurement combination independently of grid and snapping settings", async () => {
+  await act(async () => root.render(<Harness />));
+  expect(checkbox("Walls").checked).toBe(false);
+  for (const label of ["Doors", "Windows", "Exits"])
+    expect(checkbox(label).checked).toBe(true);
+  await act(async () => checkbox("Windows").click());
+  await act(async () => checkbox("Exits").click());
+  expect(checkbox("Doors").checked).toBe(true);
+  expect(checkbox("Walls").checked).toBe(false);
+  await act(async () => checkbox("Walls").click());
+  const saved = JSON.parse(localStorage.getItem(DRAFTING_STORAGE_KEY)!);
+  expect(saved.measurements).toEqual({
+    walls: true,
+    doors: true,
+    windows: false,
+    exits: false,
+  });
+  expect(saved.visible).toBe(false);
+  expect(saved.snap).toBe(false);
+  expect(saved.snapEndpoints).toBe(true);
+  await act(async () => root.render(<Harness key="refresh-measurements" />));
+  for (const label of ["Walls", "Doors"])
+    expect(checkbox(label).checked).toBe(true);
+  for (const label of ["Windows", "Exits"])
+    expect(checkbox(label).checked).toBe(false);
 });
 
 it("keeps drawing preferences usable when browser storage is unavailable", async () => {

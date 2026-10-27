@@ -4,6 +4,7 @@ import { drawLayout } from "./draw";
 import { canvasPalette } from "../styles/canvasPalette";
 import { mergeEditedDoors } from "./doorEditing";
 import { setOpeningBlocked } from "./openingState";
+import { measurementVisibility } from "./measurements";
 
 function canvasFixture(width: number, height = (width * 2) / 3) {
   const strokes: { cap: string; width: number; color: string }[] = [];
@@ -55,6 +56,72 @@ function canvasFixture(width: number, height = (width * 2) / 3) {
 }
 
 describe("freeform Canvas drawing", () => {
+  it.each(Array.from({ length: 16 }, (_, combination) => [combination]))(
+    "renders exactly the requested wall/opening measurement combination %s",
+    (combination) => {
+      const building = {
+        ...example,
+        walls: [
+          {
+            id: "dimension-wall",
+            start: { x: 2, y: 2 },
+            end: { x: 28, y: 2 },
+            thickness: 0.2,
+          },
+        ],
+        doors: [
+          {
+            id: "dimension-door",
+            wall_id: "dimension-wall",
+            offset: 2,
+            width: 1.1,
+          },
+        ],
+        exits: [
+          {
+            id: "dimension-exit",
+            wall_id: "dimension-wall",
+            offset: 13,
+            width: 1.7,
+          },
+        ],
+        windows: [
+          {
+            id: "dimension-window",
+            wall_id: "dimension-wall",
+            offset: 7,
+            width: 1.4,
+          },
+        ],
+        spawn_zones: [],
+        obstructions: [],
+        blocked_exit_ids: [],
+      };
+      const before = JSON.stringify(building);
+      const measurements = measurementVisibility({
+        walls: !!(combination & 1),
+        doors: !!(combination & 2),
+        windows: !!(combination & 4),
+        exits: !!(combination & 8),
+      });
+      const { context, element } = canvasFixture(600);
+      drawLayout(element, building, null, undefined, 1, undefined, {
+        showLabels: false,
+        showDimensions: false,
+        measurements,
+      });
+      const expected = [
+        measurements.walls ? "85.3 ft" : null,
+        measurements.doors ? "3.6 ft" : null,
+        measurements.windows ? "4.6 ft" : null,
+        measurements.exits ? "5.6 ft" : null,
+      ].filter(Boolean);
+      expect(context.fillText.mock.calls.map(([text]) => text).sort()).toEqual(
+        expected.sort(),
+      );
+      expect(JSON.stringify(building)).toBe(before);
+    },
+  );
   it("updates live straight-wall length from the preview endpoints without changing geometry", () => {
     const { context, element } = canvasFixture(600);
     const before = JSON.stringify(example);

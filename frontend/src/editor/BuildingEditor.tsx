@@ -76,6 +76,7 @@ import {
 } from "./selection";
 import { drawLayout } from "./draw";
 import { nearestWallSnap, wallSnapTargets } from "./snapping";
+import { measurementVisibility } from "./measurements";
 import "./BuildingEditor.css";
 
 type EditorSnapshot = {
@@ -777,6 +778,7 @@ export function BuildingEditor({
           showLabels: tool === "select" && !gesture,
           showDimensions: tool === "select" && !gesture,
           snapTarget: activeSnap,
+          measurements: measurementVisibility(drafting.measurements),
         },
       );
     redraw();
