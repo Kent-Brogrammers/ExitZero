@@ -53,6 +53,7 @@ pub(super) struct Windows<'a> {
     scenario: &'a BuildingScenario,
     stations: Vec<Station<'a>>,
     approaches: Vec<Option<Approach>>,
+    navigation: Option<Navigation>,
 }
 
 impl<'a> Windows<'a> {
@@ -168,8 +169,7 @@ impl<'a> Windows<'a> {
                 approach,
                 landing,
                 geometry: crossing,
-                navigation: eligible
-                    .then(|| Navigation::to_point(scenario, geometry, pane.id.clone(), approach)),
+                navigation: None,
                 eligible,
                 snapshot: WindowFrameState {
                     window_id: pane.id.clone(),
@@ -189,6 +189,7 @@ impl<'a> Windows<'a> {
             scenario,
             stations,
             approaches: (0..population).map(|_| None).collect(),
+            navigation: None,
         }
     }
 
@@ -297,6 +298,7 @@ impl<'a> Windows<'a> {
             station.eligible = new.eligible;
             station.snapshot.unavailable_reason = new.snapshot.unavailable_reason;
         }
+        self.navigation = None;
         // Replan approach routes after physical opening events. Active service
         // and FIFO membership keep their stable window/agent references.
         for i in 0..self.approaches.len() {
@@ -348,6 +350,26 @@ impl<'a> Windows<'a> {
         }
         for approach in self.approaches.iter().flatten() {
             reachable[approach.station] = true;
+        }
+        // Window eligibility and service do not need route graphs. Construct
+        // one shared topology only when somebody actually needs a fallback.
+        // Preserve the existing physical-map policy for window approaches.
+        if self.stations.iter().any(|s| s.eligible)
+            && (0..agents.len()).any(|i| !evacuated[i] && fallback[i] && !self.controls(i))
+        {
+            let navigation = self
+                .navigation
+                .get_or_insert_with(|| Navigation::new(self.scenario, geometry));
+            for s in self
+                .stations
+                .iter_mut()
+                .filter(|s| s.eligible && s.navigation.is_none())
+            {
+                s.navigation = Some(
+                    navigation
+                        .with_point_target(self.scenario.windows[s.index].id.clone(), s.approach),
+                );
+            }
         }
         let mut attempted = false;
         for i in 0..agents.len() {
