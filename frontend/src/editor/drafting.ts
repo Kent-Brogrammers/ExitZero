@@ -12,6 +12,8 @@ export const gridSpacings = {
 export interface DraftingPreferences {
   visible: boolean;
   snap: boolean;
+  /** Older preferences retain the editor's previously always-on wall snapping. */
+  snapEndpoints?: boolean;
   spacing: keyof typeof gridSpacings;
   doorMergeTolerance: number;
 }
@@ -31,6 +33,8 @@ export function useDraftingPreferences() {
         return {
           visible: p.visible,
           snap: p.snap,
+          snapEndpoints:
+            typeof p.snapEndpoints === "boolean" ? p.snapEndpoints : true,
           spacing: p.spacing,
           doorMergeTolerance: [0.02, 0.05, 0.1, 0.2].includes(
             p.doorMergeTolerance,
@@ -44,6 +48,7 @@ export function useDraftingPreferences() {
     return {
       visible: false,
       snap: false,
+      snapEndpoints: true,
       spacing: "2ft",
       doorMergeTolerance: 0.1,
     };

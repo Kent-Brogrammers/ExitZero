@@ -9,6 +9,7 @@ import {
 } from "./geometry";
 import { drawGrid } from "./drawGrid";
 import type { DraftingPreferences } from "./drafting";
+import type { WallSnapTarget } from "./snapping";
 import {
   solidWallSegments,
   openingLabels,
@@ -47,6 +48,7 @@ export function drawLayout(
     disasterState?: import("../types/simulation").DisasterState;
     hazardMode?: "filled" | "outline" | "both";
     showBlockedLabels?: boolean;
+    snapTarget?: WallSnapTarget | null;
   },
 ) {
   const ctx = canvas.getContext("2d");
@@ -552,5 +554,22 @@ export function drawLayout(
       12 * px,
       20 * px,
     );
+  }
+  if (options?.snapTarget) {
+    const { point } = options.snapTarget;
+    ctx.save();
+    ctx.setLineDash([]);
+    ctx.strokeStyle = palette.selection;
+    ctx.fillStyle = palette.surface;
+    ctx.lineWidth = 2 * px;
+    ctx.fillRect(point.x - 5 * px, point.y - 5 * px, 10 * px, 10 * px);
+    ctx.strokeRect(point.x - 5 * px, point.y - 5 * px, 10 * px, 10 * px);
+    ctx.beginPath();
+    ctx.moveTo(point.x - 9 * px, point.y);
+    ctx.lineTo(point.x + 9 * px, point.y);
+    ctx.moveTo(point.x, point.y - 9 * px);
+    ctx.lineTo(point.x, point.y + 9 * px);
+    ctx.stroke();
+    ctx.restore();
   }
 }

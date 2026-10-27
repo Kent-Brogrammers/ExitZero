@@ -47,6 +47,23 @@ export function DraftingControls({
         />
         Snap to Grid
       </label>
+      <h3>Wall snapping</h3>
+      <label>
+        <input
+          type="checkbox"
+          checked={preferences.snapEndpoints !== false}
+          onChange={(e) =>
+            onChange({ ...preferences, snapEndpoints: e.target.checked })
+          }
+        />
+        Snap to wall endpoints &amp; corners
+      </label>
+      <p className="note">
+        Draw straight walls or drag wall endpoints to the highlighted target.
+        Wall targets take priority over the grid. Turning this off leaves grid
+        snapping independent.
+      </p>
+      <h3>Opening snapping</h3>
       <label>
         Door / exit merge snap
         <select

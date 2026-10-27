@@ -54,6 +54,36 @@ function canvasFixture(width: number, height = (width * 2) / 3) {
 }
 
 describe("freeform Canvas drawing", () => {
+  it("keeps the active snap guide the same display size at high DPI", () => {
+    const normal = canvasFixture(600);
+    const retina = canvasFixture(600);
+    const before = JSON.stringify(example);
+    const snapTarget = {
+      point: { x: 5, y: 6 },
+      kind: "endpoint" as const,
+      wallIds: ["wall"],
+    };
+    for (const [fixture, ratio] of [
+      [normal, 1],
+      [retina, 2],
+    ] as const) {
+      drawLayout(fixture.element, example, null, undefined, ratio, undefined, {
+        snapTarget,
+      });
+      expect(fixture.context.strokeRect).toHaveBeenLastCalledWith(
+        4.75,
+        5.75,
+        0.5,
+        0.5,
+      );
+      expect(fixture.context.moveTo).toHaveBeenCalledWith(4.55, 6);
+      expect(fixture.context.restore).toHaveBeenCalled();
+    }
+    expect(retina.context.strokeRect.mock.calls.at(-1)).toEqual(
+      normal.context.strokeRect.mock.calls.at(-1),
+    );
+    expect(JSON.stringify(example)).toBe(before);
+  });
   it("layers traffic above spawn fills but below labels, outlines and obstacles", () => {
     const { context, element } = canvasFixture(600);
     const underlay = vi.fn();
