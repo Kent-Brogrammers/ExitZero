@@ -6,6 +6,134 @@ use std::collections::BTreeSet;
 // Match the opening bounds/overlap tolerance in BuildingScenario validation.
 const OPENING_EPSILON: f64 = 1e-8;
 
+#[derive(Clone, Copy)]
+struct Bounds {
+    min: Point,
+    max: Point,
+}
+
+impl Bounds {
+    fn segment(start: Point, end: Point, margin: f64) -> Self {
+        Self {
+            min: Point {
+                x: start.x.min(end.x) - margin,
+                y: start.y.min(end.y) - margin,
+            },
+            max: Point {
+                x: start.x.max(end.x) + margin,
+                y: start.y.max(end.y) + margin,
+            },
+        }
+    }
+
+    fn union(self, other: Self) -> Self {
+        Self {
+            min: Point {
+                x: self.min.x.min(other.min.x),
+                y: self.min.y.min(other.min.y),
+            },
+            max: Point {
+                x: self.max.x.max(other.max.x),
+                y: self.max.y.max(other.max.y),
+            },
+        }
+    }
+
+    fn overlaps(self, other: Self) -> bool {
+        self.min.x <= other.max.x
+            && self.max.x >= other.min.x
+            && self.min.y <= other.max.y
+            && self.max.y >= other.min.y
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Primitive {
+    Wall(usize),
+    Obstruction(usize),
+}
+
+struct IndexedPrimitive {
+    bounds: Bounds,
+    primitive: Primitive,
+}
+
+struct BoundsNode {
+    bounds: Bounds,
+    // Nodes are in preorder. A rejected subtree jumps directly to its end,
+    // avoiding recursion, allocation, or a fixed-size query stack.
+    end: usize,
+    entries: std::ops::Range<usize>,
+}
+
+#[derive(Default)]
+struct GeometryIndex {
+    entries: Vec<IndexedPrimitive>,
+    nodes: Vec<BoundsNode>,
+}
+
+impl GeometryIndex {
+    fn new(mut entries: Vec<IndexedPrimitive>) -> Self {
+        fn build(entries: &mut [IndexedPrimitive], offset: usize, nodes: &mut Vec<BoundsNode>) {
+            let bounds = entries
+                .iter()
+                .skip(1)
+                .fold(entries[0].bounds, |a, b| a.union(b.bounds));
+            let index = nodes.len();
+            nodes.push(BoundsNode {
+                bounds,
+                end: 0,
+                entries: offset..offset + entries.len(),
+            });
+            if entries.len() > 4 {
+                let split_x = bounds.max.x - bounds.min.x >= bounds.max.y - bounds.min.y;
+                entries.sort_unstable_by(|a, b| {
+                    let center = |p: &IndexedPrimitive| {
+                        if split_x {
+                            p.bounds.min.x + p.bounds.max.x
+                        } else {
+                            p.bounds.min.y + p.bounds.max.y
+                        }
+                    };
+                    center(a)
+                        .total_cmp(&center(b))
+                        .then_with(|| a.primitive.cmp(&b.primitive))
+                });
+                let middle = entries.len() / 2;
+                let (left, right) = entries.split_at_mut(middle);
+                nodes[index].entries = 0..0;
+                build(left, offset, nodes);
+                build(right, offset + middle, nodes);
+            }
+            nodes[index].end = nodes.len();
+        }
+
+        let mut nodes = Vec::with_capacity(entries.len().saturating_mul(2));
+        if !entries.is_empty() {
+            build(&mut entries, 0, &mut nodes);
+        }
+        Self { entries, nodes }
+    }
+
+    fn any(&self, bounds: Bounds, mut test: impl FnMut(Primitive) -> bool) -> bool {
+        let mut cursor = 0;
+        while cursor < self.nodes.len() {
+            let node = &self.nodes[cursor];
+            if !node.bounds.overlaps(bounds) {
+                cursor = node.end;
+                continue;
+            }
+            for entry in &self.entries[node.entries.clone()] {
+                if entry.bounds.overlaps(bounds) && test(entry.primitive) {
+                    return true;
+                }
+            }
+            cursor += 1;
+        }
+        false
+    }
+}
+
 // Intersect a movement segment with a box expressed in two orthonormal axes.
 fn box_interval(
     from: Point,
@@ -94,6 +222,7 @@ pub(super) struct Geometry<'a> {
     obstructions: Vec<&'a Obstruction>,
     // Centreline pieces, physical half-thickness and supporting wall index.
     solid_walls: Vec<(Point, Point, f64, usize)>,
+    index: GeometryIndex,
     blocked_openings: BTreeSet<String>,
     partial_knowledge: bool,
     observed_openings: BTreeSet<String>,
@@ -129,13 +258,15 @@ impl<'a> Geometry<'a> {
         emergencies: &'a [Emergency],
         blocked_openings: BTreeSet<String>,
     ) -> Self {
-        Self::build(
+        let mut geometry = Self::build(
             scenario,
             emergencies,
             blocked_openings,
             false,
             BTreeSet::new(),
-        )
+        );
+        geometry.rebuild_index();
+        geometry
     }
 
     pub(super) fn for_beliefs(
@@ -192,9 +323,13 @@ impl<'a> Geometry<'a> {
                 }
             }
         }
+        geometry.rebuild_index();
         geometry
     }
 
+    // Private material assembly; constructors finalize the index only after
+    // clipping beliefs or cutting a service aperture. Opening eligibility uses
+    // this unindexed material directly through clear_segments.
     fn build(
         scenario: &'a BuildingScenario,
         emergencies: &'a [Emergency],
@@ -207,6 +342,7 @@ impl<'a> Geometry<'a> {
             emergencies: emergencies.to_vec(),
             obstructions: scenario.obstructions.iter().collect(),
             solid_walls: Vec::new(),
+            index: GeometryIndex::default(),
             blocked_openings,
             partial_knowledge,
             observed_openings,
@@ -241,7 +377,7 @@ impl<'a> Geometry<'a> {
         blocked: BTreeSet<String>,
         window: &crate::models::WindowOpening,
     ) -> Self {
-        let mut geometry = Self::with_blocked_openings(scenario, emergencies, blocked);
+        let mut geometry = Self::build(scenario, emergencies, blocked, false, BTreeSet::new());
         let escape = window.emergency_escape.as_ref().unwrap();
         geometry.service_apertures.push(Opening {
             id: window.id.clone(),
@@ -262,7 +398,71 @@ impl<'a> Geometry<'a> {
                     .collect::<Vec<_>>()
             })
             .collect();
+        geometry.rebuild_index();
         geometry
+    }
+
+    fn rebuild_index(&mut self) {
+        // Physical bounds contain wall thickness, but never agent radius. A
+        // movement query expands its bounds; a vision query remains a ray.
+        // Padding also covers the exact rectangle helpers' boundary tolerance.
+        let walls = self
+            .solid_walls
+            .iter()
+            .enumerate()
+            .map(|(index, &(a, b, half, _))| IndexedPrimitive {
+                bounds: Bounds::segment(a, b, half + math::EPSILON),
+                primitive: Primitive::Wall(index),
+            });
+        let obstacles = self
+            .obstructions
+            .iter()
+            .enumerate()
+            .map(|(index, obstacle)| IndexedPrimitive {
+                bounds: Bounds::segment(
+                    Point {
+                        x: obstacle.x,
+                        y: obstacle.y,
+                    },
+                    Point {
+                        x: obstacle.x + obstacle.width,
+                        y: obstacle.y + obstacle.height,
+                    },
+                    math::EPSILON,
+                ),
+                primitive: Primitive::Obstruction(index),
+            });
+        self.index = GeometryIndex::new(walls.chain(obstacles).collect());
+    }
+
+    /// Approximate retained heap storage, for bounded immutable belief caches.
+    pub(super) fn estimated_size_bytes(&self) -> usize {
+        let set_bytes = |set: &BTreeSet<String>| {
+            set.iter()
+                .map(|s| {
+                    s.capacity() + std::mem::size_of::<String>() + 4 * std::mem::size_of::<usize>()
+                })
+                .sum::<usize>()
+        };
+        std::mem::size_of::<Self>()
+            + self.solid_walls.capacity() * std::mem::size_of::<(Point, Point, f64, usize)>()
+            + self.obstructions.capacity() * std::mem::size_of::<&Obstruction>()
+            + self.emergencies.capacity() * std::mem::size_of::<Emergency>()
+            + self.hazard_areas.capacity() * std::mem::size_of::<crate::models::HazardArea>()
+            + self.service_apertures.capacity() * std::mem::size_of::<Opening>()
+            + self
+                .service_apertures
+                .iter()
+                .map(|o| {
+                    o.id.capacity()
+                        + o.wall_id.capacity()
+                        + o.name.as_ref().map_or(0, String::capacity)
+                })
+                .sum::<usize>()
+            + set_bytes(&self.blocked_openings)
+            + set_bytes(&self.observed_openings)
+            + self.index.entries.capacity() * std::mem::size_of::<IndexedPrimitive>()
+            + self.index.nodes.capacity() * std::mem::size_of::<BoundsNode>()
     }
 
     pub(super) fn wall_fragments(&self) -> impl Iterator<Item = (Point, Point, f64)> + '_ {
@@ -531,14 +731,23 @@ impl<'a> Geometry<'a> {
         replaced_walls: &[usize],
         visible_obstruction: Option<&str>,
     ) -> bool {
-        !self.solid_walls.iter().any(|&(a, b, thickness, index)| {
-            !replaced_walls.contains(&index)
-                && math::distance_between_segments(from, to, a, b) <= thickness
-        }) && !self.obstructions.iter().any(|o| {
-            visible_obstruction != Some(o.id.as_str())
-                && math::distance_segment_to_rectangle(from, to, o.x, o.y, o.width, o.height)
-                    <= 1e-9
-        })
+        !self.index.any(
+            Bounds::segment(from, to, 0.0),
+            |primitive| match primitive {
+                Primitive::Wall(piece) => {
+                    let (a, b, thickness, index) = self.solid_walls[piece];
+                    !replaced_walls.contains(&index)
+                        && math::distance_between_segments(from, to, a, b) <= thickness
+                }
+                Primitive::Obstruction(index) => {
+                    let o = self.obstructions[index];
+                    visible_obstruction != Some(o.id.as_str())
+                        && math::distance_segment_to_rectangle(
+                            from, to, o.x, o.y, o.width, o.height,
+                        ) <= 1e-9
+                }
+            },
+        )
     }
 
     /// Observe the nearest surface of this obstruction without treating that
@@ -937,30 +1146,23 @@ impl<'a> Geometry<'a> {
             return false;
         }
 
-        // Check only solid wall portions; doors and available exits are gaps.
-        for &(start, end, half_thickness, _) in &self.solid_walls {
-            if math::distance_to_segment(pos, start, end)
-                < self.scenario.agent_radius + half_thickness
-            {
-                return false;
-            }
-        }
-
-        // Current rectangular obstacles are converted to polygons by the helper.
-        for obstruction in &self.obstructions {
-            let distance = math::distance_to_rectangle(
-                pos,
-                obstruction.x,
-                obstruction.y,
-                obstruction.width,
-                obstruction.height,
-            );
-            if distance < self.scenario.agent_radius {
-                return false;
-            }
-        }
-
-        true
+        // Only material near the body needs exact checks. Available apertures
+        // are absent from this index, just as they are from solid_walls.
+        !self.index.any(
+            Bounds::segment(pos, pos, self.scenario.agent_radius),
+            |primitive| match primitive {
+                Primitive::Wall(index) => {
+                    let (start, end, half_thickness, _) = self.solid_walls[index];
+                    math::distance_to_segment(pos, start, end)
+                        < self.scenario.agent_radius + half_thickness
+                }
+                Primitive::Obstruction(index) => {
+                    let o = self.obstructions[index];
+                    math::distance_to_rectangle(pos, o.x, o.y, o.width, o.height)
+                        < self.scenario.agent_radius
+                }
+            },
+        )
     }
 
     fn solid_wall_segments(&self, wall: &Wall) -> Vec<(Point, Point)> {
@@ -1022,36 +1224,33 @@ impl<'a> Geometry<'a> {
         if !self.can_stand_at(from) || !self.can_stand_at(to) {
             return false;
         }
+        self.can_move_between_standable(from, to)
+    }
+
+    /// Exact swept check for endpoints already verified on this immutable
+    /// geometry. Graph construction can reuse each node's standability result.
+    pub(super) fn can_move_between_standable(&self, from: Point, to: Point) -> bool {
         if self.emergencies.iter().any(|emergency| {
             math::distance_to_segment(emergency.center, from, to)
                 <= emergency.radius + self.scenario.agent_radius
         }) {
             return false;
         }
-        //Checking path against all walls
-        for &(start, end, half_thickness, _) in &self.solid_walls {
-            if math::distance_between_segments(from, to, start, end)
-                < self.scenario.agent_radius + half_thickness
-            {
-                return false;
-            }
-        }
-        //Checking path against all obstracles
-        for obstruction in &self.obstructions {
-            let distance = math::distance_segment_to_rectangle(
-                from,
-                to,
-                obstruction.x,
-                obstruction.y,
-                obstruction.width,
-                obstruction.height,
-            );
-            if distance < self.scenario.agent_radius {
-                return false;
-            }
-        }
-
-        true
+        !self.index.any(
+            Bounds::segment(from, to, self.scenario.agent_radius),
+            |primitive| match primitive {
+                Primitive::Wall(index) => {
+                    let (start, end, half_thickness, _) = self.solid_walls[index];
+                    math::distance_between_segments(from, to, start, end)
+                        < self.scenario.agent_radius + half_thickness
+                }
+                Primitive::Obstruction(index) => {
+                    let o = self.obstructions[index];
+                    math::distance_segment_to_rectangle(from, to, o.x, o.y, o.width, o.height)
+                        < self.scenario.agent_radius
+                }
+            },
+        )
     }
 }
 
@@ -1165,5 +1364,248 @@ mod opening_tolerance_tests {
                 0.5
             )));
         }
+    }
+}
+
+#[cfg(test)]
+mod index_tests {
+    use super::*;
+
+    // The pre-index implementation is deliberately retained as an independent
+    // oracle: broad-phase rejection must never skip an exact collision.
+    fn exhaustive_stand(geometry: &Geometry<'_>, point: Point) -> bool {
+        geometry.is_within_workspace(point)
+            && !geometry.emergencies.iter().any(|e| {
+                math::distance_to_point(point, e.center)
+                    <= e.radius + geometry.scenario.agent_radius
+            })
+            && !geometry.solid_walls.iter().any(|&(a, b, half, _)| {
+                math::distance_to_segment(point, a, b) < geometry.scenario.agent_radius + half
+            })
+            && !geometry.obstructions.iter().any(|o| {
+                math::distance_to_rectangle(point, o.x, o.y, o.width, o.height)
+                    < geometry.scenario.agent_radius
+            })
+    }
+
+    fn exhaustive_move(geometry: &Geometry<'_>, from: Point, to: Point) -> bool {
+        exhaustive_stand(geometry, from)
+            && exhaustive_stand(geometry, to)
+            && !geometry.emergencies.iter().any(|e| {
+                math::distance_to_segment(e.center, from, to)
+                    <= e.radius + geometry.scenario.agent_radius
+            })
+            && !geometry.solid_walls.iter().any(|&(a, b, half, _)| {
+                math::distance_between_segments(from, to, a, b)
+                    < geometry.scenario.agent_radius + half
+            })
+            && !geometry.obstructions.iter().any(|o| {
+                math::distance_segment_to_rectangle(from, to, o.x, o.y, o.width, o.height)
+                    < geometry.scenario.agent_radius
+            })
+    }
+
+    fn exhaustive_ray(geometry: &Geometry<'_>, from: Point, to: Point) -> bool {
+        !geometry
+            .solid_walls
+            .iter()
+            .any(|&(a, b, half, _)| math::distance_between_segments(from, to, a, b) <= half)
+            && !geometry.obstructions.iter().any(|o| {
+                math::distance_segment_to_rectangle(from, to, o.x, o.y, o.width, o.height) <= 1e-9
+            })
+    }
+
+    fn check_queries(geometry: &Geometry<'_>) {
+        let mut seed = 419_u64;
+        let mut random = || {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            (seed >> 11) as f64 / ((1_u64 << 53) as f64)
+        };
+        let mut points = vec![Point { x: 0.0, y: 0.0 }, Point { x: -1.0, y: 1.0 }];
+        for _ in 0..500 {
+            points.push(Point {
+                x: random() * geometry.scenario.width,
+                y: random() * geometry.scenario.height,
+            });
+        }
+        // Boundary cases exercise caps, tangent bodies, and tiny penetrations.
+        for &(start, end, half, _) in &geometry.solid_walls {
+            let length = math::distance_to_point(start, end);
+            if length <= math::EPSILON {
+                continue;
+            }
+            let middle = math::interpolate(start, end, 0.5);
+            let normal = Point {
+                x: -(end.y - start.y) / length,
+                y: (end.x - start.x) / length,
+            };
+            for distance in [half, half + geometry.scenario.agent_radius] {
+                for delta in [-1e-10, 0.0, 1e-10] {
+                    points.push(Point {
+                        x: middle.x + normal.x * (distance + delta),
+                        y: middle.y + normal.y * (distance + delta),
+                    });
+                }
+            }
+        }
+        for o in &geometry.obstructions {
+            for margin in [0.0, geometry.scenario.agent_radius] {
+                for delta in [-1e-10, 0.0, 1e-10] {
+                    points.push(Point {
+                        x: o.x - margin + delta,
+                        y: o.y + o.height / 2.0,
+                    });
+                }
+            }
+        }
+        for (index, &from) in points.iter().enumerate() {
+            assert_eq!(
+                geometry.can_stand_at(from),
+                exhaustive_stand(geometry, from),
+                "stand {from:?}"
+            );
+            for to in [
+                from,
+                points[(index * 67 + 11) % points.len()],
+                points[(index * 31 + 47) % points.len()],
+            ] {
+                let expected = exhaustive_move(geometry, from, to);
+                assert_eq!(
+                    geometry.can_move(from, to),
+                    expected,
+                    "move {from:?} -> {to:?}"
+                );
+                if exhaustive_stand(geometry, from) && exhaustive_stand(geometry, to) {
+                    assert_eq!(geometry.can_move_between_standable(from, to), expected);
+                }
+                assert_eq!(
+                    geometry.has_line_of_sight(from, to),
+                    exhaustive_ray(geometry, from, to),
+                    "ray {from:?} -> {to:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn index_matches_exhaustive_queries_for_layouts_closures_and_beliefs() {
+        for json in [
+            include_str!("../../../shared/examples/building.json"),
+            include_str!("../../../frontend/src/editor/presets/corporate-office.json"),
+        ] {
+            let scenario: BuildingScenario = serde_json::from_str(json).unwrap();
+            check_queries(&Geometry::new(&scenario));
+            let emergencies = [Emergency {
+                center: Point {
+                    x: scenario.width / 2.0,
+                    y: scenario.height / 2.0,
+                },
+                radius: 0.7,
+            }];
+            check_queries(&Geometry::with_emergencies(&scenario, &emergencies));
+            let blocked = scenario.exits.iter().map(|exit| exit.id.clone()).collect();
+            check_queries(&Geometry::with_blocked_openings(&scenario, &[], blocked));
+            // Reopening constructs fresh geometry, including fresh broad-phase
+            // bounds. Old closure material must not survive in the new index.
+            check_queries(&Geometry::with_blocked_openings(
+                &scenario,
+                &[],
+                BTreeSet::new(),
+            ));
+
+            let known = scenario
+                .walls
+                .iter()
+                .map(|wall| {
+                    (
+                        wall.id.clone(),
+                        vec![
+                            WallSpan {
+                                start: 0.0,
+                                end: wall.length() / 3.0,
+                            },
+                            WallSpan {
+                                start: wall.length() * 2.0 / 3.0,
+                                end: wall.length(),
+                            },
+                        ],
+                    )
+                })
+                .collect();
+            check_queries(&Geometry::for_beliefs(
+                &scenario,
+                &[],
+                BTreeSet::new(),
+                &BTreeSet::new(),
+                &BTreeSet::new(),
+                &BTreeSet::new(),
+                &known,
+            ));
+        }
+    }
+
+    #[test]
+    fn window_aperture_and_vision_exclusions_keep_matching_exact_geometry() {
+        let scenario: BuildingScenario =
+            serde_json::from_str(include_str!("../../../shared/examples/window-escape.json"))
+                .unwrap();
+        let window = scenario
+            .windows
+            .iter()
+            .find(|window| window.emergency_escape.is_some())
+            .unwrap();
+        let geometry = Geometry::with_window_aperture(&scenario, &[], BTreeSet::new(), window);
+        check_queries(&geometry);
+        let from = Point {
+            x: scenario.width / 2.0,
+            y: scenario.height / 2.0,
+        };
+        for obstacle in &geometry.obstructions {
+            let to = Point {
+                x: from.x.clamp(obstacle.x, obstacle.x + obstacle.width),
+                y: from.y.clamp(obstacle.y, obstacle.y + obstacle.height),
+            };
+            let expected =
+                !geometry.solid_walls.iter().any(|&(a, b, half, _)| {
+                    math::distance_between_segments(from, to, a, b) <= half
+                }) && !geometry.obstructions.iter().any(|o| {
+                    o.id != obstacle.id
+                        && math::distance_segment_to_rectangle(
+                            from, to, o.x, o.y, o.width, o.height,
+                        ) <= 1e-9
+                });
+            assert_eq!(geometry.can_see_obstruction(from, obstacle), expected);
+        }
+    }
+
+    #[test]
+    fn local_query_prunes_distant_primitives() {
+        let entries = (0..100)
+            .map(|index| IndexedPrimitive {
+                bounds: Bounds::segment(
+                    Point {
+                        x: index as f64 * 5.0,
+                        y: 0.0,
+                    },
+                    Point {
+                        x: index as f64 * 5.0 + 1.0,
+                        y: 1.0,
+                    },
+                    0.0,
+                ),
+                primitive: Primitive::Wall(index),
+            })
+            .collect();
+        let index = GeometryIndex::new(entries);
+        let mut candidates = Vec::new();
+        assert!(!index.any(
+            Bounds::segment(Point { x: 0.2, y: 0.2 }, Point { x: 0.8, y: 0.8 }, 0.2),
+            |primitive| {
+                candidates.push(primitive);
+                false
+            }
+        ));
+        assert_eq!(candidates.len(), 1);
+        assert!(matches!(candidates[0], Primitive::Wall(0)));
     }
 }
