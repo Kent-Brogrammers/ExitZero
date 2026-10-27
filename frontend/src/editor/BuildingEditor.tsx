@@ -761,6 +761,7 @@ export function BuildingEditor({
           ? {
               start: gesture.start,
               end: gesture.current,
+              pointer: cursor ?? gesture.current,
               shape: gesture.marquee ? "marquee" : tool,
               constrain: gesture.constrain,
               points: freehand?.points,
@@ -801,6 +802,7 @@ export function BuildingEditor({
     spawnProblem,
     camera,
     activeSnap,
+    cursor,
   ]);
 
   function pointerDown(event: PointerEvent<HTMLCanvasElement>) {

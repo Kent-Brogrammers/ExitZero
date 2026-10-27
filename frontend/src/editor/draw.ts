@@ -1,4 +1,4 @@
-import { formatDimensions } from "../utils/units";
+import { formatDimensions, formatLength } from "../utils/units";
 import { drawStalker } from "./drawPursuit";
 import type { Point, WindowFrameState } from "../types/simulation";
 import {
@@ -29,6 +29,8 @@ export function drawLayout(
   draft?: {
     start: Point;
     end: Point;
+    /** Raw pointer position, before optional endpoint/grid snapping. */
+    pointer?: Point;
     shape: EditorTool | "marquee";
     constrain?: boolean;
     points?: readonly Point[];
@@ -571,5 +573,88 @@ export function drawLayout(
     ctx.lineTo(point.x, point.y + 9 * px);
     ctx.stroke();
     ctx.restore();
+  }
+  if (draft?.shape === "wall") {
+    const dx = draft.end.x - draft.start.x;
+    const dy = draft.end.y - draft.start.y;
+    const length = Math.hypot(dx, dy);
+    if (length > 0 && Number.isFinite(length)) {
+      // Display-only annotation in CSS pixels: zoom and DPI do not enlarge it.
+      ctx.save();
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      ctx.font = "500 12px system-ui";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const text = formatLength(length, 2);
+      const halfWidth = (ctx.measureText(text).width + 12) / 2;
+      const halfHeight = 11;
+      const screen = (point: Point) => ({
+        x: (x + point.x * scale) / ratio,
+        y: (y + point.y * scale) / ratio,
+      });
+      const middle = screen({
+        x: (draft.start.x + draft.end.x) / 2,
+        y: (draft.start.y + draft.end.y) / 2,
+      });
+      const pointer = screen(draft.pointer ?? draft.end);
+      let nx = -dy / length,
+        ny = dx / length;
+      if (ny > 0 || (ny === 0 && nx < 0)) {
+        nx = -nx;
+        ny = -ny;
+      }
+      const offset = Math.abs(nx) * halfWidth + Math.abs(ny) * halfHeight + 16;
+      const candidates = [
+        { x: middle.x + nx * offset, y: middle.y + ny * offset },
+        { x: middle.x - nx * offset, y: middle.y - ny * offset },
+        { x: pointer.x, y: pointer.y - halfHeight - 24 },
+        { x: pointer.x, y: pointer.y + halfHeight + 24 },
+        { x: pointer.x + halfWidth + 24, y: pointer.y },
+        { x: pointer.x - halfWidth - 24, y: pointer.y },
+      ].map((desired) => {
+        const position = {
+          x: Math.max(
+            halfWidth + 8,
+            Math.min(canvas.width / ratio - halfWidth - 8, desired.x),
+          ),
+          y: Math.max(
+            halfHeight + 8,
+            Math.min(canvas.height / ratio - halfHeight - 8, desired.y),
+          ),
+        };
+        return {
+          ...position,
+          clearance: Math.hypot(
+            Math.max(Math.abs(pointer.x - position.x) - halfWidth, 0),
+            Math.max(Math.abs(pointer.y - position.y) - halfHeight, 0),
+          ),
+          shift: (position.x - desired.x) ** 2 + (position.y - desired.y) ** 2,
+        };
+      });
+      const position = candidates
+        .filter((p) => p.clearance >= 12)
+        .sort((a, b) => a.shift - b.shift)[0];
+      // A tiny or fully obscured viewport may have no safe label placement.
+      if (position) {
+        ctx.fillStyle = palette.surface;
+        ctx.strokeStyle = palette.selection;
+        ctx.lineWidth = 1;
+        ctx.fillRect(
+          position.x - halfWidth,
+          position.y - halfHeight,
+          halfWidth * 2,
+          halfHeight * 2,
+        );
+        ctx.strokeRect(
+          position.x - halfWidth,
+          position.y - halfHeight,
+          halfWidth * 2,
+          halfHeight * 2,
+        );
+        ctx.fillStyle = palette.wall;
+        ctx.fillText(text, position.x, position.y);
+      }
+      ctx.restore();
+    }
   }
 }
