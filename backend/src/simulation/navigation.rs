@@ -1,6 +1,6 @@
 use super::{congestion::CrowdForecast, geometry::Geometry, math};
 use crate::models::{BuildingScenario, Point};
-use std::{cmp::Ordering, collections::BinaryHeap};
+use std::{cell::OnceCell, cmp::Ordering, collections::BinaryHeap, sync::Arc};
 
 struct Connection {
     to: usize,
@@ -49,12 +49,56 @@ struct ExitTarget {
     shelter: bool,
 }
 
-/// A graph is shared by agents with the same discovered openings and blockers.
-pub(super) struct Navigation {
-    exits: Vec<ExitTarget>,
+struct VisibilityGraph {
     points: Vec<Point>,
     connections: Vec<Vec<Connection>>,
     agent_radius: f64,
+}
+
+struct GoalConnection {
+    exit: usize,
+    target: Point,
+    distance: f64,
+    safe: bool,
+}
+
+/// Destinations and their lazy terminal connectors belong to a query, so a
+/// moving target never reconstructs the collision-checked visibility graph.
+struct GoalSet {
+    exits: Vec<ExitTarget>,
+    connections: Vec<OnceCell<Vec<GoalConnection>>>,
+}
+
+impl GoalSet {
+    fn connect(&self, from: Point, geometry: &Geometry<'_>) -> Vec<GoalConnection> {
+        self.exits
+            .iter()
+            .enumerate()
+            .filter_map(|(exit, goal)| {
+                let target = if goal.shelter {
+                    Point {
+                        x: from.x.clamp(goal.start.x, goal.end.x),
+                        y: from.y.clamp(goal.start.y, goal.end.y),
+                    }
+                } else {
+                    math::closest_point_on_segment(from, goal.start, goal.end)
+                };
+                geometry.can_move(from, target).then(|| GoalConnection {
+                    exit,
+                    target,
+                    distance: math::distance_to_point(from, target),
+                    safe: !geometry.opening_is_unsafe(&goal.id)
+                        && geometry.avoids_known_danger(from, target),
+                })
+            })
+            .collect()
+    }
+}
+
+/// Graphs are shared only for unchanged geometry, including an agent's beliefs.
+pub(super) struct Navigation {
+    graph: Arc<VisibilityGraph>,
+    goals: GoalSet,
 }
 
 impl Navigation {
@@ -98,19 +142,23 @@ impl Navigation {
                 })
                 .collect();
         }
-        Self::with_targets(scenario, geometry, exits)
+        let graph = Arc::new(VisibilityGraph::new(scenario, geometry, &exits));
+        Self::with_goals(graph, exits)
     }
 
-    /// Reuse the same collision-checked visibility graph for an interior approach point.
-    pub(super) fn to_point(
-        scenario: &BuildingScenario,
-        geometry: &Geometry<'_>,
-        id: String,
-        position: Point,
-    ) -> Self {
-        Self::with_targets(
-            scenario,
-            geometry,
+    fn with_goals(graph: Arc<VisibilityGraph>, exits: Vec<ExitTarget>) -> Self {
+        let connections = (0..graph.points.len()).map(|_| OnceCell::new()).collect();
+        Self {
+            graph,
+            goals: GoalSet { exits, connections },
+        }
+    }
+
+    /// Connect a point target to this graph at query time. Rebuild this base
+    /// navigation only when its geometry changes, not when the target moves.
+    pub(super) fn with_point_target(&self, id: String, position: Point) -> Self {
+        Self::with_goals(
+            Arc::clone(&self.graph),
             vec![ExitTarget {
                 id,
                 start: position,
@@ -120,11 +168,41 @@ impl Navigation {
         )
     }
 
-    fn with_targets(
-        scenario: &BuildingScenario,
-        geometry: &Geometry<'_>,
-        exits: Vec<ExitTarget>,
-    ) -> Self {
+    /// Conservative cache accounting. Shared graphs may be counted more than
+    /// once; undercounting retained edge buffers would defeat the cache budget.
+    pub(super) fn estimated_size_bytes(&self) -> usize {
+        std::mem::size_of::<Self>()
+            + self.graph.points.capacity() * std::mem::size_of::<Point>()
+            + self.graph.connections.capacity() * std::mem::size_of::<Vec<Connection>>()
+            + self
+                .graph
+                .connections
+                .iter()
+                .map(|edges| edges.capacity() * std::mem::size_of::<Connection>())
+                .sum::<usize>()
+            + self.goals.exits.capacity() * std::mem::size_of::<ExitTarget>()
+            + self
+                .goals
+                .exits
+                .iter()
+                .map(|exit| exit.id.capacity())
+                .sum::<usize>()
+            + self.goals.connections.capacity()
+                * std::mem::size_of::<OnceCell<Vec<GoalConnection>>>()
+            // Reserve the eventual lazy connector buffers up front. Cache
+            // accounting must not shrink merely because a node is unvisited.
+            + self.goals.connections.len()
+                * if self.goals.exits.is_empty() {
+                    0
+                } else {
+                    self.goals.exits.len().max(4).next_power_of_two()
+                        * std::mem::size_of::<GoalConnection>()
+                }
+    }
+}
+
+impl VisibilityGraph {
+    fn new(scenario: &BuildingScenario, geometry: &Geometry<'_>, landmarks: &[ExitTarget]) -> Self {
         let mut points = Vec::new();
         let mut add_point = |point: Point| {
             if geometry.can_stand_at(point)
@@ -138,7 +216,7 @@ impl Navigation {
 
         // Endpoints and centres also provide fallbacks when another obstacle
         // hides the perpendicular approach to part of an exit.
-        for exit in &exits {
+        for exit in landmarks {
             add_point(exit.start);
             add_point(exit.end);
             if exit.shelter {
@@ -275,7 +353,7 @@ impl Navigation {
                 if super::control::cancelled() {
                     break;
                 }
-                if geometry.can_move(points[a], points[b]) {
+                if geometry.can_move_between_standable(points[a], points[b]) {
                     let distance = math::distance_to_point(points[a], points[b]);
                     connections[a].push(Connection { to: b, distance });
                     connections[b].push(Connection { to: a, distance });
@@ -284,13 +362,14 @@ impl Navigation {
         }
 
         Self {
-            exits,
             points,
             connections,
             agent_radius: scenario.agent_radius,
         }
     }
+}
 
+impl Navigation {
     /// Shortest route through the sampled visibility graph. None means no
     /// route was found with these waypoints, not proof of physical entrapment.
     /// Use the same unchanged scenario for this graph and the supplied Geometry.
@@ -299,7 +378,7 @@ impl Navigation {
             from,
             geometry,
             &CrowdForecast::for_geometry(geometry),
-            self.agent_radius,
+            self.graph.agent_radius,
         )
     }
 
@@ -350,7 +429,7 @@ impl Navigation {
             from,
             geometry,
             &CrowdForecast::for_geometry(geometry),
-            self.agent_radius,
+            self.graph.agent_radius,
         )
     }
 
@@ -372,17 +451,17 @@ impl Navigation {
         radius: f64,
         avoid_danger: bool,
     ) -> Option<Route> {
-        if !geometry.can_stand_at(from) {
+        if self.goals.exits.is_empty() || !geometry.can_stand_at(from) {
             return None;
         }
-        let mut distances = vec![f64::INFINITY; self.points.len()];
-        let mut previous = vec![None; self.points.len()];
+        let mut distances = vec![f64::INFINITY; self.graph.points.len()];
+        let mut previous = vec![None; self.graph.points.len()];
         let mut queue = BinaryHeap::new();
 
         // Treat the agent position as a temporary node connected to every
         // visible waypoint. The shared graph itself stays unchanged.
-        for (node, &point) in self.points.iter().enumerate() {
-            if geometry.can_move(from, point)
+        for (node, &point) in self.graph.points.iter().enumerate() {
+            if geometry.can_move_between_standable(from, point)
                 && (!avoid_danger || geometry.avoids_known_danger(from, point))
             {
                 let distance =
@@ -395,28 +474,21 @@ impl Navigation {
         // Each graph node can finish at its closest point on an exit segment,
         // rather than funnelling every person through one fixed graph target.
         let mut best: Option<(f64, usize, Point, Option<usize>)> = None;
+        let direct_connections = self.goals.connect(from, geometry);
         let mut consider = |start: Point, distance: f64, parent: Option<usize>| {
-            for (index, exit) in self.exits.iter().enumerate() {
-                if avoid_danger && geometry.opening_is_unsafe(&exit.id) {
+            let connections = match parent {
+                Some(node) => {
+                    self.goals.connections[node].get_or_init(|| self.goals.connect(start, geometry))
+                }
+                None => &direct_connections,
+            };
+            for edge in connections {
+                if avoid_danger && !edge.safe {
                     continue;
                 }
-                let target = if exit.shelter {
-                    Point {
-                        x: start.x.clamp(exit.start.x, exit.end.x),
-                        y: start.y.clamp(exit.start.y, exit.end.y),
-                    }
-                } else {
-                    math::closest_point_on_segment(start, exit.start, exit.end)
-                };
-                if geometry.can_move(start, target)
-                    && (!avoid_danger || geometry.avoids_known_danger(start, target))
-                {
-                    let cost = distance
-                        + math::distance_to_point(start, target)
-                        + occupants.cost(start, target, radius);
-                    if best.as_ref().is_none_or(|&(current, ..)| cost < current) {
-                        best = Some((cost, index, target, parent));
-                    }
+                let cost = distance + edge.distance + occupants.cost(start, edge.target, radius);
+                if best.as_ref().is_none_or(|&(current, ..)| cost < current) {
+                    best = Some((cost, edge.exit, edge.target, parent));
                 }
             }
             best.as_ref().map_or(f64::INFINITY, |&(cost, ..)| cost)
@@ -432,16 +504,17 @@ impl Navigation {
             if distance > best_cost {
                 break;
             }
-            best_cost = consider(self.points[node], distance, Some(node));
-            for edge in &self.connections[node] {
+            best_cost = consider(self.graph.points[node], distance, Some(node));
+            for edge in &self.graph.connections[node] {
                 if avoid_danger
-                    && !geometry.avoids_known_danger(self.points[node], self.points[edge.to])
+                    && !geometry
+                        .avoids_known_danger(self.graph.points[node], self.graph.points[edge.to])
                 {
                     continue;
                 }
                 let candidate = distance
                     + edge.distance
-                    + occupants.cost(self.points[node], self.points[edge.to], radius);
+                    + occupants.cost(self.graph.points[node], self.graph.points[edge.to], radius);
                 if candidate < distances[edge.to] {
                     distances[edge.to] = candidate;
                     previous[edge.to] = Some(node);
@@ -455,10 +528,10 @@ impl Navigation {
         let (_, index, target, mut cursor) = best?;
         let mut waypoints = vec![target];
         while let Some(node) = cursor {
-            if math::distance_to_point(*waypoints.last().unwrap(), self.points[node])
+            if math::distance_to_point(*waypoints.last().unwrap(), self.graph.points[node])
                 > math::EPSILON
             {
-                waypoints.push(self.points[node]);
+                waypoints.push(self.graph.points[node]);
             }
             cursor = previous[node];
         }
@@ -468,7 +541,7 @@ impl Navigation {
                 && geometry
                     .disaster
                     .is_some_and(|d| d.kind == crate::models::DisasterKind::GasLeak),
-            exit_id: self.exits[index].id.clone(),
+            exit_id: self.goals.exits[index].id.clone(),
             waypoints,
         })
     }
@@ -500,4 +573,153 @@ pub(super) fn route_cost(
 /// as nearby people move. An unavailable alternative leaves the route intact.
 pub(super) fn materially_better(candidate: f64, current: f64, radius: f64) -> bool {
     candidate + (current * 0.12).max(2.0 * radius) < current
+}
+
+#[cfg(test)]
+mod reuse_tests {
+    use super::*;
+
+    fn scenario() -> BuildingScenario {
+        serde_json::from_str(include_str!("../../../shared/examples/building.json")).unwrap()
+    }
+
+    fn assert_clear_route(from: Point, route: &Route, target: Point, geometry: &Geometry<'_>) {
+        let mut start = from;
+        for &end in &route.waypoints {
+            assert!(geometry.can_move(start, end), "{start:?} -> {end:?}");
+            start = end;
+        }
+        assert!(math::distance_to_point(start, target) <= math::EPSILON);
+    }
+
+    #[test]
+    fn moving_point_targets_reuse_topology_and_keep_exact_collision_checks() {
+        let scenario = scenario();
+        let geometry = Geometry::new(&scenario);
+        let navigation = Navigation::new(&scenario, &geometry);
+        let from = Point { x: 5.0, y: 5.0 };
+        for target in [Point { x: 8.0, y: 5.0 }, Point { x: 22.0, y: 15.0 }] {
+            let point_navigation = navigation.with_point_target("moving".into(), target);
+            assert!(Arc::ptr_eq(&navigation.graph, &point_navigation.graph));
+            let route = point_navigation.find_route(from, &geometry).unwrap();
+            assert_eq!(route.exit_id, "moving");
+            assert_clear_route(from, &route, target, &geometry);
+        }
+        // A target inside solid material never becomes an unchecked connector.
+        let wall = &scenario.walls[0];
+        let blocked = math::interpolate(wall.start, wall.end, 0.5);
+        assert!(!geometry.can_stand_at(blocked));
+        assert!(
+            navigation
+                .with_point_target("blocked".into(), blocked)
+                .find_route(from, &geometry)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn cached_terminal_geometry_does_not_cache_observers_crowd_costs() {
+        let scenario = scenario();
+        let geometry = Geometry::new(&scenario);
+        let navigation = Navigation::new(&scenario, &geometry);
+        let from = Point { x: 5.0, y: 5.0 };
+        let queue = [Point { x: 4.0, y: 5.0 }, Point { x: 3.0, y: 5.0 }];
+        let before = navigation.estimated_size_bytes();
+        for people in [&[][..], &queue[..], &[][..]] {
+            let forecast = CrowdForecast::stationary(people);
+            let cached = navigation
+                .find_route_with_forecast(from, &geometry, &forecast, scenario.agent_radius)
+                .unwrap();
+            let fresh = Navigation::new(&scenario, &geometry)
+                .find_route_with_forecast(from, &geometry, &forecast, scenario.agent_radius)
+                .unwrap();
+            assert_eq!(cached.exit_id, fresh.exit_id);
+            assert_eq!(
+                route_cost(from, &cached.waypoints, &forecast, scenario.agent_radius),
+                route_cost(from, &fresh.waypoints, &forecast, scenario.agent_radius)
+            );
+        }
+        assert!(
+            navigation
+                .goals
+                .connections
+                .iter()
+                .any(|cell| cell.get().is_some())
+        );
+        assert_eq!(
+            before,
+            navigation.estimated_size_bytes(),
+            "lazy buffers are budgeted up front"
+        );
+    }
+
+    #[test]
+    fn retargeting_does_not_reuse_previous_goal_connectors() {
+        let scenario = scenario();
+        let geometry = Geometry::new(&scenario);
+        let navigation = Navigation::new(&scenario, &geometry);
+        let from = Point { x: 5.0, y: 5.0 };
+        let first = navigation.with_point_target("first".into(), Point { x: 8.0, y: 5.0 });
+        first.find_route(from, &geometry).unwrap();
+        let target = Point { x: 22.0, y: 15.0 };
+        let second = first.with_point_target("second".into(), target);
+        assert!(Arc::ptr_eq(&first.graph, &second.graph));
+        let route = second.find_route(from, &geometry).unwrap();
+        assert_eq!(route.exit_id, "second");
+        assert_clear_route(from, &route, target, &geometry);
+    }
+
+    #[test]
+    fn reused_point_graph_matches_or_improves_original_point_specific_routes() {
+        for json in [
+            include_str!("../../../shared/examples/building.json"),
+            include_str!("../../../frontend/src/editor/presets/corporate-office.json"),
+            include_str!("../../../frontend/src/editor/presets/halloween-pursuit.json"),
+        ] {
+            let scenario: BuildingScenario = serde_json::from_str(json).unwrap();
+            let geometry = Geometry::new(&scenario);
+            let navigation = Navigation::new(&scenario, &geometry);
+            let mut agents = Vec::new();
+            super::super::agent::spawn_agents(&mut agents, &scenario, &geometry).unwrap();
+            let from = agents[0].position;
+            let target = agents.last().unwrap().position;
+            // Reproduce the old to_point topology, including its target-first
+            // node order, as an independent sampled-route comparison.
+            let goal = ExitTarget {
+                id: "target".into(),
+                start: target,
+                end: target,
+                shelter: false,
+            };
+            let original = Navigation::with_goals(
+                Arc::new(VisibilityGraph::new(
+                    &scenario,
+                    &geometry,
+                    std::slice::from_ref(&goal),
+                )),
+                vec![goal],
+            );
+            let reused = navigation.with_point_target("target".into(), target);
+            let crowd = [agents[agents.len() / 2].position];
+            for people in [&[][..], &crowd[..]] {
+                let forecast = CrowdForecast::stationary(people);
+                let old_route = original
+                    .find_route_with_forecast(from, &geometry, &forecast, scenario.agent_radius)
+                    .unwrap();
+                let new_route = reused
+                    .find_route_with_forecast(from, &geometry, &forecast, scenario.agent_radius)
+                    .unwrap();
+                assert_clear_route(from, &new_route, target, &geometry);
+                let cost = |route: &Route| {
+                    route_cost(from, &route.waypoints, &forecast, scenario.agent_radius)
+                };
+                assert!(
+                    cost(&new_route) <= cost(&old_route) + 1e-8,
+                    "reused graph cost {} exceeds old cost {}",
+                    cost(&new_route),
+                    cost(&old_route)
+                );
+            }
+        }
+    }
 }

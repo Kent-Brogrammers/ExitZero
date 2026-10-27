@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    rc::Rc,
+};
 
 use super::perception::{self, WallKnowledge};
 use super::{Emergency, agent::Agent, geometry::Geometry, math, navigation::Navigation};
@@ -58,6 +61,34 @@ impl BeliefKey {
                 .map(|area| (area.id, area.revision))
                 .collect(),
         }
+    }
+
+    fn estimated_size_bytes(&self) -> usize {
+        let strings = |set: &BTreeSet<String>| {
+            set.iter()
+                .map(|value| {
+                    value.capacity()
+                        + std::mem::size_of::<String>()
+                        + 3 * std::mem::size_of::<usize>()
+                })
+                .sum::<usize>()
+        };
+        std::mem::size_of::<Self>()
+            + strings(&self.blocked_openings)
+            + strings(&self.observed_openings)
+            + strings(&self.obstructions)
+            + self.emergencies.len() * 4 * std::mem::size_of::<usize>()
+            + self
+                .walls
+                .iter()
+                .map(|(id, spans)| {
+                    id.capacity()
+                        + std::mem::size_of::<(String, Vec<perception::WallSpan>)>()
+                        + 3 * std::mem::size_of::<usize>()
+                        + spans.capacity() * std::mem::size_of::<perception::WallSpan>()
+                })
+                .sum::<usize>()
+            + self.hazard_versions.capacity() * std::mem::size_of::<(u32, u32)>()
     }
 }
 
@@ -463,12 +494,25 @@ pub(super) fn update_knowledge(
     )
 }
 
-/// Share graphs only between agents with identical beliefs, never by the actual
-/// world mask. Bound the cache when many distinct reports exist in a large run.
+struct CachedBeliefMap<'a> {
+    geometry: Geometry<'a>,
+    navigation: Option<Navigation>,
+    last_used: u64,
+    estimated_bytes: usize,
+}
+
+/// Share maps only between identical beliefs. Keep each agent's latest snapshot
+/// ahead of historical entries, while bounding approximate geometry/graph bytes.
 pub(super) struct BeliefMaps<'a> {
     scenario: &'a BuildingScenario,
     emergencies: &'a [Emergency],
-    maps: BTreeMap<BeliefKey, (Geometry<'a>, Option<Navigation>)>,
+    maps: BTreeMap<Rc<BeliefKey>, CachedBeliefMap<'a>>,
+    current_keys: BTreeMap<u32, Rc<BeliefKey>>,
+    active_users: BTreeMap<Rc<BeliefKey>, usize>,
+    access: u64,
+    estimated_bytes: usize,
+    max_bytes: usize,
+    max_inactive: usize,
 }
 
 impl<'a> BeliefMaps<'a> {
@@ -477,15 +521,46 @@ impl<'a> BeliefMaps<'a> {
             scenario,
             emergencies,
             maps: BTreeMap::new(),
+            current_keys: BTreeMap::new(),
+            active_users: BTreeMap::new(),
+            access: 0,
+            estimated_bytes: 0,
+            max_bytes: 32 * 1024 * 1024,
+            max_inactive: 64,
         }
     }
 
-    fn ensure_map(&mut self, agent: &Agent) -> BeliefKey {
-        let key = BeliefKey::for_agent(agent);
-        if !self.maps.contains_key(&key) {
-            if self.maps.len() >= 64 {
-                self.maps.clear();
+    fn ensure_map(&mut self, agent: &Agent) -> Rc<BeliefKey> {
+        let candidate = BeliefKey::for_agent(agent);
+        let key = self
+            .maps
+            .get_key_value(&candidate)
+            .map(|(key, _)| Rc::clone(key))
+            .or_else(|| {
+                self.active_users
+                    .get_key_value(&candidate)
+                    .map(|(key, _)| Rc::clone(key))
+            })
+            .unwrap_or_else(|| Rc::new(candidate));
+        let previous = self.current_keys.insert(agent.id, Rc::clone(&key));
+        let changed = previous.as_ref() != Some(&key);
+        if changed {
+            if let Some(previous) = previous {
+                let users = self.active_users.get_mut(previous.as_ref()).unwrap();
+                *users -= 1;
+                if *users == 0 {
+                    self.active_users.remove(previous.as_ref());
+                }
             }
+            *self.active_users.entry(Rc::clone(&key)).or_default() += 1;
+        }
+        self.access = self.access.saturating_add(1);
+        if let Some(entry) = self.maps.get_mut(key.as_ref()) {
+            entry.last_used = self.access;
+            if changed {
+                self.prune(key.as_ref());
+            }
+        } else {
             let mut geometry = Geometry::for_beliefs(
                 self.scenario,
                 self.emergencies,
@@ -499,21 +574,79 @@ impl<'a> BeliefMaps<'a> {
                 geometry.disaster = self.scenario.disaster;
                 geometry.hazard_areas = agent.known_hazards.values().copied().collect();
             }
-            self.maps.insert(key.clone(), (geometry, None));
+            let estimated_bytes = key.estimated_size_bytes()
+                + geometry.estimated_size_bytes()
+                + std::mem::size_of::<CachedBeliefMap<'_>>()
+                + 5 * std::mem::size_of::<usize>();
+            self.estimated_bytes += estimated_bytes;
+            self.maps.insert(
+                Rc::clone(&key),
+                CachedBeliefMap {
+                    geometry,
+                    navigation: None,
+                    last_used: self.access,
+                    estimated_bytes,
+                },
+            );
+            self.prune(key.as_ref());
         }
         key
     }
 
+    fn prune(&mut self, protected: &BeliefKey) {
+        let mut inactive = self
+            .maps
+            .keys()
+            .filter(|key| !self.active_users.contains_key(key.as_ref()))
+            .count();
+        while self.estimated_bytes > self.max_bytes || inactive > self.max_inactive {
+            let over_budget = self.estimated_bytes > self.max_bytes;
+            let candidate = self
+                .maps
+                .iter()
+                .filter(|(key, _)| {
+                    key.as_ref() != protected
+                        && (over_budget || !self.active_users.contains_key(key.as_ref()))
+                })
+                .min_by_key(|(key, entry)| {
+                    (
+                        self.active_users.contains_key(key.as_ref()),
+                        entry.navigation.is_some(),
+                        entry.last_used,
+                    )
+                })
+                .map(|(key, _)| Rc::clone(key));
+            let Some(key) = candidate else {
+                // One in-use map may itself exceed the budget. Its caller still
+                // needs a borrowed map; evict other snapshots rather than thrash.
+                break;
+            };
+            if !self.active_users.contains_key(key.as_ref()) {
+                inactive -= 1;
+            }
+            let removed = self.maps.remove(key.as_ref()).unwrap();
+            self.estimated_bytes -= removed.estimated_bytes;
+        }
+    }
+
     pub fn geometry_for_agent(&mut self, agent: &Agent) -> &Geometry<'a> {
         let key = self.ensure_map(agent);
-        &self.maps[&key].0
+        &self.maps[key.as_ref()].geometry
     }
 
     pub fn for_agent(&mut self, agent: &Agent) -> (&Geometry<'a>, &Navigation) {
         let key = self.ensure_map(agent);
-        let (geometry, navigation) = self.maps.get_mut(&key).unwrap();
-        let navigation = navigation.get_or_insert_with(|| Navigation::new(self.scenario, geometry));
-        (geometry, navigation)
+        let entry = self.maps.get_mut(key.as_ref()).unwrap();
+        if entry.navigation.is_none() {
+            let navigation = Navigation::new(self.scenario, &entry.geometry);
+            let bytes = navigation.estimated_size_bytes();
+            entry.estimated_bytes += bytes;
+            self.estimated_bytes += bytes;
+            entry.navigation = Some(navigation);
+            self.prune(key.as_ref());
+        }
+        let entry = &self.maps[key.as_ref()];
+        (&entry.geometry, entry.navigation.as_ref().unwrap())
     }
 }
 
@@ -566,6 +699,119 @@ mod tests {
 
     fn at(id: u32, x: f64, y: f64) -> Agent {
         Agent::new(id, Point { x, y })
+    }
+
+    fn remember_span(agent: &mut Agent, end: f64) {
+        agent.known_walls.insert(
+            "north".into(),
+            vec![perception::WallSpan { start: 0.0, end }],
+        );
+    }
+
+    #[test]
+    fn cache_retains_more_than_sixty_four_active_belief_graphs() {
+        let b = scenario();
+        let mut maps = BeliefMaps::new(&b, &[]);
+        let agents: Vec<_> = (0..80)
+            .map(|id| {
+                let mut agent = at(id, 10.0, 5.0);
+                remember_span(&mut agent, 5.0 + f64::from(id) / 100.0);
+                agent
+            })
+            .collect();
+        for agent in &agents {
+            maps.for_agent(agent);
+        }
+        assert_eq!(maps.maps.len(), agents.len());
+        assert!(maps.maps.values().all(|entry| entry.navigation.is_some()));
+        let bytes = maps.estimated_bytes;
+        // A second pass must hit all the same graphs rather than clear the
+        // working set as the previous 64-entry cache did.
+        for agent in &agents {
+            maps.for_agent(agent);
+        }
+        assert_eq!(maps.maps.len(), agents.len());
+        assert_eq!(maps.estimated_bytes, bytes);
+    }
+
+    #[test]
+    fn cache_interns_identical_beliefs_without_rounding_distinct_spans() {
+        let b = scenario();
+        let mut maps = BeliefMaps::new(&b, &[]);
+        let mut agents = [at(0, 5.0, 5.0), at(1, 8.0, 5.0)];
+        for agent in &mut agents {
+            remember_span(agent, 5.0);
+            maps.for_agent(agent);
+        }
+        assert_eq!(maps.maps.len(), 1);
+        assert!(Rc::ptr_eq(&maps.current_keys[&0], &maps.current_keys[&1]));
+        assert_eq!(maps.active_users.values().copied().collect::<Vec<_>>(), [2]);
+        remember_span(&mut agents[1], 5.0 + 1e-10);
+        maps.for_agent(&agents[1]);
+        assert_eq!(maps.maps.len(), 2);
+        assert!(maps.maps.values().all(|entry| entry.navigation.is_some()));
+        assert_eq!(
+            maps.active_users.values().copied().collect::<Vec<_>>(),
+            [1, 1]
+        );
+    }
+
+    #[test]
+    fn cache_evicts_history_without_discarding_other_agents_current_graphs() {
+        let b = scenario();
+        let mut maps = BeliefMaps::new(&b, &[]);
+        maps.max_inactive = 2;
+        let fixed = at(0, 10.0, 5.0);
+        maps.for_agent(&fixed);
+        let fixed_key = BeliefKey::for_agent(&fixed);
+        let mut learning = at(1, 8.0, 5.0);
+        for end in 1..12 {
+            remember_span(&mut learning, f64::from(end));
+            maps.for_agent(&learning);
+        }
+        assert_eq!(maps.maps.len(), 4);
+        assert!(maps.maps[&fixed_key].navigation.is_some());
+        assert!(maps.maps.contains_key(&BeliefKey::for_agent(&learning)));
+        assert_eq!(
+            maps.maps
+                .keys()
+                .filter(|key| !maps.active_users.contains_key(key.as_ref()))
+                .count(),
+            2
+        );
+        assert_eq!(
+            maps.estimated_bytes,
+            maps.maps
+                .values()
+                .map(|entry| entry.estimated_bytes)
+                .sum::<usize>()
+        );
+    }
+
+    #[test]
+    fn cache_byte_budget_prefers_geometry_only_and_recreates_evicted_active_maps() {
+        let b = scenario();
+        let mut maps = BeliefMaps::new(&b, &[]);
+        let mut agents = [at(0, 10.0, 5.0), at(1, 10.0, 5.0), at(2, 10.0, 5.0)];
+        for (i, agent) in agents.iter_mut().enumerate() {
+            remember_span(agent, 3.0 + i as f64);
+        }
+        maps.for_agent(&agents[0]);
+        maps.geometry_for_agent(&agents[1]);
+        let graph = BeliefKey::for_agent(&agents[0]);
+        let geometry_only = BeliefKey::for_agent(&agents[1]);
+        maps.max_bytes = maps.estimated_bytes;
+        maps.geometry_for_agent(&agents[2]);
+        assert!(maps.maps.contains_key(&graph));
+        assert!(!maps.maps.contains_key(&geometry_only));
+        assert!(maps.estimated_bytes <= maps.max_bytes);
+        // Agent 1's current handle survives eviction. Reinserting it must not
+        // double its active-user count or confuse it with another belief.
+        maps.for_agent(&agents[1]);
+        assert!(maps.maps[&geometry_only].navigation.is_some());
+        assert_eq!(maps.active_users[&geometry_only], 1);
+        assert_eq!(maps.current_keys.len(), 3);
+        assert!(maps.estimated_bytes <= maps.max_bytes || maps.maps.len() == 1);
     }
 
     fn recorded_tick(
