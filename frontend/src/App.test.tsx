@@ -207,7 +207,6 @@ describe("optimization editor history", () => {
     await click("Analytics");
     await click("Optimize");
     await act(async () => vi.dynamicImportSettled());
-    await click("Advanced");
     await click("Apply candidate");
     const rerun = { ...recording, clearance_steps: 2 };
     vi.mocked(api.simulate).mockResolvedValue(rerun);
@@ -272,7 +271,6 @@ describe("optimization editor history", () => {
     await click("Analytics");
     await click("Stress Test");
     await act(async () => vi.dynamicImportSettled());
-    await click("Advanced");
     await click("Watch Scenario");
     expect(api.recordScenario).toHaveBeenCalledWith(
       "stress-origin",
@@ -316,7 +314,6 @@ describe("optimization editor history", () => {
     await click("Analytics");
     await click("Optimize");
     await act(async () => vi.dynamicImportSettled());
-    await click("Advanced");
     await click("Apply candidate");
     expect(workspace().building).toEqual(improved);
     await click("Undo");
