@@ -1,5 +1,6 @@
 import { formatLength } from "../utils/units";
 import { gridSpacings, type DraftingPreferences } from "./drafting";
+import { measurementOptions, measurementVisibility } from "./measurements";
 export function DraftingControls({
   preferences,
   onChange,
@@ -7,6 +8,7 @@ export function DraftingControls({
   preferences: DraftingPreferences;
   onChange: (p: DraftingPreferences) => void;
 }) {
+  const measurements = measurementVisibility(preferences.measurements);
   return (
     <div className="drafting-controls">
       <h3>Measurement grid</h3>
@@ -47,6 +49,33 @@ export function DraftingControls({
         />
         Snap to Grid
       </label>
+      <fieldset className="drafting-measurements">
+        <legend>Show measurements</legend>
+        <div>
+          {measurementOptions.map(([key, label]) => (
+            <label key={key}>
+              <input
+                type="checkbox"
+                checked={measurements[key]}
+                onChange={(event) =>
+                  onChange({
+                    ...preferences,
+                    measurements: {
+                      ...measurements,
+                      [key]: event.target.checked,
+                    },
+                  })
+                }
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+        <p className="note">
+          Feet · wall centreline lengths and opening widths. Live drawing
+          measurements stay on.
+        </p>
+      </fieldset>
       <h3>Wall snapping</h3>
       <label>
         <input

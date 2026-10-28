@@ -76,6 +76,7 @@ import {
 } from "./selection";
 import { drawLayout } from "./draw";
 import { nearestWallSnap, wallSnapTargets } from "./snapping";
+import { measurementVisibility } from "./measurements";
 import "./BuildingEditor.css";
 
 type EditorSnapshot = {
@@ -761,6 +762,7 @@ export function BuildingEditor({
           ? {
               start: gesture.start,
               end: gesture.current,
+              pointer: cursor ?? gesture.current,
               shape: gesture.marquee ? "marquee" : tool,
               constrain: gesture.constrain,
               points: freehand?.points,
@@ -776,6 +778,7 @@ export function BuildingEditor({
           showLabels: tool === "select" && !gesture,
           showDimensions: tool === "select" && !gesture,
           snapTarget: activeSnap,
+          measurements: measurementVisibility(drafting.measurements),
         },
       );
     redraw();
@@ -801,6 +804,7 @@ export function BuildingEditor({
     spawnProblem,
     camera,
     activeSnap,
+    cursor,
   ]);
 
   function pointerDown(event: PointerEvent<HTMLCanvasElement>) {

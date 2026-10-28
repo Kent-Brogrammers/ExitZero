@@ -450,6 +450,27 @@
   color: var(--cad-muted);
   font-size: var(--text-small);
 }
+.drafting-measurements {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.drafting-measurements legend {
+  padding: 0;
+  margin-bottom: 10px;
+  color: var(--cad-text);
+  font-size: var(--text-control);
+  font-weight: 600;
+}
+.drafting-measurements > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.drafting-measurements .note {
+  margin: 10px 0 0;
+}
 .drafting-controls select {
   min-width: 0;
   flex: 1;
