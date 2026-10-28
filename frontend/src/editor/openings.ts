@@ -45,6 +45,17 @@ export function suggestedWindowExterior(
       }
     }
   }
+  for (const person of building.placed_occupants ?? []) {
+    const distance =
+      (person.x - wall.start.x) * nx + (person.y - wall.start.y) * ny;
+    const side = Math.sign(distance);
+    if (
+      Math.abs(distance) <= wall.thickness / 2 + building.agent_radius ||
+      (occupiedSide && side !== occupiedSide)
+    )
+      return null;
+    occupiedSide = side;
+  }
   return occupiedSide ? (occupiedSide > 0 ? -1 : 1) : null;
 }
 

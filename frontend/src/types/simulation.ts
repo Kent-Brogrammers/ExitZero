@@ -64,6 +64,11 @@ export interface Obstruction {
 export interface SpawnZone extends Obstruction {
   count: number;
 }
+/** Exact starting centre in metres. Array order assigns recorded IDs before area spawns. */
+export interface PlacedOccupant extends Point {
+  id: string;
+  name?: string;
+}
 /** Walkable, nonblocking architectural annotation; no inter-floor transport. */
 export interface StairArea extends Obstruction {
   orientation_degrees?: 0 | 90 | 180 | 270;
@@ -113,6 +118,7 @@ export interface BuildingScenario {
   windows?: WindowOpening[];
   window_escape_context?: WindowEscapeContext;
   spawn_zones: SpawnZone[];
+  placed_occupants?: PlacedOccupant[];
   blocked_exit_ids: string[];
   /** Omitted settings use 8 m sight and 3 m communication ranges. Zero disables a range. */
   awareness?: AgentAwareness;

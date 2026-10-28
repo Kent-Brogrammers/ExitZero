@@ -140,7 +140,7 @@ export function EditorDrawingRail({
         className="editor-shapes"
         disabled={disabled}
         indicator={false}
-        triggerClassName={`rail-button${tool === "spawn" || tool === "spawn-room" ? " is-selected" : ""}`}
+        triggerClassName={`rail-button${tool === "spawn" || tool === "spawn-room" || tool === "occupant" ? " is-selected" : ""}`}
         triggerContent={content("spawn", "Spawn zone")}
         onOpen={onOpenPanel}
       >
@@ -160,6 +160,13 @@ export function EditorDrawingRail({
               "spawn-room",
               "Fill Room",
               "Click inside connected, enclosing walls",
+              "spawn",
+              close,
+            )}
+            {choice(
+              "occupant",
+              "Place occupant",
+              "Click an exact starting position",
               "spawn",
               close,
             )}

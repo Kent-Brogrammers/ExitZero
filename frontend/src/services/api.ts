@@ -1,4 +1,5 @@
 import Ajv, { type ValidateFunction } from "ajv";
+import { totalPopulation } from "../utils/population";
 import contracts from "../../../shared/schemas/contracts.schema.json";
 import type {
   ApiErrorResponse,
@@ -654,10 +655,7 @@ export function createApiClient(
       let previousIds: Set<number> | null = null;
       let initialIds = new Set<number>();
       let lastChatStep = 0;
-      const population = building.spawn_zones.reduce(
-        (sum, zone) => sum + zone.count,
-        0,
-      );
+      const population = totalPopulation(building);
       function accept(line: string): SimulationResult | null {
         let event: unknown;
         try {

@@ -555,6 +555,13 @@ export function BuildingEditor({
     );
   }
   function hit(point: Point): Selection | null {
+    const occupant = (building.placed_occupants ?? [])
+      .filter(
+        (v) =>
+          distance(point, v) <= Math.max(tolerance(), building.agent_radius),
+      )
+      .sort((a, b) => distance(point, a) - distance(point, b))[0];
+    if (occupant) return { kind: "placed_occupants", id: occupant.id };
     const opening = hitOpening(building, point, tolerance());
     if (opening) return opening;
     const wall = building.walls.find(
@@ -925,6 +932,23 @@ export function BuildingEditor({
             : "Could not find an enclosed room.",
         );
       }
+      return;
+    }
+    if (tool === "occupant") {
+      const position = gridPoint(point);
+      const occupant = {
+        id: `occupant_${crypto.randomUUID()}`,
+        name: nextObjectName(building, "placed_occupants"),
+        ...position,
+      };
+      commit(
+        {
+          ...building,
+          placed_occupants: [...(building.placed_occupants ?? []), occupant],
+        },
+        false,
+        [{ kind: "placed_occupants", id: occupant.id }],
+      );
       return;
     }
     if (tool === "hazard" && building.disaster) {
@@ -1502,6 +1526,7 @@ export function BuildingEditor({
                     exits: [],
                     ...(building.windows ? { windows: [] } : {}),
                     spawn_zones: [],
+                    placed_occupants: [],
                     blocked_exit_ids: [],
                     ...(building.opening_events ? { opening_events: [] } : {}),
                     obstructions: [],
@@ -1602,43 +1627,45 @@ export function BuildingEditor({
               </p>
             )}
             <p className={`editor-help${spawnProblem ? " is-invalid" : ""}`}>
-              {furnitureKind(tool)
-                ? "Click to place or drag a footprint. Furniture blocks its full rectangle."
-                : tool === "hazard"
-                  ? "Click to set the hazard's origin. Agents learn its location during the run."
-                  : tool === "tornado-zone"
-                    ? "Drag a safe shelter area for tornado response."
-                    : tool === "select"
-                      ? selected?.kind === "obstructions" &&
-                        selections.length === 1
-                        ? "R rotate · Ctrl/Cmd+D duplicate selection · Drag to move · Double-click for Properties"
-                        : "Drag or marquee select · Shift-click to add · Ctrl/Cmd+D duplicate · Double-click for Properties"
-                      : tool === "wall-freehand"
-                        ? freehand?.error &&
-                          gesture?.curve &&
-                          gesture.curve.length > 1
-                          ? freehand.error
-                          : "Drag or click–trace–click · Escape cancels · Alt-click selects one segment"
-                        : tool === "wall"
-                          ? "Drag a wall · Hold Shift for horizontal, vertical or 45° · Configure snapping in Grid & snap"
-                          : tool === "wall-rectangle"
-                            ? "Drag opposite corners · Shift for square · Creates four walls"
-                            : tool === "wall-circle"
-                              ? "Drag an ellipse · Shift for circle · Saves 32 connected wall segments"
-                              : tool === "door" ||
-                                  tool === "exit" ||
-                                  tool === "window"
-                                ? `Click a wall to place ${tool === "exit" ? "an exit" : tool === "window" ? "a window" : "a door"}. Adjust its width in Properties.`
-                                : tool === "stairs"
-                                  ? "Drag a walkable stair-area marker. It does not connect floors or block occupants."
-                                  : tool === "spawn-room"
-                                    ? "Click inside an enclosed room · Set its occupant count · Walls, furniture and body clearance are respected"
-                                    : tool === "spawn"
-                                      ? (spawnProblem ??
-                                        (spawnDraft
-                                          ? `${formatDimensions(spawnDraft.spawn_zones.at(-1)!.width, spawnDraft.spawn_zones.at(-1)!.height, 2)} · ${spawnDraft.spawn_zones.at(-1)!.count} occupants · Release to place`
-                                          : "Drag across rooms or furniture · Agents spawn in clear space · Shift for square · Set occupants in Properties"))
-                                      : "Drag a rectangle · Shift for square · Edit dimensions in Properties"}
+              {tool === "occupant"
+                ? "Click to place an exact occupant · Body clearance is validated · Area spawns avoid these positions"
+                : furnitureKind(tool)
+                  ? "Click to place or drag a footprint. Furniture blocks its full rectangle."
+                  : tool === "hazard"
+                    ? "Click to set the hazard's origin. Agents learn its location during the run."
+                    : tool === "tornado-zone"
+                      ? "Drag a safe shelter area for tornado response."
+                      : tool === "select"
+                        ? selected?.kind === "obstructions" &&
+                          selections.length === 1
+                          ? "R rotate · Ctrl/Cmd+D duplicate selection · Drag to move · Double-click for Properties"
+                          : "Drag or marquee select · Shift-click to add · Ctrl/Cmd+D duplicate · Double-click for Properties"
+                        : tool === "wall-freehand"
+                          ? freehand?.error &&
+                            gesture?.curve &&
+                            gesture.curve.length > 1
+                            ? freehand.error
+                            : "Drag or click–trace–click · Escape cancels · Alt-click selects one segment"
+                          : tool === "wall"
+                            ? "Drag a wall · Hold Shift for horizontal, vertical or 45° · Configure snapping in Grid & snap"
+                            : tool === "wall-rectangle"
+                              ? "Drag opposite corners · Shift for square · Creates four walls"
+                              : tool === "wall-circle"
+                                ? "Drag an ellipse · Shift for circle · Saves 32 connected wall segments"
+                                : tool === "door" ||
+                                    tool === "exit" ||
+                                    tool === "window"
+                                  ? `Click a wall to place ${tool === "exit" ? "an exit" : tool === "window" ? "a window" : "a door"}. Adjust its width in Properties.`
+                                  : tool === "stairs"
+                                    ? "Drag a walkable stair-area marker. It does not connect floors or block occupants."
+                                    : tool === "spawn-room"
+                                      ? "Click inside an enclosed room · Set its occupant count · Walls, furniture and body clearance are respected"
+                                      : tool === "spawn"
+                                        ? (spawnProblem ??
+                                          (spawnDraft
+                                            ? `${formatDimensions(spawnDraft.spawn_zones.at(-1)!.width, spawnDraft.spawn_zones.at(-1)!.height, 2)} · ${spawnDraft.spawn_zones.at(-1)!.count} occupants · Release to place`
+                                            : "Drag across rooms or furniture · Agents spawn in clear space · Shift for square · Set occupants in Properties"))
+                                        : "Drag a rectangle · Shift for square · Edit dimensions in Properties"}
             </p>
             <div className="canvas-wrap editor-canvas-wrap">
               <canvas
@@ -1776,6 +1803,9 @@ export function BuildingEditor({
                   · {building.exits.length} exits ·{" "}
                   {building.windows?.length ?? 0} windows ·{" "}
                   {building.spawn_zones.length} spawn zones
+                  {building.placed_occupants?.length
+                    ? ` · ${building.placed_occupants.length} placed occupants`
+                    : ""}
                 </span>
                 <span>
                   {cursor
@@ -1831,6 +1861,7 @@ export function BuildingEditor({
                     "obstructions",
                     "stair_areas",
                     "tornado_zones",
+                    "placed_occupants",
                   ] as const
                 ).flatMap((kind) =>
                   (building[kind] ?? []).map((v) => (
@@ -1902,7 +1933,8 @@ export function BuildingEditor({
                   </>
                 ) : (
                   <p className="note">
-                    Include the parent walls to resize openings as a group.
+                    Include parent walls to resize openings. Fixed-size
+                    occupants can move as a group but cannot be resized.
                   </p>
                 )}
                 <button className="delete-button" onClick={deleteSelected}>
@@ -1918,6 +1950,15 @@ export function BuildingEditor({
                     commit(renameObject(building, selected, name))
                   }
                 />
+                {selected.kind === "placed_occupants" && (
+                  <p className="note">
+                    Starting position · Agent{" "}
+                    {(building.placed_occupants?.findIndex(
+                      (v) => v.id === selected.id,
+                    ) ?? 0) + 1}{" "}
+                    in the next run. All occupants use the same body size.
+                  </p>
+                )}
                 {selectedRoomZones.length > 0 && (
                   <p className="note">
                     Room fill · {selectedRoomZones.length} clear areas. Room

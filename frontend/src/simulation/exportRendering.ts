@@ -79,6 +79,7 @@ export function createExportRenderer(
         windowStates: frame?.window_states,
         disasterState: frame?.disaster_state,
         showPursuitStart: false,
+        showPlacedOccupants: false,
         underlay: (context) => {
           context.save();
           context.beginPath();

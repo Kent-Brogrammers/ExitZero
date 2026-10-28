@@ -1,4 +1,5 @@
 import halloweenPreset from "./editor/presets/halloween-pursuit.json";
+import { totalPopulation } from "./utils/population";
 import { LengthInput } from "./ui/LengthInput";
 import { formatDimensions } from "./utils/units";
 import type { ReplayTarget } from "./simulation/replayTarget";
@@ -775,6 +776,7 @@ export default function App() {
                     doors: [],
                     exits: [],
                     spawn_zones: [],
+                    placed_occupants: [],
                   },
                   "an empty layout",
                   "edit",
@@ -983,11 +985,7 @@ export default function App() {
                   </div>
                   <p className="settings-layout">
                     {formatDimensions(building.width, building.height)} ·{" "}
-                    {building.exits.length} exits ·{" "}
-                    {building.spawn_zones.reduce(
-                      (total, zone) => total + zone.count,
-                      0,
-                    )}{" "}
+                    {building.exits.length} exits · {totalPopulation(building)}{" "}
                     occupants
                   </p>
                   {layoutProblem && (

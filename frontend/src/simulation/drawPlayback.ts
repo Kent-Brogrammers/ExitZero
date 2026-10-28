@@ -41,6 +41,7 @@ export function drawPlayback(
       disasterState: frame?.disaster_state,
       ...displayOptions,
       showPursuitStart: false,
+      showPlacedOccupants: !frame,
     },
   );
   drawAgents(canvas, building, frame, pixelRatio, palette, showAgentNumbers);
@@ -212,6 +213,7 @@ export function createPlaybackRenderer(
       return;
     }
     const nextOpeningState = JSON.stringify([
+      !!frame,
       frame?.blocked_opening_ids,
       frame?.window_states?.map((s) => [s.window_id, s.state]),
       frame?.disaster_state,
@@ -235,6 +237,7 @@ export function createPlaybackRenderer(
           disasterState: frame?.disaster_state,
           ...displayOptions,
           showPursuitStart: false,
+          showPlacedOccupants: !frame,
         },
       );
       width = canvas.width;

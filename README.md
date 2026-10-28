@@ -97,6 +97,27 @@ VITE_API_BASE_URL=http://127.0.0.1:3001/api npm run dev
 
 For production builds, provide that variable to `npm run build` instead; Vite embeds it at build time. `npm run preview` serves the built frontend and does not use the development proxy, so use a direct API base URL and configure backend CORS for your chosen preview origin before testing that mode. The initial CORS allowlist covers only `http://localhost:5173` and `http://127.0.0.1:5173`.
 
+## Exact occupant placement
+
+Use **Spawn zone → Place occupant** to set exact starting centres. Select a marker
+to move, rename, delete, duplicate, or edit its coordinates in feet. Draw Zone and
+Fill Room remain available. All placements participate in undo/redo, local saving,
+templates, and JSON export/import.
+
+Building JSON optionally stores `placed_occupants: [{"id":"occupant-a","name":"Reception","x":3.125,"y":4.625}]`
+in metres. IDs remain stable editor references. Each recording assigns numeric
+agent IDs to these entries in saved array order starting at zero, then assigns IDs
+to seeded area occupants. Editing or removing entries can change numbering in a
+later run; an existing recording retains its own IDs. No result fields change.
+
+Rust reserves exact bodies first and samples area occupants around them. Exact
+positions are never randomized or silently moved. Bodies must fit inside the
+workspace, clear real walls/closed openings/windows/furniture, and not overlap
+each other. Area sampling can still fail if too little clear space remains. The
+combined population limit is 10,000 (64 in Halloween pursuit). Layouts without
+placed occupants retain the existing seeded behavior. Seating/activity states are
+a separate future feature.
+
 ## Deploy on Render (one Docker web service)
 
 Create a [Render Web Service](https://render.com/docs/docker) from this repository.
