@@ -41,8 +41,7 @@ const groups = [
 
 export function StudioKeybinds() {
   return (
-    <details className="studio-keybinds">
-      <summary>Keybinds</summary>
+    <div className="studio-keybinds">
       <div className="studio-keybinds-content">
         <p className="studio-keybinds-note">
           Focus the editor or playback Canvas to use its shortcuts. Text fields
@@ -63,6 +62,6 @@ export function StudioKeybinds() {
           </section>
         ))}
       </div>
-    </details>
+    </div>
   );
 }

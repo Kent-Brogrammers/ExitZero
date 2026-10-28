@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import exampleJson from "./editor/presets/corporate-office.json";
+import { halloweenPreset } from "./editor/presets";
 import App from "./App";
 import { api } from "./services/api";
 import { storeLayout } from "./templates/layouts";
@@ -164,16 +165,41 @@ describe("optimization editor history", () => {
     }
   });
 
+  it("runs the Origins house directly rather than the previously open layout", async () => {
+    vi.mocked(api.simulateLive).mockResolvedValue(recording);
+    await mount();
+    const previous = structuredClone(workspace().building);
+    await click("Settings");
+    await click("Hackathon Origins");
+    await click("Play Halloween map");
+    const sent = vi.mocked(api.simulateLive).mock.calls[0]![0];
+    expect(sent.pursuit).toEqual(halloweenPreset.building.pursuit);
+    expect(sent.walls).toEqual(halloweenPreset.building.walls);
+    expect(sent.walls).not.toEqual(previous.walls);
+    expect(halloweenPreset.building.walls).not.toBe(sent.walls);
+    expect(document.querySelector(".settings-dialog")).toBeNull();
+    expect(window.location.hash).toBe("#simulation");
+  });
+
+  it("allows editing the Origins house offline without offering an unavailable simulation", async () => {
+    vi.mocked(api.health).mockRejectedValue(new Error("Offline"));
+    await mount();
+    await click("Settings");
+    await click("Hackathon Origins");
+    expect(button("Play Halloween map").disabled).toBe(true);
+    expect(button("Edit house").disabled).toBe(false);
+    await click("Edit house");
+    expect(workspace().building.pursuit).toEqual(
+      halloweenPreset.building.pursuit,
+    );
+    expect(api.simulateLive).not.toHaveBeenCalled();
+  });
+
   it("keeps pursuit outside safety analysis even before a recording exists", async () => {
     await mount();
-    await click("Templates");
-    await act(async () =>
-      document
-        .querySelector<HTMLButtonElement>(
-          '[aria-label="Halloween — The Pursuit template"] .template-card-edit',
-        )!
-        .click(),
-    );
+    await click("Settings");
+    await click("Hackathon Origins");
+    await click("Edit house");
     expect(workspace().building.pursuit).toBeDefined();
     await click("Analytics");
     await act(async () => vi.dynamicImportSettled());

@@ -35,8 +35,8 @@ export function TemplateCard({
         <h3>{name}</h3>
         {building.pursuit && (
           <p className="templates-local-note">
-            Halloween track · A masked stalker, blocked routes, and emergency
-            windows. Edit the house or run a real seeded pursuit.
+            A masked stalker, blocked routes, and emergency windows. Edit the
+            house or run a real seeded pursuit.
           </p>
         )}
         <p className="template-metadata">
