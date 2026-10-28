@@ -347,12 +347,12 @@ invented route breakdown. Remaining/trapped accounting and severity order are
 preserved; eligible-but-unreached windows do not prove occupants trapped. Stress
 and optimization calls clone configuration and create fresh service state per run.
 
-| Developer   | First feature                                                   | Following feature                                     |
-| ----------- | --------------------------------------------------------------- | ----------------------------------------------------- |
-| Chris       | Freeform layout editing                                         | Real-frame playback controls                          |
-| Connor      | Deterministic spawning, continuous navigation, and collisions   | Evacuation ticks, stopping rules, frames, and metrics |
-| Nick        | Blocked-exit/obstruction scenarios and real simulation rankings | Bounded layout improvement candidates                 |
-| Layth       | Result metrics and world-space traffic heatmaps                 | Scenario/optimization comparison and API integration  |
+| Developer | First feature                                                   | Following feature                                     |
+| --------- | --------------------------------------------------------------- | ----------------------------------------------------- |
+| Chris     | Freeform layout editing                                         | Real-frame playback controls                          |
+| Connor    | Deterministic spawning, continuous navigation, and collisions   | Evacuation ticks, stopping rules, frames, and metrics |
+| Nick      | Blocked-exit/obstruction scenarios and real simulation rankings | Bounded layout improvement candidates                 |
+| Layth     | Result metrics and world-space traffic heatmaps                 | Scenario/optimization comparison and API integration  |
 
 Use the checked-in example for real end-to-end verification and the labeled synthetic fixtures for focused contract/UI tests. Keep changes within the assigned workstream and test shared-contract integration before merging.
 
