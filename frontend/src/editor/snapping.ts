@@ -60,6 +60,7 @@ export function nearestWallSnap(
   targets: readonly WallSnapTarget[],
   radius: number,
   excludedWallId?: string,
+  accepts?: (target: WallSnapTarget) => boolean,
 ): WallSnapTarget | null {
   if (!Number.isFinite(radius) || radius <= 0) return null;
   let best: WallSnapTarget | null = null;
@@ -68,6 +69,7 @@ export function nearestWallSnap(
     // An endpoint edit must not be attracted to its own previous position or
     // to an intersection that depends on that wall's old geometry.
     if (excludedWallId && target.wallIds.includes(excludedWallId)) continue;
+    if (accepts && !accepts(target)) continue;
     const squared =
       (point.x - target.point.x) ** 2 + (point.y - target.point.y) ** 2;
     if (

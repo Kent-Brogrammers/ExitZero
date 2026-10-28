@@ -1,5 +1,6 @@
 import type { BuildingScenario, Point, Wall } from "../types/simulation";
 import { nextObjectName } from "./names";
+import { constrainWallEnd } from "./wallAngles";
 
 export const CIRCLE_WALL_SEGMENTS = 32;
 export type WallShape = "wall" | "wall-rectangle" | "wall-circle";
@@ -39,7 +40,8 @@ export function wallShapePoints(
   bounds: Bounds,
   constrain = false,
 ): Point[] {
-  if (shape === "wall") return [start, end];
+  if (shape === "wall")
+    return [start, constrain ? constrainWallEnd(start, end, bounds) : end];
   if (shape === "wall-rectangle") {
     const r = dragRectangle(start, end, bounds, constrain);
     const first = { x: r.x, y: r.y };
