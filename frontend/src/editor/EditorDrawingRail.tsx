@@ -94,7 +94,7 @@ export function EditorDrawingRail({
             {choice(
               "wall",
               "Straight wall",
-              "Drag a line at any angle",
+              "Any angle · Hold Shift for 45° locking",
               "wall",
               close,
             )}

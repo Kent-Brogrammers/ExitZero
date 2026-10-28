@@ -4,6 +4,7 @@ import type { BuildingScenario, Wall } from "../types/simulation";
 import { buildingError } from "./geometry";
 import { addWallShape } from "./shapes";
 import { nearestWallSnap, wallSnapTargets } from "./snapping";
+import { isOnLockedWallAngle } from "./wallAngles";
 
 const wall = (
   id: string,
@@ -16,6 +17,28 @@ const wall = (
   start: { x, y },
   end: { x: xx, y: yy },
   thickness: 0.2,
+});
+
+it("ignores a closer off-angle guide while Shift locks a new wall", () => {
+  const start = { x: 2, y: 5 };
+  const pointer = { x: 8.08, y: 5.1 };
+  const targets = wallSnapTargets([
+    wall("off-angle", 8.08, 5.1, 12, 7),
+    wall("aligned", 8, 5, 8, 9),
+  ]);
+  expect(nearestWallSnap(pointer, targets, 0.3)?.wallIds).toEqual([
+    "off-angle",
+  ]);
+  expect(
+    nearestWallSnap(pointer, targets, 0.3, undefined, (target) =>
+      isOnLockedWallAngle(start, pointer, target.point),
+    )?.point,
+  ).toEqual({ x: 8, y: 5 });
+  expect(
+    nearestWallSnap(pointer, targets.slice(0, 2), 0.3, undefined, (target) =>
+      isOnLockedWallAngle(start, pointer, target.point),
+    ),
+  ).toBeNull();
 });
 
 it("chooses the nearest endpoint and retains exact coordinates", () => {

@@ -77,6 +77,7 @@ import {
 import { drawLayout } from "./draw";
 import { nearestWallSnap, wallSnapTargets } from "./snapping";
 import { measurementVisibility } from "./measurements";
+import { constrainWallEnd, isOnLockedWallAngle } from "./wallAngles";
 import "./BuildingEditor.css";
 
 type EditorSnapshot = {
@@ -87,6 +88,7 @@ type EditorSnapshot = {
 type Gesture = {
   start: Point;
   current: Point;
+  rawCurrent?: Point;
   base: BuildingScenario;
   selection?: Selection;
   hazard?: boolean;
@@ -474,6 +476,42 @@ export function BuildingEditor({
     const target = wallTarget(point, excludedWallId);
     return target ? { ...target.point } : gridPoint(point);
   }
+  function wallEnd(start: Point, pointer: Point, locked = false) {
+    if (!locked) return { point: snap(pointer), target: wallTarget(pointer) };
+    const target =
+      drafting.snapEndpoints !== false
+        ? nearestWallSnap(
+            pointer,
+            snapTargets,
+            tolerance(),
+            undefined,
+            (candidate) => isOnLockedWallAngle(start, pointer, candidate.point),
+          )
+        : null;
+    return {
+      point: target
+        ? { ...target.point }
+        : constrainWallEnd(
+            start,
+            pointer,
+            { width: 1000, height: 1000 },
+            drafting.snap ? gridSpacings[drafting.spacing].metres : undefined,
+          ),
+      target,
+    };
+  }
+  function setWallAngleLock(locked: boolean) {
+    if (disabled || tool !== "wall") return;
+    setGesture((g) =>
+      g && !g.selection && !g.hazard && !g.marquee
+        ? {
+            ...g,
+            constrain: locked,
+            current: wallEnd(g.start, g.rawCurrent ?? g.current, locked).point,
+          }
+        : g,
+    );
+  }
   function hit(point: Point): Selection | null {
     const opening = hitOpening(building, point, tolerance());
     if (opening) return opening;
@@ -712,10 +750,12 @@ export function BuildingEditor({
     !panning &&
     !spaceDown &&
     (tool === "wall" || (tool === "select" && gesture?.endpoint))
-      ? wallTarget(
-          cursor,
-          gesture?.endpoint ? gesture.selection?.id : undefined,
-        )
+      ? tool === "wall" && gesture
+        ? wallEnd(gesture.start, cursor, gesture.constrain).target
+        : wallTarget(
+            cursor,
+            gesture?.endpoint ? gesture.selection?.id : undefined,
+          )
       : null;
   function deleteSelected() {
     if (selections.length && commit(removeSelection(building, selections)))
@@ -961,6 +1001,7 @@ export function BuildingEditor({
       setGesture({
         start,
         current: start,
+        rawCurrent: start,
         base: building,
         constrain: event.shiftKey,
         spawnId: tool === "spawn" ? `spawn_${crypto.randomUUID()}` : undefined,
@@ -999,9 +1040,10 @@ export function BuildingEditor({
         current:
           !g.selection && !g.hazard && !g.marquee
             ? tool === "wall"
-              ? snap(point)
+              ? wallEnd(g.start, point, event.shiftKey).point
               : gridPoint(point)
             : point,
+        rawCurrent: point,
         constrain: event.shiftKey,
       };
     });
@@ -1038,7 +1080,7 @@ export function BuildingEditor({
       current:
         !gesture.selection && !gesture.hazard && !gesture.marquee
           ? tool === "wall"
-            ? snap(world(event))
+            ? wallEnd(gesture.start, world(event), event.shiftKey).point
             : gridPoint(world(event))
           : world(event),
       constrain: event.shiftKey,
@@ -1518,7 +1560,7 @@ export function BuildingEditor({
                           ? freehand.error
                           : "Drag or click–trace–click · Escape cancels · Alt-click selects one segment"
                         : tool === "wall"
-                          ? "Drag a straight wall at any angle · Configure endpoint, corner and grid snapping in Grid & snap"
+                          ? "Drag a wall · Hold Shift for horizontal, vertical or 45° · Configure snapping in Grid & snap"
                           : tool === "wall-rectangle"
                             ? "Drag opposite corners · Shift for square · Creates four walls"
                             : tool === "wall-circle"
@@ -1586,7 +1628,11 @@ export function BuildingEditor({
                   setGesture((g) => (g?.curve && g.tracing ? g : null));
                 }}
                 onPointerLeave={() => setCursor(null)}
+                onKeyUp={(event) => {
+                  if (event.key === "Shift") setWallAngleLock(false);
+                }}
                 onKeyDown={(event) => {
+                  if (event.key === "Shift") setWallAngleLock(true);
                   if (event.code === "Space") {
                     event.preventDefault();
                     setSpaceDown(true);
