@@ -9,7 +9,7 @@ import {
 } from "../simulation/playback.fixture";
 
 afterEach(() => vi.unstubAllGlobals());
-it("defaults to a concise Overview and preserves the detailed Advanced view", async () => {
+it("shows summaries and detailed analytics together without view tabs", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const element = document.createElement("div");
   document.body.append(element);
@@ -30,7 +30,9 @@ it("defaults to a concise Overview and preserves the detailed Advanced view", as
       .closest("[hidden]"),
   ).toBeNull();
   expect(
-    element.querySelector('[aria-label="Accumulated traffic heatmap"]'),
+    element
+      .querySelector('[aria-label="Accumulated traffic heatmap"]')!
+      .closest("[hidden]"),
   ).toBeNull();
   const buttons = () => [...element.querySelectorAll("button")];
   await act(async () =>
@@ -39,21 +41,12 @@ it("defaults to a concise Overview and preserves the detailed Advanced view", as
       .click(),
   );
   expect(onStress).toHaveBeenCalledOnce();
-  await act(async () =>
-    buttons()
-      .find((b) => b.textContent === "Advanced")!
-      .click(),
-  );
   expect(
-    element
-      .querySelector('[aria-label="Outcome overview"]')!
-      .closest("[hidden]"),
-  ).not.toBeNull();
-  expect(
-    element
-      .querySelector('[aria-label="Accumulated traffic heatmap"]')!
-      .closest("[hidden]"),
-  ).toBeNull();
+    buttons().some((b) =>
+      ["Overview", "Advanced"].includes(b.textContent ?? ""),
+    ),
+  ).toBe(false);
+  expect(element.querySelector('[aria-label="Analytics view"]')).toBeNull();
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
   await act(async () =>
     root.render(

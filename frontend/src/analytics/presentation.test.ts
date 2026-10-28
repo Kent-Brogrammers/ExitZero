@@ -20,7 +20,7 @@ describe("result explanations", () => {
       "does not prove",
     );
     expect(outcomeExplanation(incomplete, "movement_stagnation")).toContain(
-      "without movement or new information",
+      "without meaningful movement",
     );
     expect(clearanceChange(126, 210, 0.1)).toBe("+84 steps / 8.40 s (+66.7%)");
     expect(clearanceChange(126, 120)).toBe("-6 steps (-4.8%)");
