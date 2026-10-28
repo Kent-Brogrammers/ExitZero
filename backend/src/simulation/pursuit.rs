@@ -265,13 +265,9 @@ pub(super) fn run(
                     .then(i.cmp(j))
             });
             hunter_route = targets.into_iter().find_map(|(_, person)| {
-                Navigation::to_point(
-                    scenario,
-                    &geometry,
-                    "pursuit-target".into(),
-                    person.position,
-                )
-                .find_route(stalker, &geometry)
+                navigation
+                    .with_point_target("pursuit-target".into(), person.position)
+                    .find_route(stalker, &geometry)
             });
         }
         control::checkpoint()?;

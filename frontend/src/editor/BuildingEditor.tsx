@@ -26,6 +26,7 @@ import {
 import {
   useEffect,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
   type PointerEvent,
@@ -74,6 +75,8 @@ import {
   rotateObstruction,
 } from "./selection";
 import { drawLayout } from "./draw";
+import { nearestWallSnap, wallSnapTargets } from "./snapping";
+import { measurementVisibility } from "./measurements";
 import "./BuildingEditor.css";
 
 type EditorSnapshot = {
@@ -195,6 +198,10 @@ export function BuildingEditor({
   const [history, setHistory] = useState<EditorSnapshot[]>([]);
   const [redo, setRedo] = useState<EditorSnapshot[]>([]);
   const [cursor, setCursor] = useState<Point | null>(null);
+  const snapTargets = useMemo(
+    () => wallSnapTargets(building.walls),
+    [building.walls],
+  );
   const selectedElement = selected
     ? (building[selected.kind] ?? []).find((v) => v.id === selected.id)
     : null;
@@ -306,6 +313,7 @@ export function BuildingEditor({
   }));
 
   function changeTool(next: EditorTool) {
+    setCursor(null);
     setPanMode(false);
     setPropertiesOpen(false);
     setTool(next);
@@ -449,14 +457,22 @@ export function BuildingEditor({
       ? base
       : { ...base, width, height };
   }
-  function snap(point: Point): Point {
+  function gridPoint(point: Point): Point {
     if (drafting.snap)
       return snapGridPoint(point, gridSpacings[drafting.spacing].metres, {
         width: 1000,
         height: 1000,
       });
-    const endpoints = building.walls.flatMap((wall) => [wall.start, wall.end]);
-    return endpoints.find((p) => distance(point, p) < tolerance()) ?? point;
+    return point;
+  }
+  function wallTarget(point: Point, excludedWallId?: string) {
+    return drafting.snapEndpoints !== false
+      ? nearestWallSnap(point, snapTargets, tolerance(), excludedWallId)
+      : null;
+  }
+  function snap(point: Point, excludedWallId?: string): Point {
+    const target = wallTarget(point, excludedWallId);
+    return target ? { ...target.point } : gridPoint(point);
   }
   function hit(point: Point): Selection | null {
     const opening = hitOpening(building, point, tolerance());
@@ -490,6 +506,7 @@ export function BuildingEditor({
       const next = structuredClone(extendForPoints(g.base, g.current));
       next.walls.find((w) => w.id === g.selection!.id)![g.endpoint] = snap(
         g.current,
+        g.selection.id,
       );
       return { building: next, snapped: false };
     }
@@ -578,7 +595,7 @@ export function BuildingEditor({
   }
   function curveDraft(g: Gesture) {
     const raw = [...(g.curve ?? [])];
-    const endpoint = drafting.snap ? snap(g.current) : g.current;
+    const endpoint = drafting.snap ? gridPoint(g.current) : g.current;
     if (drafting.snap && raw.length > 1) raw[raw.length - 1] = endpoint;
     else if (raw.length && distance(raw.at(-1)!, endpoint) > 1e-8)
       raw.push(endpoint);
@@ -688,6 +705,18 @@ export function BuildingEditor({
       )
     : selections;
   const groupBounds = selectionBounds(building, selections);
+  const activeSnap =
+    cursor &&
+    !disabled &&
+    !panMode &&
+    !panning &&
+    !spaceDown &&
+    (tool === "wall" || (tool === "select" && gesture?.endpoint))
+      ? wallTarget(
+          cursor,
+          gesture?.endpoint ? gesture.selection?.id : undefined,
+        )
+      : null;
   function deleteSelected() {
     if (selections.length && commit(removeSelection(building, selections)))
       selectElement(null);
@@ -733,6 +762,7 @@ export function BuildingEditor({
           ? {
               start: gesture.start,
               end: gesture.current,
+              pointer: cursor ?? gesture.current,
               shape: gesture.marquee ? "marquee" : tool,
               constrain: gesture.constrain,
               points: freehand?.points,
@@ -747,6 +777,8 @@ export function BuildingEditor({
           furniture: furnitureSymbols,
           showLabels: tool === "select" && !gesture,
           showDimensions: tool === "select" && !gesture,
+          snapTarget: activeSnap,
+          measurements: measurementVisibility(drafting.measurements),
         },
       );
     redraw();
@@ -771,6 +803,8 @@ export function BuildingEditor({
     furnitureSymbols,
     spawnProblem,
     camera,
+    activeSnap,
+    cursor,
   ]);
 
   function pointerDown(event: PointerEvent<HTMLCanvasElement>) {
@@ -788,6 +822,7 @@ export function BuildingEditor({
         pan: camera.pan,
       };
       setGesture(null);
+      setCursor(null);
       setPanning(true);
       event.currentTarget.setPointerCapture(event.pointerId);
       return;
@@ -795,6 +830,7 @@ export function BuildingEditor({
     if (disabled || event.button !== 0) return;
     event.currentTarget.focus({ preventScroll: true });
     const point = world(event);
+    setCursor(point);
     setError("");
     setNotice("");
     if (tool === "spawn-room") {
@@ -920,7 +956,7 @@ export function BuildingEditor({
         });
       }
     } else {
-      const start = tool === "wall" || drafting.snap ? snap(point) : point;
+      const start = tool === "wall" ? snap(point) : gridPoint(point);
       selectElement(null);
       setGesture({
         start,
@@ -961,11 +997,10 @@ export function BuildingEditor({
       return {
         ...g,
         current:
-          !g.selection &&
-          !g.hazard &&
-          !g.marquee &&
-          (tool === "wall" || drafting.snap)
-            ? snap(point)
+          !g.selection && !g.hazard && !g.marquee
+            ? tool === "wall"
+              ? snap(point)
+              : gridPoint(point)
             : point,
         constrain: event.shiftKey,
       };
@@ -1001,11 +1036,10 @@ export function BuildingEditor({
     const g = {
       ...gesture,
       current:
-        !gesture.selection &&
-        !gesture.hazard &&
-        !gesture.marquee &&
-        (tool === "wall" || drafting.snap)
-          ? snap(world(event))
+        !gesture.selection && !gesture.hazard && !gesture.marquee
+          ? tool === "wall"
+            ? snap(world(event))
+            : gridPoint(world(event))
           : world(event),
       constrain: event.shiftKey,
     };
@@ -1053,7 +1087,13 @@ export function BuildingEditor({
       }
       return;
     }
-    if (distance(g.start, g.current) < 0.02) return;
+    if (distance(g.start, g.current) < 0.02) {
+      if (tool === "wall" && !g.selection)
+        setError(
+          "Wall endpoints are too close. Drag farther or turn off wall snapping in Grid & snap.",
+        );
+      return;
+    }
     if (g.selection) {
       commit(moved(g).building, true);
       return;
@@ -1438,19 +1478,25 @@ export function BuildingEditor({
             />
           </div>
           <div className="editor-stage">
-            {(draftEdit?.snapped || notice || selections.length > 0) && (
+            {(activeSnap ||
+              draftEdit?.snapped ||
+              notice ||
+              selections.length > 0) && (
               <p
                 className="editor-selection-feedback"
                 role="status"
+                data-snap-target={activeSnap?.kind}
                 title={selected ? objectName(building, selected) : ""}
               >
-                {draftEdit?.snapped
-                  ? "Snap preview · confirm placement to merge"
-                  : notice
-                    ? notice
-                    : selections.length > 1
-                      ? `${selections.length} selected`
-                      : `Selected: ${objectName(building, selected!)}`}
+                {activeSnap
+                  ? `Snap: wall ${activeSnap.kind} · ${lengthInputValue(activeSnap.point.x, 2)}, ${lengthInputValue(activeSnap.point.y, 2)} ft`
+                  : draftEdit?.snapped
+                    ? "Snap preview · confirm placement to merge"
+                    : notice
+                      ? notice
+                      : selections.length > 1
+                        ? `${selections.length} selected`
+                        : `Selected: ${objectName(building, selected!)}`}
               </p>
             )}
             <p className={`editor-help${spawnProblem ? " is-invalid" : ""}`}>
@@ -1472,7 +1518,7 @@ export function BuildingEditor({
                           ? freehand.error
                           : "Drag or click–trace–click · Escape cancels · Alt-click selects one segment"
                         : tool === "wall"
-                          ? "Drag a straight wall at any angle. Nearby endpoints snap together."
+                          ? "Drag a straight wall at any angle · Configure endpoint, corner and grid snapping in Grid & snap"
                           : tool === "wall-rectangle"
                             ? "Drag opposite corners · Shift for square · Creates four walls"
                             : tool === "wall-circle"
@@ -1530,6 +1576,7 @@ export function BuildingEditor({
                 onPointerUp={pointerUp}
                 onPointerCancel={() => {
                   setGesture(null);
+                  setCursor(null);
                   panGesture.current = null;
                   setPanning(false);
                 }}
@@ -1558,6 +1605,7 @@ export function BuildingEditor({
                   if (disabled) return;
                   if (event.key === "Escape") {
                     setGesture(null);
+                    setCursor(null);
                     if (propertiesOpen) closeProperties();
                     else if (!gesture) selectElement(null);
                   }
