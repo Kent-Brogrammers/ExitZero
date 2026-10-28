@@ -74,6 +74,7 @@ import {
   canResizeSelection,
   rotateObstruction,
 } from "./selection";
+import { duplicateSelection } from "./duplication";
 import { drawLayout } from "./draw";
 import { nearestWallSnap, wallSnapTargets } from "./snapping";
 import { measurementVisibility } from "./measurements";
@@ -251,6 +252,47 @@ export function BuildingEditor({
     else next.delete(selected.id);
     setFurnitureSymbols(next);
     setNotice("Drawing style updated · session only · geometry unchanged.");
+  }
+
+  function duplicateSelectedElements() {
+    if (disabled || gesture) {
+      setError("Finish the current drawing or simulation before duplicating.");
+      return;
+    }
+    if (!selections.length) {
+      setError("Select one or more building elements, then duplicate.");
+      return;
+    }
+    try {
+      const edit = duplicateSelection(building, selections);
+      if (edit.building === building) return;
+      if (!commit(edit.building, false, edit.selections)) return;
+      const symbols = new Map(furnitureSymbols);
+      for (const [source, copy] of edit.ids) {
+        const style = furnitureSymbols.get(source);
+        if (style) symbols.set(copy, style);
+        const group = curveGroups.current.get(source);
+        if (group?.every((id) => edit.ids.has(id)))
+          curveGroups.current.set(
+            copy,
+            group.map((id) => edit.ids.get(id)!),
+          );
+      }
+      setFurnitureSymbols(symbols);
+      setTool("select");
+      setPanMode(false);
+      setCursor(null);
+      setNotice(
+        `Duplicated ${edit.selections.length === 1 ? objectName(edit.building, edit.selections[0]!) : `${edit.selections.length} selected elements`} · Drag to move`,
+      );
+      canvas.current?.focus({ preventScroll: true });
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Could not duplicate this selection.",
+      );
+    }
   }
 
   function closeProperties() {
@@ -1322,22 +1364,40 @@ export function BuildingEditor({
       id="building"
       aria-labelledby="building-title"
       onKeyDown={(event) => {
+        const editingField =
+          event.target instanceof Element &&
+          event.target.closest(
+            'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], dialog',
+          );
+        if (event.defaultPrevented) return;
+        if (
+          (event.ctrlKey || event.metaKey) &&
+          !event.altKey &&
+          !event.shiftKey &&
+          event.key.toLowerCase() === "d"
+        ) {
+          event.preventDefault();
+          if (event.repeat) return;
+          if (editingField) {
+            setError(
+              "Finish editing the field, then focus the Canvas to duplicate.",
+            );
+            return;
+          }
+          duplicateSelectedElements();
+          return;
+        }
         if (
           disabled ||
           gesture ||
-          event.defaultPrevented ||
           event.repeat ||
-          event.ctrlKey ||
-          event.metaKey ||
           event.altKey ||
-          event.key.toLowerCase() !== "r" ||
           selections.length !== 1 ||
           selected?.kind !== "obstructions" ||
-          (event.target instanceof Element &&
-            event.target.closest(
-              'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], dialog',
-            ))
+          editingField
         )
+          return;
+        if (event.ctrlKey || event.metaKey || event.key.toLowerCase() !== "r")
           return;
         event.preventDefault();
         const next = rotateObstruction(building, selected.id);
@@ -1551,8 +1611,8 @@ export function BuildingEditor({
                     : tool === "select"
                       ? selected?.kind === "obstructions" &&
                         selections.length === 1
-                        ? "R rotates the object 90° · Drag to move · Double-click for Properties"
-                        : "Drag objects or a hazard’s centre marker to move or marquee select · Shift-click to add · Double-click for Properties"
+                        ? "R rotate · Ctrl/Cmd+D duplicate selection · Drag to move · Double-click for Properties"
+                        : "Drag or marquee select · Shift-click to add · Ctrl/Cmd+D duplicate · Double-click for Properties"
                       : tool === "wall-freehand"
                         ? freehand?.error &&
                           gesture?.curve &&
@@ -1782,6 +1842,16 @@ export function BuildingEditor({
                 )}
               </select>
             </label>
+            {selections.length > 0 && (
+              <button
+                type="button"
+                className="studio-control"
+                title="Duplicate selection (Ctrl/Cmd+D)"
+                onClick={duplicateSelectedElements}
+              >
+                Duplicate selection
+              </button>
+            )}
             {selections.length > 1 ? (
               <div className="inspector-fields">
                 <p className="note">

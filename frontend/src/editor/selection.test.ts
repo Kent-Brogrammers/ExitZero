@@ -1,7 +1,13 @@
 import { describe, it, expect } from "vitest";
 import example from "../../../shared/examples/building.json";
 import type { BuildingScenario } from "../types/simulation";
-import { buildingError, type Selection } from "./geometry";
+import {
+  buildingError,
+  rectanglesOverlap,
+  wallIntersectsRectangle,
+  type Selection,
+} from "./geometry";
+import { nameProblem } from "./names";
 import { addWallShape } from "./shapes";
 import {
   combineSelection,
@@ -13,6 +19,18 @@ import {
   resizeSelection,
   rotateObstruction,
 } from "./selection";
+import { duplicateSelection } from "./duplication";
+function duplicateObstruction(
+  building: BuildingScenario,
+  id: string,
+  copyId: string,
+) {
+  return duplicateSelection(
+    building,
+    [{ kind: "obstructions", id }],
+    () => copyId,
+  ).building;
+}
 function fixture(): BuildingScenario {
   return {
     ...structuredClone(example),
@@ -42,6 +60,120 @@ function fixture(): BuildingScenario {
     blocked_exit_ids: ["exit"],
   };
 }
+
+describe("individual object duplication", () => {
+  it("creates an independent physical copy with a new ID, name and valid JSON, preserving references", () => {
+    const original = fixture();
+    original.obstructions[0]!.name = "Conference table";
+    const before = structuredClone(original);
+    const next = duplicateObstruction(original, "object", "copy");
+    const copy = next.obstructions.at(-1)!;
+    expect(copy).toMatchObject({
+      id: "copy",
+      name: "Conference table (copy)",
+      width: 2,
+      height: 1,
+      y: 10,
+    });
+    expect(copy.x).toBeCloseTo(14.3048);
+    expect(rectanglesOverlap(copy, original.obstructions[0]!)).toBe(false);
+    expect(next.obstructions[0]).toEqual(before.obstructions[0]);
+    for (const key of [
+      "walls",
+      "doors",
+      "exits",
+      "spawn_zones",
+      "blocked_exit_ids",
+      "stair_areas",
+    ] as const)
+      expect(next[key]).toBe(original[key]);
+    expect(original).toEqual(before);
+    expect(copy).not.toBe(original.obstructions[0]);
+    expect(buildingError(next)).toBeNull();
+    expect(JSON.parse(JSON.stringify(next))).toEqual(next);
+  });
+
+  it("preserves rotated dimensions and generates distinct names when repeatedly duplicating the selected copy", () => {
+    const rotated = rotateObstruction(fixture(), "object");
+    const first = duplicateObstruction(rotated, "object", "copy-1");
+    const second = duplicateObstruction(first, "copy-1", "copy-2");
+    expect(second.obstructions.map((o) => o.name)).toEqual([
+      undefined,
+      "Obstruction 1 (copy)",
+      "Obstruction 1 (copy 2)",
+    ]);
+    expect(second.obstructions.at(-1)).toMatchObject({
+      id: "copy-2",
+      width: 1,
+      height: 2,
+    });
+    expect(new Set(second.obstructions.map((o) => o.id)).size).toBe(3);
+    expect(buildingError(second)).toBeNull();
+  });
+
+  it("finds another nearby position when furniture and thick walls occupy the first choices", () => {
+    const original = fixture();
+    original.obstructions.push({
+      id: "occupied",
+      x: 14,
+      y: 10,
+      width: 3,
+      height: 1,
+    });
+    original.walls.push({
+      id: "below",
+      start: { x: 12, y: 12.1 },
+      end: { x: 15, y: 12.1 },
+      thickness: 0.4,
+    });
+    const next = duplicateObstruction(original, "object", "copy");
+    const copy = next.obstructions.at(-1)!;
+    expect(copy.x).toBeCloseTo(9.6952);
+    expect(copy.y).toBe(10);
+    expect(
+      original.obstructions.every((item) => !rectanglesOverlap(copy, item)),
+    ).toBe(true);
+    expect(
+      original.walls.every((wall) => !wallIntersectsRectangle(wall, copy)),
+    ).toBe(true);
+    expect(buildingError(next)).toBeNull();
+  });
+
+  it("places edge copies inward without resizing the plan", () => {
+    const original = fixture();
+    Object.assign(original.obstructions[0]!, { x: 28, y: 19 });
+    const next = duplicateObstruction(original, "object", "copy");
+    expect(next.obstructions.at(-1)!.x).toBeCloseTo(25.6952);
+    expect(next.obstructions.at(-1)!.y).toBe(19);
+    expect([next.width, next.height]).toEqual([30, 20]);
+    expect(buildingError(next)).toBeNull();
+  });
+
+  it("handles long Unicode names within the shared 80-character limit", () => {
+    const original = fixture();
+    original.obstructions[0]!.name = "🪑".repeat(80);
+    const first = duplicateObstruction(original, "object", "copy-1");
+    const next = duplicateObstruction(first, "object", "copy-2");
+    const names = next.obstructions.map((item) => item.name!);
+    expect(new Set(names).size).toBe(3);
+    for (const name of names) {
+      expect([...name]).toHaveLength(80);
+      expect(nameProblem(name)).toBeNull();
+    }
+    expect(buildingError(next)).toBeNull();
+  });
+
+  it("leaves missing objects unchanged and reports a full workspace without mutating it", () => {
+    const original = fixture();
+    expect(duplicateObstruction(original, "missing", "copy")).toBe(original);
+    original.obstructions = [{ id: "full", x: 0, y: 0, width: 30, height: 20 }];
+    const before = structuredClone(original);
+    expect(() => duplicateObstruction(original, "full", "copy")).toThrow(
+      "No valid nearby position",
+    );
+    expect(original).toEqual(before);
+  });
+});
 describe("marquee and batch editing", () => {
   it("selects all six supported kinds only with full footprint containment, without changing data", () => {
     const b = fixture(),
