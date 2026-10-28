@@ -1,0 +1,61 @@
+.studio-keybinds {
+  margin: var(--space-2) 0;
+  border-block: 1px solid var(--cad-border);
+  font-size: var(--text-control);
+  line-height: 1.5;
+}
+.studio-keybinds > summary {
+  padding: var(--space-3) 0;
+  color: var(--cad-muted);
+  cursor: pointer;
+}
+.studio-keybinds > summary:hover,
+.studio-keybinds[open] > summary {
+  color: var(--cad-text);
+}
+.studio-keybinds > summary:focus-visible {
+  outline: 2px solid var(--cad-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-control);
+}
+.studio-keybinds-content {
+  display: grid;
+  gap: var(--space-4);
+  padding-bottom: var(--space-3);
+}
+.studio-keybinds h4 {
+  margin: 0 0 var(--space-2);
+  color: var(--cad-text);
+  font-size: inherit;
+  font-weight: 500;
+}
+.studio-keybinds ul {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  list-style: none;
+}
+.studio-keybinds li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--cad-text);
+}
+.studio-keybinds kbd {
+  padding: 2px var(--space-1);
+  border: 1px solid var(--cad-border);
+  border-radius: var(--radius-control);
+  background: var(--cad-control);
+  color: var(--cad-text);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.studio-keybinds-note {
+  margin: 0;
+  color: var(--cad-muted);
+  font-size: var(--text-small);
+  overflow-wrap: anywhere;
+}

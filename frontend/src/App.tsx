@@ -15,6 +15,7 @@ import { StudioPopover } from "./ui/StudioPopover";
 import { AppearanceSelector } from "./styles/StudioAppearance";
 import { StudioWelcome } from "./studio/StudioWelcome";
 import { StudioAbout } from "./studio/StudioAbout";
+import { StudioKeybinds } from "./studio/StudioKeybinds";
 import { TemplatesPage } from "./templates/TemplatesPage";
 import { LayoutNameDialog } from "./templates/LayoutNameDialog";
 import { PursuitReport } from "./simulation/PursuitMetrics";
@@ -905,6 +906,7 @@ export default function App() {
                     </button>
                   </div>
                   <AppearanceSelector />
+                  <StudioKeybinds />
                   <fieldset disabled={busy}>
                     <legend>Agent awareness</legend>
                     {(
