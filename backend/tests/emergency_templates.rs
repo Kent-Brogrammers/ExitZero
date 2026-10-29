@@ -31,7 +31,7 @@ fn run(b: &BuildingScenario) -> SimulationResult {
 }
 
 #[test]
-fn office_fire_redirects_evacuations_and_reports_the_occupant_cut_off_by_growth() {
+fn office_fire_redirects_evacuations_with_bounded_spread() {
     let b = building(FIRE);
     let fire = simulate(&b).unwrap();
     fire.validate().unwrap();
@@ -43,31 +43,18 @@ fn office_fire_redirects_evacuations_and_reports_the_occupant_cut_off_by_growth(
         serde_json::to_value(&clear).unwrap()
     );
     let baseline = run(&clear);
-    assert_eq!(fire.metrics.status, SimulationStatus::Incomplete);
+    assert_eq!(fire.metrics.status, SimulationStatus::Completed);
     assert!(matches!(
         fire.termination_reason,
-        Some(TerminationReason::MovementStagnation)
+        Some(TerminationReason::Completed)
     ));
-    assert_eq!(fire.metrics.evacuated, 43);
-    assert_eq!(fire.metrics.remaining, 1);
+    assert_eq!(fire.metrics.evacuated, 44);
+    assert_eq!(fire.metrics.remaining, 0);
     assert_eq!(fire.metrics.trapped, 0);
-    assert_eq!(fire.metrics.clearance_steps, None);
-    // The east-bound kitchen occupant entered the first restroom. Growing fire
-    // then cut off that room's only door.
-    // A partial evacuation must not be presented as measured full clearance.
+    assert!(fire.metrics.clearance_steps.is_some());
+    // Bounded patches close the east exit while leaving the alternate routes usable.
     let final_frame = fire.frames.last().unwrap();
-    assert_eq!(final_frame.agents.len(), 1);
-    let stranded = &final_frame.agents[0];
-    assert!(stranded.x > 31.0 && stranded.x < 36.0);
-    assert!(stranded.y > 16.0 && stranded.y < 19.0);
-    assert!(
-        final_frame
-            .blocked_opening_ids
-            .as_ref()
-            .unwrap()
-            .iter()
-            .any(|id| id == "corp-door-bath-1")
-    );
+    assert!(final_frame.agents.is_empty());
     assert_eq!(baseline.metrics.evacuated, 44);
     let baseline_exits: BTreeSet<_> = baseline
         .analytics
@@ -132,17 +119,12 @@ fn office_fire_redirects_evacuations_and_reports_the_occupant_cut_off_by_growth(
             .is_empty()
     );
     let people = &fire.analytics.as_ref().unwrap().agents;
-    assert!(people.iter().all(|a| {
-        if a.id == stranded.id {
-            a.exit_id.is_none() && a.evacuation_step.is_none() && !a.route_found
-        } else {
-            a.evacuation_step.is_some()
-                && matches!(
-                    a.exit_id.as_deref(),
-                    Some("corp-exit-west" | "corp-exit-front")
-                )
-        }
-    }));
+    assert_eq!(people.len(), 44);
+    assert!(people.iter().all(|a| a.evacuation_step.is_some()
+        && matches!(
+            a.exit_id.as_deref(),
+            Some("corp-exit-west" | "corp-exit-front")
+        )));
     assert!(
         people
             .iter()
