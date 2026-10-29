@@ -11,6 +11,7 @@ const paths: Record<string, string> = {
   undo: "M9 4L4 9l5 5 M4 9h10a6 6 0 0 1 0 12h-3",
   redo: "M15 4l5 5-5 5 M20 9H10a6 6 0 0 0 0 12h3",
   file: "M5 3h9l5 5v13H5z M14 3v6h5 M8 13h8 M8 17h6",
+  clear: "M4 5h16v14H4z M8 9l8 6 M16 9l-8 6",
   rectangle: "M3 6h18v12H3z",
   square: "M4 4h16v16H4z",
   circle: "M21 12a9 9 0 1 0-18 0 9 9 0 0 0 18 0",
