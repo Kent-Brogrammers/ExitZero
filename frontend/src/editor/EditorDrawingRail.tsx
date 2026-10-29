@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { formatDimensions } from "../utils/units";
 import { furniturePresets, type FurnitureKind } from "./furniture";
 import { StudioPopover } from "../ui/StudioPopover";
@@ -9,6 +10,7 @@ interface EditorDrawingRailProps {
   disabled: boolean;
   onTool: (tool: EditorTool) => void;
   onOpenPanel: () => void;
+  historyControls?: ReactNode;
 }
 const content = (icon: string, label: string) => (
   <>
@@ -22,21 +24,8 @@ export function EditorDrawingRail({
   disabled,
   onTool,
   onOpenPanel,
+  historyControls,
 }: EditorDrawingRailProps) {
-  const button = (value: EditorTool, label: string, icon: string) => (
-    <button
-      key={value}
-      type="button"
-      className="studio-control rail-button"
-      aria-label={label}
-      title={label}
-      aria-pressed={tool === value}
-      disabled={disabled}
-      onClick={() => onTool(value)}
-    >
-      {content(icon, label)}
-    </button>
-  );
   const choice = (
     value: EditorTool,
     label: string,
@@ -62,104 +51,132 @@ export function EditorDrawingRail({
     </button>
   );
   return (
-    <div
-      className="editor-rail editor-toolbar"
-      role="toolbar"
-      aria-label="Layout tools"
-    >
-      {button("select", "Select / move", "select")}
+    <div className="editor-toolbar" role="toolbar" aria-label="Layout tools">
+      {historyControls}
+      <span className="toolbar-separator" aria-hidden="true" />
+      <button
+        type="button"
+        className="studio-control editor-tool-button"
+        aria-label="Select / move"
+        title="Select / move"
+        aria-pressed={tool === "select"}
+        disabled={disabled}
+        onClick={() => onTool("select")}
+      >
+        {content("select", "Select")}
+      </button>
       <StudioPopover
-        label="Walls & Shapes"
-        side="right"
+        label="Walls"
         className="editor-shapes"
         disabled={disabled}
-        indicator={false}
-        triggerClassName={`rail-button${isWallTool(tool) || tool === "wall-freehand" ? " is-selected" : ""}`}
-        triggerContent={content("wall", "Walls & Shapes")}
+        triggerClassName={`editor-tool-button${isWallTool(tool) || tool === "wall-freehand" ? " is-selected" : ""}`}
+        triggerContent={content("wall", "Walls")}
         onOpen={onOpenPanel}
       >
         {(close) => (
           <>
             <div className="control-popover-heading">
-              <h3>Walls & Shapes</h3>
-              <button
-                type="button"
-                className="studio-control studio-control--icon"
-                aria-label="Close wall shapes"
-                onClick={close}
-              >
-                ×
-              </button>
+              <h3>Walls</h3>
             </div>
             {choice(
               "wall",
               "Straight wall",
-              "Any angle · Hold Shift for 45° locking",
+              "Any angle · Shift locks to 45°",
               "wall",
               close,
             )}
             {choice(
               "wall-rectangle",
               "Rectangular wall perimeter",
-              "Drag freely · Shift for square · 4 walls",
+              "Drag freely · Shift for square",
               "rectangle",
               close,
             )}
             {choice(
               "wall-circle",
               "Circle / ellipse wall perimeter",
-              "Drag bounding box · Shift for circle",
+              "Drag freely · Shift for circle · 32 segments",
               "circle",
               close,
             )}
-            {choice(
-              "wall-freehand",
-              "Freehand curve",
-              "Drag or click–trace–click · saved as segments",
-              "curve",
-              close,
-            )}
-            <details className="shape-note">
-              <summary>Geometry details</summary>
-              <p>
-                Perimeters save as individual straight walls. Ellipses use 32
-                segments; freehand curves use up to 96. Undo restores the whole
-                drawing action. Freehand groups last this session; Alt-click
-                selects one segment.
+            <details className="toolbar-advanced">
+              <summary>Advanced</summary>
+              {choice(
+                "wall-freehand",
+                "Freehand curve",
+                "Drag or click–trace–click · up to 96 segments",
+                "curve",
+                close,
+              )}
+              <p className="shape-note">
+                Curves save as straight wall segments. Freehand grouping lasts
+                this session; Alt-click selects one segment.
               </p>
             </details>
           </>
         )}
       </StudioPopover>
-      {button("door", "Door", "door")}
-      {button("exit", "Exit", "exit")}
-      {button("window", "Window", "window")}
       <StudioPopover
-        label="Spawn zone"
-        side="right"
+        label="Openings"
         className="editor-shapes"
         disabled={disabled}
-        indicator={false}
-        triggerClassName={`rail-button${tool === "spawn" || tool === "spawn-room" || tool === "occupant" ? " is-selected" : ""}`}
-        triggerContent={content("spawn", "Spawn zone")}
+        triggerClassName={`editor-tool-button${["door", "exit", "window"].includes(tool) ? " is-selected" : ""}`}
+        triggerContent={content("door", "Openings")}
         onOpen={onOpenPanel}
       >
         {(close) => (
           <>
             <div className="control-popover-heading">
-              <h3>Spawn zone</h3>
+              <h3>Openings</h3>
+            </div>
+            {choice(
+              "door",
+              "Door",
+              "Click a wall · Edit width and blocking in Properties",
+              "door",
+              close,
+            )}
+            {choice(
+              "exit",
+              "Exit",
+              "Click a wall to place an evacuation exit",
+              "exit",
+              close,
+            )}
+            {choice(
+              "window",
+              "Window",
+              "Configure emergency escape in Properties",
+              "window",
+              close,
+            )}
+          </>
+        )}
+      </StudioPopover>
+      <StudioPopover
+        label="People"
+        className="editor-shapes"
+        disabled={disabled}
+        triggerClassName={`editor-tool-button${["spawn", "spawn-room", "occupant"].includes(tool) ? " is-selected" : ""}`}
+        triggerContent={content("spawn", "People")}
+        onOpen={onOpenPanel}
+      >
+        {(close) => (
+          <>
+            <div className="control-popover-heading">
+              <h3>People</h3>
             </div>
             {choice(
               "spawn",
               "Draw Zone",
-              "Drag a rectangular area",
+              "Drag a rectangular spawn area",
               "rectangle",
               close,
             )}
             {choice(
               "spawn-room",
               "Fill Room",
-              "Click inside connected, enclosing walls",
+              "Click inside an enclosed room",
               "spawn",
               close,
             )}
@@ -174,82 +191,51 @@ export function EditorDrawingRail({
         )}
       </StudioPopover>
       <StudioPopover
-        label="Object / Obstacle"
-        side="right"
+        label="Objects"
         className="editor-shapes"
         disabled={disabled}
-        indicator={false}
-        triggerClassName={`rail-button${tool.startsWith("object-") || tool.startsWith("furniture-") ? " is-selected" : ""}`}
-        triggerContent={content("obstruction", "Object")}
+        triggerClassName={`editor-tool-button${tool.startsWith("object-") || tool.startsWith("furniture-") ? " is-selected" : ""}`}
+        triggerContent={content("obstruction", "Objects")}
         onOpen={onOpenPanel}
       >
         {(close) => (
           <>
             <div className="control-popover-heading">
-              <h3>Object / Obstacle</h3>
-              <button
-                type="button"
-                className="studio-control studio-control--icon"
-                aria-label="Close object shapes"
-                onClick={close}
-              >
-                ×
-              </button>
+              <h3>Objects & furniture</h3>
             </div>
             {choice(
               "object-rectangle",
               "Rectangle / square",
-              "Drag freely · Shift for square",
+              "Drag a solid footprint · Shift for square",
               "rectangle",
               close,
             )}
-            <div className="object-curves">
-              <button
-                type="button"
-                className="shape-choice"
-                aria-label="Circle"
-                disabled
-              >
-                <ToolIcon name="circle" />
-                <span>
-                  Circle<small>Collision unsupported</small>
-                </span>
-              </button>
-              <button
-                type="button"
-                className="shape-choice"
-                aria-label="Ellipse"
-                disabled
-              >
-                <ToolIcon name="circle" />
-                <span>
-                  Ellipse<small>Collision unsupported</small>
-                </span>
-              </button>
-            </div>
             <div
               className="furniture-choices"
               role="group"
               aria-label="Furniture presets"
             >
-              {Object.entries(furniturePresets).map(([kind, preset]) =>
-                choice(
-                  `furniture-${kind as FurnitureKind}`,
-                  preset.label,
-                  `${formatDimensions(preset.width, preset.height)} · blocks movement`,
-                  kind,
-                  close,
-                ),
-              )}
+              {Object.entries(furniturePresets).map(([kind, preset]) => (
+                <div key={kind}>
+                  {choice(
+                    `furniture-${kind as FurnitureKind}`,
+                    preset.label,
+                    kind === "chair"
+                      ? "Solid rectangular blocker · no seated behavior"
+                      : `${formatDimensions(preset.width, preset.height)} · blocks movement`,
+                    kind,
+                    close,
+                  )}
+                </div>
+              ))}
             </div>
             <p className="shape-note">
-              All furniture, including chairs, blocks its full rectangle. Styles
-              last this session. JSON and playback retain names and geometry.
+              Furniture blocks its full rectangular footprint. JSON retains
+              names and geometry; drawing styles last this session.
             </p>
           </>
         )}
       </StudioPopover>
-      {button("tornado-zone", "Tornado zone", "shelter")}
     </div>
   );
 }

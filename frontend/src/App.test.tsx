@@ -55,7 +55,9 @@ function button(text: string): HTMLButtonElement {
   const found = [...document.querySelectorAll("button")].find(
     (element) =>
       !element.closest("[hidden]") &&
-      element.textContent?.trim().startsWith(text),
+      (
+        element.getAttribute("aria-label") ?? element.textContent?.trim()
+      )?.startsWith(text),
   );
   if (!found) throw new Error(`Missing button: ${text}`);
   return found;
