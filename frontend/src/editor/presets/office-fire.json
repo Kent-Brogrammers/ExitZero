@@ -839,8 +839,8 @@
     "radius": 0.65,
     "dynamics": {
       "enabled": true,
-      "growth_rate": 0.18,
-      "spread_interval_seconds": 2.5,
+      "growth_rate": 0.036,
+      "spread_interval_seconds": 12.5,
       "max_patches": 4,
       "max_radius": 2.4,
       "speed": 0.9,

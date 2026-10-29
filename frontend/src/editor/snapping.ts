@@ -2,7 +2,7 @@ import type { Point, Wall } from "../types/simulation";
 
 export interface WallSnapTarget {
   point: Point;
-  kind: "endpoint" | "corner";
+  kind: "endpoint" | "corner" | "segment";
   wallIds: readonly string[];
 }
 
@@ -61,6 +61,7 @@ export function nearestWallSnap(
   radius: number,
   excludedWallId?: string,
   accepts?: (target: WallSnapTarget) => boolean,
+  walls: readonly Wall[] = [],
 ): WallSnapTarget | null {
   if (!Number.isFinite(radius) || radius <= 0) return null;
   let best: WallSnapTarget | null = null;
@@ -82,5 +83,31 @@ export function nearestWallSnap(
       bestDistance = squared;
     }
   }
+  // Endpoints and architectural corners retain priority. Otherwise a wall's
+  // interior can anchor a new T junction at its exact continuous coordinate.
+  if (!best)
+    for (const wall of walls) {
+      if (wall.id === excludedWallId) continue;
+      const dx = wall.end.x - wall.start.x,
+        dy = wall.end.y - wall.start.y,
+        squaredLength = dx * dx + dy * dy;
+      if (squaredLength === 0) continue;
+      const t =
+        ((point.x - wall.start.x) * dx + (point.y - wall.start.y) * dy) /
+        squaredLength;
+      if (t <= 0 || t >= 1) continue;
+      const target: WallSnapTarget = {
+        point: { x: wall.start.x + t * dx, y: wall.start.y + t * dy },
+        kind: "segment",
+        wallIds: [wall.id],
+      };
+      if (accepts && !accepts(target)) continue;
+      const squared =
+        (point.x - target.point.x) ** 2 + (point.y - target.point.y) ** 2;
+      if (squared < bestDistance) {
+        best = target;
+        bestDistance = squared;
+      }
+    }
   return best;
 }
