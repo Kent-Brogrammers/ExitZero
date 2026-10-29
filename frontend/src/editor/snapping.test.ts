@@ -90,6 +90,74 @@ it("does not invent corners outside segments or on parallel walls", () => {
   expect(nearestWallSnap({ x: 1, y: 1 }, targets, Infinity)).toBeNull();
 });
 
+it("snaps a new T junction to the continuous interior of a hand-drawn wall", () => {
+  const walls = [wall("angled", 2.13, 2.17, 10.13, 6.17)];
+  const point = { x: 6.15, y: 4.13 };
+  const target = nearestWallSnap(
+    point,
+    wallSnapTargets(walls),
+    0.3,
+    undefined,
+    undefined,
+    walls,
+  );
+  expect(target?.kind).toBe("segment");
+  expect(target?.wallIds).toEqual(["angled"]);
+  expect(target?.point.x).toBeCloseTo(6.13);
+  expect(target?.point.y).toBeCloseTo(4.17);
+  expect(nearestWallSnap(point, wallSnapTargets(walls), 0.3)).toBeNull();
+  expect(
+    nearestWallSnap(
+      point,
+      wallSnapTargets(walls),
+      0.01,
+      undefined,
+      undefined,
+      walls,
+    ),
+  ).toBeNull();
+  expect(
+    nearestWallSnap(
+      point,
+      wallSnapTargets(walls),
+      0.3,
+      "angled",
+      undefined,
+      walls,
+    ),
+  ).toBeNull();
+});
+
+it("keeps endpoint and corner guides ahead of a closer segment projection", () => {
+  const walls = [wall("line", 1, 5, 9, 5), wall("endpoint", 5, 5.2, 5, 9)];
+  const target = nearestWallSnap(
+    { x: 5, y: 5.04 },
+    wallSnapTargets(walls),
+    0.3,
+    undefined,
+    undefined,
+    walls,
+  );
+  expect(target?.kind).toBe("endpoint");
+  expect(target?.point).toEqual({ x: 5, y: 5.2 });
+});
+
+it("applies Shift angle filtering to segment projections", () => {
+  const walls = [wall("horizontal", 1, 5.05, 9, 5.05)];
+  const start = { x: 2, y: 5 },
+    pointer = { x: 7, y: 5.05 };
+  expect(
+    nearestWallSnap(
+      pointer,
+      wallSnapTargets(walls),
+      0.3,
+      undefined,
+      (target) => isOnLockedWallAngle(start, pointer, target.point),
+      walls,
+    ),
+  ).toBeNull();
+});
+
 it.each([8, 20, 100])(
   "uses a 12 CSS-pixel acquisition radius at %s pixels per metre",
   (scale) => {

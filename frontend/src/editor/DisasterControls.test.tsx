@@ -136,9 +136,12 @@ it("exposes kind-specific evolution parameters and validates their bounds", asyn
   expect(buildingError(building)).toBeNull();
   building.disaster.dynamics!.speed = 11;
   expect(buildingError(building)).not.toBeNull();
-  expect(defaultDynamics("gas_leak", 1).growth_rate).toBeGreaterThan(
-    defaultDynamics("fire", 1).growth_rate,
+  expect(defaultDynamics("fire", 1).growth_rate).toBeLessThan(
+    defaultDynamics("gas_leak", 1).growth_rate,
   );
+  expect(defaultDynamics("fire", 1).growth_rate).toBeCloseTo(0.18 / 5);
+  expect(defaultDynamics("fire", 1).spread_interval_seconds).toBe(0.6 * 5);
+  expect(defaultDynamics("fire", 1).max_radius).toBe(1.2);
   building.disaster = {
     kind: "gas_leak",
     center: { x: 5, y: 5 },

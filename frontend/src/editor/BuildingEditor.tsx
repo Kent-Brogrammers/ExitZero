@@ -544,7 +544,14 @@ export function BuildingEditor({
   }
   function wallTarget(point: Point, excludedWallId?: string) {
     return drafting.snapEndpoints !== false
-      ? nearestWallSnap(point, snapTargets, tolerance(), excludedWallId)
+      ? nearestWallSnap(
+          point,
+          snapTargets,
+          tolerance(),
+          excludedWallId,
+          undefined,
+          building.walls,
+        )
       : null;
   }
   function snap(point: Point, excludedWallId?: string): Point {
@@ -561,6 +568,7 @@ export function BuildingEditor({
             tolerance(),
             undefined,
             (candidate) => isOnLockedWallAngle(start, pointer, candidate.point),
+            building.walls,
           )
         : null;
     return {
@@ -720,8 +728,8 @@ export function BuildingEditor({
   }
   function curveDraft(g: Gesture) {
     const raw = [...(g.curve ?? [])];
-    const endpoint = drafting.snap ? gridPoint(g.current) : g.current;
-    if (drafting.snap && raw.length > 1) raw[raw.length - 1] = endpoint;
+    const endpoint = snap(g.current);
+    if (raw.length > 1) raw[raw.length - 1] = endpoint;
     else if (raw.length && distance(raw.at(-1)!, endpoint) > 1e-8)
       raw.push(endpoint);
     return curvePolyline(raw, 500 - building.walls.length);

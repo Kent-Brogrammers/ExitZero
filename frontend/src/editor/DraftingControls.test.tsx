@@ -42,8 +42,12 @@ it("migrates legacy preferences and persists wall snapping independently of the 
     }),
   );
   await act(async () => root.render(<Harness />));
-  expect(checkbox("Snap to wall endpoints & corners").checked).toBe(true);
-  await act(async () => checkbox("Snap to wall endpoints & corners").click());
+  expect(checkbox("Snap to wall endpoints, corners & segments").checked).toBe(
+    true,
+  );
+  await act(async () =>
+    checkbox("Snap to wall endpoints, corners & segments").click(),
+  );
   expect(checkbox("Snap to Grid").checked).toBe(true);
   expect(checkbox("Show grid").checked).toBe(false);
   expect(JSON.parse(localStorage.getItem(DRAFTING_STORAGE_KEY)!)).toEqual({
@@ -55,9 +59,13 @@ it("migrates legacy preferences and persists wall snapping independently of the 
     doorMergeTolerance: 0.05,
   });
   await act(async () => root.render(<Harness key="reload" />));
-  expect(checkbox("Snap to wall endpoints & corners").checked).toBe(false);
+  expect(checkbox("Snap to wall endpoints, corners & segments").checked).toBe(
+    false,
+  );
   await act(async () => checkbox("Snap to Grid").click());
-  expect(checkbox("Snap to wall endpoints & corners").checked).toBe(false);
+  expect(checkbox("Snap to wall endpoints, corners & segments").checked).toBe(
+    false,
+  );
 });
 
 it("saves any measurement combination independently of grid and snapping settings", async () => {
@@ -95,8 +103,14 @@ it("keeps drawing preferences usable when browser storage is unavailable", async
     throw new Error("Storage disabled");
   });
   await act(async () => root.render(<Harness />));
-  expect(checkbox("Snap to wall endpoints & corners").checked).toBe(true);
-  await act(async () => checkbox("Snap to wall endpoints & corners").click());
-  expect(checkbox("Snap to wall endpoints & corners").checked).toBe(false);
+  expect(checkbox("Snap to wall endpoints, corners & segments").checked).toBe(
+    true,
+  );
+  await act(async () =>
+    checkbox("Snap to wall endpoints, corners & segments").click(),
+  );
+  expect(checkbox("Snap to wall endpoints, corners & segments").checked).toBe(
+    false,
+  );
   expect(checkbox("Snap to Grid").checked).toBe(false);
 });

@@ -85,7 +85,7 @@ export function DraftingControls({
             onChange({ ...preferences, snapEndpoints: e.target.checked })
           }
         />
-        Snap to wall endpoints &amp; corners
+        Snap to wall endpoints, corners &amp; segments
       </label>
       <p className="note">
         Draw straight walls or drag wall endpoints to the highlighted target.

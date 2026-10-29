@@ -25,6 +25,7 @@ function cleanFace(walk: Point[]) {
 export function buildingFaces(building: BuildingScenario): Face[] {
   const walls = building.walls;
   const cuts = walls.map(() => [0, 1]);
+  const contacts: [Point, Point][] = [];
   const add = (i: number, t: number) => {
     if (t >= -EPSILON && t <= 1 + EPSILON)
       cuts[i]!.push(Math.max(0, Math.min(1, t)));
@@ -37,6 +38,7 @@ export function buildingFaces(building: BuildingScenario): Face[] {
         v = subtract(b.end, b.start),
         delta = subtract(b.start, a.start);
       const determinant = cross(u, v);
+      let joined = false;
       if (Math.abs(determinant) > 1e-10) {
         const t = cross(delta, v) / determinant,
           s = cross(delta, u) / determinant;
@@ -48,32 +50,66 @@ export function buildingFaces(building: BuildingScenario): Face[] {
         ) {
           add(i, t);
           add(j, s);
+          joined = true;
         }
       } else {
         for (const p of [a.start, a.end]) {
           const hit = project(p, b);
-          if (hit.distance <= EPSILON)
+          if (hit.distance <= EPSILON) {
             add(j, hit.offset / distance(b.start, b.end));
+            joined = true;
+          }
         }
         for (const p of [b.start, b.end]) {
           const hit = project(p, a);
-          if (hit.distance <= EPSILON)
+          if (hit.distance <= EPSILON) {
             add(i, hit.offset / distance(a.start, a.end));
+            joined = true;
+          }
         }
       }
+      // Hand-drawn T joins can meet through their wall footprints even when
+      // the centreline endpoint stops just short. Contract only real material
+      // contacts in this architectural graph; never use a screen/snap radius.
+      if (!joined)
+        for (const [source, target, index] of [
+          [a, b, j],
+          [b, a, i],
+        ] as const)
+          for (const p of [source.start, source.end]) {
+            const hit = project(p, target);
+            if (
+              hit.distance > EPSILON &&
+              hit.distance <=
+                (source.thickness + target.thickness) / 2 + EPSILON
+            ) {
+              add(index, hit.offset / distance(target.start, target.end));
+              contacts.push([p, hit.point]);
+            }
+          }
     }
   const points: Point[] = [],
-    indices = new Map<string, number>();
+    indices = new Map<string, number[]>();
   const neighbors: Map<number, number>[] = [];
+  const parents: number[] = [];
+  const edges: { a: number; b: number; thickness: number }[] = [];
   function vertex(p: Point) {
-    const key = `${Math.round(p.x / EPSILON)},${Math.round(p.y / EPSILON)}`;
-    let id = indices.get(key);
-    if (id === undefined) {
+    const x = Math.floor(p.x / EPSILON),
+      y = Math.floor(p.y / EPSILON);
+    // Exact intersections computed from two angled walls can land on opposite
+    // hash-bin edges through floating-point rounding. Search adjacent bins.
+    for (let dx = -1; dx <= 1; dx++)
+      for (let dy = -1; dy <= 1; dy++)
+        for (const id of indices.get(`${x + dx},${y + dy}`) ?? [])
+          if (distance(points[id]!, p) <= EPSILON) return id;
+    const key = `${x},${y}`,
       id = points.length;
-      indices.set(key, id);
-      points.push(p);
-      neighbors.push(new Map());
-    }
+    const bucket = indices.get(key) ?? [];
+    bucket.push(id);
+    indices.set(key, bucket);
+    points.push(p);
+    neighbors.push(new Map());
+    parents.push(id);
     return id;
   }
   walls.forEach((wall, i) => {
@@ -86,11 +122,42 @@ export function buildingFaces(building: BuildingScenario): Face[] {
       const a = vertex(at(ts[k - 1]!)),
         b = vertex(at(ts[k]!));
       if (a === b) continue;
-      const thickness = Math.max(neighbors[a]!.get(b) ?? 0, wall.thickness);
-      neighbors[a]!.set(b, thickness);
-      neighbors[b]!.set(a, thickness);
+      edges.push({ a, b, thickness: wall.thickness });
     }
   });
+  function root(id: number): number {
+    if (parents[id] !== id) parents[id] = root(parents[id]!);
+    return parents[id]!;
+  }
+  const degrees = new Array<number>(points.length).fill(0);
+  for (const { a, b } of edges) {
+    degrees[a]!++;
+    degrees[b]!++;
+  }
+  for (const [a, b] of contacts) {
+    const first = root(vertex(a)),
+      second = root(vertex(b));
+    if (first === second) continue;
+    // Preserve an existing through-wall junction in preference to the loose
+    // endpoint. Coordinate ties make the choice independent of wall order.
+    const p = points[first]!,
+      q = points[second]!;
+    if (
+      degrees[first]! > degrees[second]! ||
+      (degrees[first] === degrees[second] &&
+        (p.x < q.x || (p.x === q.x && p.y <= q.y)))
+    )
+      parents[second] = first;
+    else parents[first] = second;
+  }
+  for (const edge of edges) {
+    const a = root(edge.a),
+      b = root(edge.b);
+    if (a === b) continue;
+    const thickness = Math.max(neighbors[a]!.get(b) ?? 0, edge.thickness);
+    neighbors[a]!.set(b, thickness);
+    neighbors[b]!.set(a, thickness);
+  }
   const ordered = neighbors.map((adjacent, i) =>
     [...adjacent.keys()].sort(
       (a, b) =>
