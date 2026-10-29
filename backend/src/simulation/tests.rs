@@ -416,6 +416,8 @@ fn disconnecting_a_live_view_stops_the_simulation() {
 
 fn pinned_zone(id: &str, center_x: f64, center_y: f64) -> SpawnZone {
     SpawnZone {
+        polygon: None,
+        holes: vec![],
         name: None,
         id: id.into(),
         x: center_x - 0.2,
@@ -738,6 +740,8 @@ fn inset_exit_keeps_waiting_agents_inside_the_room() {
         wall.end.y += 2.0;
     }
     scenario.spawn_zones = vec![SpawnZone {
+        polygon: None,
+        holes: vec![],
         name: None,
         id: "crowd".into(),
         x: 3.0,
@@ -1061,6 +1065,8 @@ fn crowded_open_room_keeps_flowing_across_seeds() {
         for seed in 0..4 {
             let mut scenario = room();
             scenario.spawn_zones = vec![SpawnZone {
+                polygon: None,
+                holes: vec![],
                 name: None,
                 id: "crowd".into(),
                 x: 1.0,
@@ -1688,6 +1694,8 @@ fn a_thirty_person_two_exit_crowd_clears_without_repeated_route_reversals() {
             width: 4.0,
         });
         scenario.spawn_zones = vec![SpawnZone {
+            polygon: None,
+            holes: vec![],
             id: "crowd".into(),
             name: None,
             x: 3.5,
@@ -1777,7 +1785,7 @@ fn fire_closes_exits_gas_keeps_them_open_and_exposure_is_gradual() {
 
 #[test]
 fn tornado_response_reaches_shelter_instead_of_counting_an_exit_evacuation() {
-    use crate::models::{Disaster, DisasterKind, Obstruction};
+    use crate::models::{Disaster, DisasterKind, TornadoZone};
     let mut scenario = room();
     scenario.spawn_zones = vec![pinned_zone("person", 5.0, 5.0)];
     scenario.disaster = Some(Disaster {
@@ -1790,9 +1798,10 @@ fn tornado_response_reaches_shelter_instead_of_counting_an_exit_evacuation() {
         scenario.validate().is_err(),
         "a tornado requires a shelter destination"
     );
-    scenario.tornado_zones = vec![Obstruction {
+    scenario.tornado_zones = vec![TornadoZone {
         id: "safe_zone".into(),
         name: Some("Interior shelter".into()),
+        max_occupants: None,
         x: 1.0,
         y: 7.0,
         width: 2.0,
@@ -1816,6 +1825,167 @@ fn tornado_response_reaches_shelter_instead_of_counting_an_exit_evacuation() {
             .median_evacuation_seconds
             .is_none()
     );
+}
+
+fn limited_shelters() -> BuildingScenario {
+    use crate::models::{Disaster, DisasterKind, TornadoZone};
+    let mut scenario = room();
+    scenario.disaster = Some(Disaster {
+        kind: DisasterKind::Tornado,
+        center: Point { x: 9.0, y: 1.0 },
+        radius: 0.5,
+        dynamics: None,
+    });
+    scenario.spawn_zones = vec![
+        pinned_zone("first", 2.0, 7.0),
+        pinned_zone("second", 3.5, 7.0),
+        pinned_zone("third", 4.5, 7.0),
+    ];
+    scenario.tornado_zones = vec![
+        TornadoZone {
+            id: "near".into(),
+            name: None,
+            x: 1.0,
+            y: 6.0,
+            width: 2.0,
+            height: 3.0,
+            max_occupants: Some(1),
+        },
+        TornadoZone {
+            id: "far".into(),
+            name: None,
+            x: 7.0,
+            y: 6.0,
+            width: 2.0,
+            height: 3.0,
+            max_occupants: Some(2),
+        },
+    ];
+    scenario
+}
+
+#[test]
+fn full_shelters_force_rerouting_and_live_runs_preserve_deterministic_admissions() {
+    let scenario = limited_shelters();
+    let geometry = Geometry::new(&scenario);
+    let navigation = Navigation::new(&scenario, &geometry);
+    for zone in &scenario.spawn_zones {
+        let start = Point {
+            x: zone.x + 0.2,
+            y: zone.y + 0.2,
+        };
+        assert_eq!(
+            navigation.find_route(start, &geometry).unwrap().exit_id,
+            "near"
+        );
+    }
+    let result = simulate(&scenario).unwrap();
+    assert_collision_free(&scenario, &result);
+    assert_eq!(result.metrics.status, SimulationStatus::Completed);
+    assert_eq!(result.metrics.sheltered, 3);
+    assert_eq!(result.metrics.evacuated, 0);
+    let agents = &result.analytics.as_ref().unwrap().agents;
+    for (id, count) in [("near", 1), ("far", 2)] {
+        assert_eq!(
+            agents
+                .iter()
+                .filter(|a| a.shelter.as_ref().is_some_and(|s| s.id == id))
+                .count(),
+            count
+        );
+    }
+    let mut observed = Vec::new();
+    let live = super::simulate_live(&scenario, &mut |frame| {
+        observed.push(frame.clone());
+        true
+    })
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(&result).unwrap(),
+        serde_json::to_value(&live).unwrap()
+    );
+    assert_eq!(
+        serde_json::to_value(&observed).unwrap(),
+        serde_json::to_value(&result.frames).unwrap()
+    );
+}
+
+#[test]
+fn simultaneous_shelter_arrivals_never_overbook_and_overflow_stays_remaining() {
+    let mut scenario = limited_shelters();
+    scenario.tornado_zones.truncate(1);
+    scenario.tornado_zones[0].width = 4.0;
+    // All three people start inside the same shelter and seek admission on tick one.
+    let result = simulate(&scenario).unwrap();
+    assert_collision_free(&scenario, &result);
+    assert_eq!(result.metrics.status, SimulationStatus::Incomplete);
+    assert_eq!(result.metrics.sheltered, 1);
+    assert_eq!(result.metrics.evacuated, 0);
+    assert_eq!(result.metrics.remaining, 2);
+    assert_eq!(result.metrics.trapped, 0);
+    assert!(result.metrics.clearance_steps.is_none());
+    assert_eq!(result.frames[1].sheltered, Some(1));
+    let agents = &result.analytics.as_ref().unwrap().agents;
+    assert!(agents[0].shelter.is_some());
+    assert!(
+        agents[1..]
+            .iter()
+            .all(|a| a.shelter.is_none() && a.evacuation_step.is_none())
+    );
+    assert!(
+        result
+            .frames
+            .iter()
+            .all(|frame| frame.sheltered.unwrap_or(0) <= 1)
+    );
+}
+
+#[test]
+fn legacy_shelters_use_fifty_admissions_and_custom_limits_survive_json() {
+    let mut scenario = limited_shelters();
+    scenario.tornado_zones[0].max_occupants = None;
+    let json = serde_json::to_value(&scenario).unwrap();
+    assert!(json["tornado_zones"][0].get("max_occupants").is_none());
+    let restored: BuildingScenario = serde_json::from_value(json.clone()).unwrap();
+    assert_eq!(restored.tornado_zones[0].capacity(), 50);
+    assert_eq!(restored.tornado_zones[1].capacity(), 2);
+    restored.validate().unwrap();
+    for limit in [
+        serde_json::json!(0),
+        serde_json::json!(-1),
+        serde_json::json!(1.5),
+        serde_json::json!(10001),
+        serde_json::Value::Null,
+        serde_json::json!("2"),
+    ] {
+        let mut invalid = json.clone();
+        invalid["tornado_zones"][0]["max_occupants"] = limit;
+        assert!(match serde_json::from_value::<BuildingScenario>(invalid) {
+            Ok(building) => building.validate().is_err(),
+            Err(_) => true,
+        });
+    }
+    scenario.tornado_zones.truncate(1);
+    scenario.tornado_zones[0].x = 0.5;
+    scenario.tornado_zones[0].y = 4.0;
+    scenario.tornado_zones[0].width = 9.0;
+    scenario.tornado_zones[0].height = 5.0;
+    scenario.spawn_zones = vec![SpawnZone {
+        polygon: None,
+        holes: vec![],
+        id: "crowd".into(),
+        name: None,
+        x: 1.0,
+        y: 5.0,
+        width: 8.0,
+        height: 3.0,
+        count: 51,
+    }];
+    let result = simulate(&scenario).unwrap();
+    result.validate().unwrap();
+    assert_eq!(result.metrics.sheltered, 50);
+    assert_eq!(result.metrics.remaining, 1);
+    assert_eq!(result.metrics.status, SimulationStatus::Incomplete);
 }
 
 #[test]

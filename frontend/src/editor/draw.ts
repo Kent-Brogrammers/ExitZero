@@ -1,6 +1,9 @@
 import { formatDimensions } from "../utils/units";
+import { isSpawnZone, spawnRing } from "./spawnGeometry";
+import type { SpawnZone } from "../types/simulation";
 import { drawStalker } from "./drawPursuit";
 import type { Point, WindowFrameState } from "../types/simulation";
+import { DEFAULT_SHELTER_CAPACITY } from "../types/simulation";
 import {
   canvasView,
   openingSegment,
@@ -20,6 +23,15 @@ import { drawFurniture, type FurnitureKind } from "./furniture";
 import { dragRectangle, wallShapePoints } from "./shapes";
 import { isWallTool, type EditorTool } from "./tools";
 import { canvasPalette, type CanvasPalette } from "../styles/canvasPalette";
+
+function traceSpawn(ctx: CanvasRenderingContext2D, zone: SpawnZone) {
+  ctx.beginPath();
+  for (const ring of [spawnRing(zone), ...(zone.holes ?? [])]) {
+    ctx.moveTo(ring[0]!.x, ring[0]!.y);
+    for (const p of ring.slice(1)) ctx.lineTo(p.x, p.y);
+    ctx.closePath();
+  }
+}
 
 export function drawLayout(
   canvas: HTMLCanvasElement,
@@ -77,7 +89,10 @@ export function drawLayout(
   if (options?.underlay) {
     ctx.fillStyle = palette.spawn;
     for (const zone of building.spawn_zones)
-      ctx.fillRect(zone.x, zone.y, zone.width, zone.height);
+      if (zone.polygon) {
+        traceSpawn(ctx, zone);
+        ctx.fill("evenodd");
+      } else ctx.fillRect(zone.x, zone.y, zone.width, zone.height);
   }
   options?.underlay?.(ctx);
   if (building.pursuit && options?.showPursuitStart !== false) {
@@ -106,48 +121,6 @@ export function drawLayout(
       palette,
       !!options.camera,
     );
-  if (building.disaster) {
-    const kind = options?.disasterState?.kind ?? building.disaster.kind;
-    const color =
-      kind === "fire" ? "#f47b39" : kind === "gas_leak" ? "#9abf3f" : "#a58bd4";
-    const areas = options?.disasterState?.areas ?? [
-      { center: building.disaster.center, radius: building.disaster.radius },
-    ];
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(0, 0, building.width, building.height);
-    ctx.clip();
-    for (const [index, area] of areas.entries()) {
-      const exposure =
-        area.radius * (kind === "fire" ? 1.6 : kind === "gas_leak" ? 2 : 1.3);
-      ctx.fillStyle = color + "24";
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2 * px;
-      ctx.beginPath();
-      ctx.arc(area.center.x, area.center.y, exposure, 0, Math.PI * 2);
-      if (options?.hazardMode !== "outline") ctx.fill();
-      if (options?.hazardMode !== "filled") ctx.stroke();
-      ctx.fillStyle = color + "60";
-      ctx.beginPath();
-      ctx.arc(area.center.x, area.center.y, area.radius, 0, Math.PI * 2);
-      if (options?.hazardMode !== "outline") ctx.fill();
-      else ctx.stroke();
-      if (index === 0) {
-        ctx.fillStyle = palette.wall;
-        ctx.font = `${12 * px}px system-ui`;
-        ctx.fillText(
-          kind === "fire"
-            ? "FIRE"
-            : kind === "gas_leak"
-              ? "GAS LEAK"
-              : "TORNADO",
-          area.center.x + 5 * px,
-          area.center.y - 5 * px,
-        );
-      }
-    }
-    ctx.restore();
-  }
   ctx.lineCap = "round";
   const selections: readonly Selection[] = selected
     ? Array.isArray(selected)
@@ -163,7 +136,7 @@ export function drawLayout(
     ...(building.tornado_zones ?? []),
   ]) {
     const spawn = "count" in rectangle;
-    const shelter = building.tornado_zones?.some((a) => a.id === rectangle.id);
+    const shelter = building.tornado_zones?.find((a) => a.id === rectangle.id);
     const stair = building.stair_areas?.some((a) => a.id === rectangle.id);
     ctx.fillStyle = shelter
       ? "#287c6840"
@@ -178,9 +151,25 @@ export function drawLayout(
           ? palette.spawnBorder
           : palette.obstacleBorder;
     ctx.lineWidth = (selectedIds.has(rectangle.id) ? 2 : 1) * px;
-    if (!spawn || !options?.underlay)
-      ctx.fillRect(rectangle.x, rectangle.y, rectangle.width, rectangle.height);
-    ctx.strokeRect(rectangle.x, rectangle.y, rectangle.width, rectangle.height);
+    if (isSpawnZone(rectangle) && rectangle.polygon) {
+      traceSpawn(ctx, rectangle);
+      if (!options?.underlay) ctx.fill("evenodd");
+      ctx.stroke();
+    } else {
+      if (!spawn || !options?.underlay)
+        ctx.fillRect(
+          rectangle.x,
+          rectangle.y,
+          rectangle.width,
+          rectangle.height,
+        );
+      ctx.strokeRect(
+        rectangle.x,
+        rectangle.y,
+        rectangle.width,
+        rectangle.height,
+      );
+    }
     const furniture = options?.furniture?.get(rectangle.id);
     if (furniture) {
       drawFurniture(ctx, furniture, rectangle, px);
@@ -247,13 +236,52 @@ export function drawLayout(
         spawn
           ? `${rectangle.count} ${rectangle.count === 1 ? "occupant" : "occupants"}`
           : shelter
-            ? (rectangle.name ?? "Tornado zone")
+            ? `${rectangle.name ?? "Tornado zone"} · Max ${shelter.max_occupants ?? DEFAULT_SHELTER_CAPACITY}`
             : "Obstruction",
         rectangle.x + 6 * px,
         rectangle.y + 17 * px,
         Math.max(rectangle.width - 8 * px, px),
       );
     }
+  }
+  // Hazards cover all spawn fills. Union each layer once so overlapping patches do not stack opacity.
+  if (building.disaster) {
+    const kind = options?.disasterState?.kind ?? building.disaster.kind;
+    const color =
+      kind === "fire" ? "#f47b39" : kind === "gas_leak" ? "#9abf3f" : "#a58bd4";
+    const areas = options?.disasterState?.areas ?? [
+      { center: building.disaster.center, radius: building.disaster.radius },
+    ];
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, building.width, building.height);
+    ctx.clip();
+    const layer = (multiplier: number, alpha: string) => {
+      ctx.beginPath();
+      for (const area of areas) {
+        const r = area.radius * multiplier;
+        ctx.moveTo(area.center.x + r, area.center.y);
+        ctx.arc(area.center.x, area.center.y, r, 0, Math.PI * 2);
+      }
+      ctx.fillStyle = color + alpha;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2 * px;
+      if (options?.hazardMode !== "outline") ctx.fill();
+      if (options?.hazardMode !== "filled") ctx.stroke();
+    };
+    layer(kind === "fire" ? 1.6 : kind === "gas_leak" ? 2 : 1.3, "24");
+    layer(1, "60");
+    const first = areas[0];
+    if (first && options?.showLabels !== false) {
+      ctx.fillStyle = palette.wall;
+      ctx.font = `${12 * px}px system-ui`;
+      ctx.fillText(
+        kind === "fire" ? "FIRE" : kind === "gas_leak" ? "GAS LEAK" : "TORNADO",
+        first.center.x + 5 * px,
+        first.center.y - 5 * px,
+      );
+    }
+    ctx.restore();
   }
   ctx.lineCap = "round";
   for (const wall of building.walls) {
@@ -489,6 +517,21 @@ export function drawLayout(
       ctx.fillRect(r.x, r.y, r.width, r.height);
       ctx.globalAlpha = 1;
       ctx.strokeRect(r.x, r.y, r.width, r.height);
+    } else if (draft.shape === "spawn-polygon" && draft.points?.length) {
+      ctx.beginPath();
+      ctx.moveTo(draft.points[0]!.x, draft.points[0]!.y);
+      for (const p of draft.points.slice(1)) ctx.lineTo(p.x, p.y);
+      ctx.lineTo(draft.end.x, draft.end.y);
+      ctx.closePath();
+      ctx.fillStyle = palette.spawn;
+      ctx.fill();
+      ctx.stroke();
+      for (const p of draft.points) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 4 * px, 0, Math.PI * 2);
+        ctx.fillStyle = palette.selection;
+        ctx.fill();
+      }
     } else if (draft.shape === "wall-freehand") {
       ctx.setLineDash([]);
       ctx.lineWidth = 0.2;

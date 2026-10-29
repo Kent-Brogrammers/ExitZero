@@ -1,11 +1,8 @@
 import { describe, expect, it } from "vitest";
 import example from "../../../shared/examples/building.json";
 import type { BuildingScenario, Point, Wall } from "../types/simulation";
-import {
-  buildingError,
-  rectanglesOverlap,
-  wallIntersectsRectangle,
-} from "./geometry";
+import { buildingError } from "./geometry";
+import { spawnContains, spawnZonesOverlap } from "./spawnGeometry";
 import {
   detectRoom,
   populateRoom,
@@ -54,7 +51,27 @@ function fixture(): BuildingScenario {
   };
 }
 
-describe("room fill using existing spawn rectangles", () => {
+describe("room fill as a single spawn polygon", () => {
+  it("keeps dangling interior walls out of the polygon boundary", () => {
+    const b = fixture();
+    b.spawn_zones = [];
+    b.doors = [];
+    b.walls = b.walls.filter((w) => w.id !== "divider");
+    b.walls.push({
+      id: "spur",
+      start: { x: 7, y: 1 },
+      end: { x: 7, y: 6 },
+      thickness: 0.2,
+    });
+    const room = detectRoom(b, { x: 2, y: 2 });
+    const fill = populateRoom(b, room, 10, "spur-room");
+    expect(buildingError(fill.building)).toBeNull();
+    expect(fill.ids).toHaveLength(1);
+    expect(fill.building.spawn_zones[0]!.polygon).not.toContainEqual({
+      x: 7,
+      y: 6,
+    });
+  });
   it("finds rooms at T intersections and keeps door/window spans as room boundaries", () => {
     const b = fixture(),
       room = detectRoom(b, { x: 2, y: 2 });
@@ -77,6 +94,8 @@ describe("room fill using existing spawn rectangles", () => {
       room = detectRoom(b, { x: 2, y: 2 });
     const result = populateRoom(b, room, 20, "test");
     const zones = roomFillZones(result.building, result.ids[0]!);
+    expect(zones).toHaveLength(1);
+    expect(zones[0]!.polygon).toEqual(room.boundary);
     expect(zones.reduce((sum, z) => sum + z.count, 0)).toBe(20);
     expect(
       result.building.spawn_zones.find((z) => z.id === "right-spawn"),
@@ -88,11 +107,8 @@ describe("room fill using existing spawn rectangles", () => {
     for (const z of zones) {
       expect(z.width).toBeGreaterThanOrEqual(b.agent_radius * 2);
       expect(z.height).toBeGreaterThanOrEqual(b.agent_radius * 2);
-      expect(b.walls.some((w) => wallIntersectsRectangle(w, z))).toBe(false);
-      expect(b.obstructions.some((o) => rectanglesOverlap(o, z))).toBe(false);
-      expect(
-        roomContains(room, { x: z.x + z.width / 2, y: z.y + z.height / 2 }),
-      ).toBe(true);
+      expect(spawnContains(z, { x: 2, y: 2 }, b.agent_radius)).toBe(true);
+      expect(spawnZonesOverlap(z, b.spawn_zones[1]!)).toBe(false);
     }
     expect(populateRoom(b, room, 20, "test")).toEqual(result);
     expect(JSON.parse(JSON.stringify(result.building))).toEqual(
@@ -124,12 +140,9 @@ describe("room fill using existing spawn rectangles", () => {
     const room = detectRoom(b, { x: 2, y: 2 }),
       fill = populateRoom(b, room, 12, "angles");
     expect(buildingError(fill.building)).toBeNull();
-    for (const z of fill.building.spawn_zones)
-      for (const p of [
-        { x: z.x, y: z.y },
-        { x: z.x + z.width, y: z.y + z.height },
-      ])
-        expect(roomContains(room, p)).toBe(true);
+    expect(fill.ids).toHaveLength(1);
+    expect(fill.building.spawn_zones[0]!.polygon).toEqual(room.boundary);
+    for (const p of room.boundary) expect(roomContains(room, p)).toBe(true);
   });
   it("excludes a nested closed room instead of filling through its perimeter", () => {
     const b = fixture();
@@ -151,14 +164,11 @@ describe("room fill using existing spawn rectangles", () => {
     expect(roomContains(room, { x: 7, y: 7 })).toBe(false);
     const fill = populateRoom(b, room, 15, "nested");
     expect(buildingError(fill.building)).toBeNull();
-    expect(
-      fill.building.spawn_zones.some((z) =>
-        roomContains(detectRoom(b, { x: 7, y: 7 }), {
-          x: z.x + z.width / 2,
-          y: z.y + z.height / 2,
-        }),
-      ),
-    ).toBe(false);
+    expect(fill.building.spawn_zones).toHaveLength(1);
+    expect(fill.building.spawn_zones[0]!.holes).toHaveLength(1);
+    expect(spawnContains(fill.building.spawn_zones[0]!, { x: 7, y: 7 })).toBe(
+      false,
+    );
   });
   it("keeps room-total editing available after serialization, without changing other rooms", () => {
     const b = fixture();
@@ -182,6 +192,17 @@ describe("room fill using existing spawn rectangles", () => {
     expect(
       restored.building.spawn_zones.find((z) => z.id === "right-spawn"),
     ).toEqual(b.spawn_zones[1]);
+  });
+  it("keeps adjacent polygon room fills separate even when they share a wall", () => {
+    const b = fixture();
+    b.spawn_zones = [];
+    const left = populateRoom(b, detectRoom(b, { x: 2, y: 2 }), 10, "left");
+    const rightRoom = detectRoom(left.building, { x: 10, y: 2 });
+    expect(rightRoom.spawnIds).toEqual([]);
+    const right = populateRoom(left.building, rightRoom, 10, "right");
+    expect(right.building.spawn_zones).toHaveLength(2);
+    expect(right.building.spawn_zones[0]).toEqual(left.building.spawn_zones[0]);
+    expect(buildingError(right.building)).toBeNull();
   });
   it("reports open perimeters, wall clicks and unsafe populations without mutating the building", () => {
     const b = fixture(),

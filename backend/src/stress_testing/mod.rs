@@ -299,6 +299,8 @@ mod tests {
                     },
                 ],
                 spawn_zones: vec![SpawnZone {
+                    polygon: None,
+                    holes: vec![],
                     id: "occupants".into(),
                     name: None,
                     x: 2.0,
@@ -1167,6 +1169,8 @@ pub(crate) mod real_integration {
             thickness: 0.2,
         });
         building.spawn_zones.push(crate::models::SpawnZone {
+            polygon: None,
+            holes: vec![],
             id: "right-occupant".into(),
             name: None,
             x: 8.0,

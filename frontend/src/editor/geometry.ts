@@ -1,6 +1,13 @@
 import Ajv from "ajv";
 import { formatLength } from "../utils/units";
 import schema from "../../../shared/schemas/contracts.schema.json";
+import {
+  isSpawnZone,
+  spawnArea,
+  spawnGeometryError,
+  spawnZonesOverlap,
+  transformSpawn,
+} from "./spawnGeometry";
 import type {
   BuildingScenario,
   Opening,
@@ -106,6 +113,12 @@ export function buildingError(
   requireReady = true,
 ): string | null {
   if (!validateShape(value)) {
+    if (
+      validateShape.errors?.some((error) =>
+        error.instancePath.endsWith("/max_occupants"),
+      )
+    )
+      return "Tornado shelter maximum occupants must be a whole number between 1 and 10,000.";
     if (
       validateShape.errors?.some((error) =>
         error.instancePath.endsWith("/name"),
@@ -243,13 +256,19 @@ export function buildingError(
   let population = 0;
   for (let index = 0; index < b.spawn_zones.length; index++) {
     const zone = b.spawn_zones[index]!;
+    const polygonProblem = spawnGeometryError(zone);
+    if (polygonProblem) return polygonProblem;
     if (
       zone.width < 2 * b.agent_radius ||
       zone.height < 2 * b.agent_radius ||
-      zone.count * Math.PI * b.agent_radius ** 2 > zone.width * zone.height
+      zone.count * Math.PI * b.agent_radius ** 2 > spawnArea(zone)
     )
       return "Spawn zones need enough area and width for the configured occupant discs.";
-    if (b.spawn_zones.slice(0, index).some((other) => overlaps(zone, other)))
+    if (
+      b.spawn_zones
+        .slice(0, index)
+        .some((other) => spawnZonesOverlap(zone, other))
+    )
       return "Spawn zones cannot overlap other spawn zones.";
     population += zone.count;
   }
@@ -366,12 +385,21 @@ export function translateElement(
     const rectangle = (next[selection.kind] ?? []).find(
       (v) => v.id === selection.id,
     )!;
+    const old = isSpawnZone(rectangle) ? { ...rectangle } : null;
     rectangle.x = clamp(rectangle.x + delta.x, 0, next.width - rectangle.width);
     rectangle.y = clamp(
       rectangle.y + delta.y,
       0,
       next.height - rectangle.height,
     );
+    if (old && isSpawnZone(rectangle))
+      Object.assign(
+        rectangle,
+        transformSpawn(old, (p) => ({
+          x: p.x + rectangle.x - old.x,
+          y: p.y + rectangle.y - old.y,
+        })),
+      );
   }
   return next;
 }

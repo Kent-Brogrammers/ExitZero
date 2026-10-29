@@ -63,6 +63,14 @@ export interface Obstruction {
 }
 export interface SpawnZone extends Obstruction {
   count: number;
+  /** Optional simple polygon; rectangle fields are its exact bounding box. */
+  polygon?: Point[];
+  holes?: Point[][];
+}
+export const DEFAULT_SHELTER_CAPACITY = 50;
+export interface TornadoZone extends Obstruction {
+  /** Maximum admitted occupants; omitted limits default to 50 for older layouts. */
+  max_occupants?: number;
 }
 /** Walkable, nonblocking architectural annotation; no inter-floor transport. */
 export interface StairArea extends Obstruction {
@@ -119,7 +127,7 @@ export interface BuildingScenario {
   opening_events?: OpeningStateChange[];
   obstructions: Obstruction[];
   stair_areas?: StairArea[];
-  tornado_zones?: Obstruction[];
+  tornado_zones?: TornadoZone[];
   disaster?: Disaster;
   agent_radius: number;
   time_step_seconds: number;
