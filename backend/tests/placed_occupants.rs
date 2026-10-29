@@ -110,7 +110,7 @@ fn invalid_exact_positions_fail_without_silent_relocation() {
                 }
             }
         }
-        let error = simulate(&building).err().expect(case).to_string();
+        let error = simulate(&building).expect_err(case).to_string();
         assert!(error.contains("placed occupant"), "{case}: {error}");
     }
 }
