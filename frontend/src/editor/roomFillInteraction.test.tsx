@@ -137,7 +137,7 @@ it.each([
       }
 
       if (drawDivider) {
-        await click("Walls & Shapes");
+        await click("Walls");
         await click("Straight wall");
         await point(7, 1.03);
         await point(7, 10.97, "pointerup");
@@ -150,6 +150,7 @@ it.each([
       }
       const wallsBeforeDoor = structuredClone(latest.walls);
       const dividerId = latest.walls.at(-1)!.id;
+      await click("Openings");
       await click("Door");
       await point(7, 6);
       expect(latest.doors).toHaveLength(1);
@@ -157,7 +158,7 @@ it.each([
       expect(latest.exits).toHaveLength(0);
       expect(latest.walls).toEqual(wallsBeforeDoor);
 
-      await click("Spawn zone");
+      await click("People");
       await click("Fill Room");
       await point(3, 6);
       const dialog = host.querySelector<HTMLDialogElement>(".room-fill-dialog");
