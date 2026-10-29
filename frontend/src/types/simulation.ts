@@ -175,6 +175,8 @@ export interface AnimationFrame {
   pursuit?: PursuitFrame;
   step: number;
   agents: AgentPosition[];
+  /** Backend crowd-delay increments since the preceding frame in this stream. */
+  congestion_samples?: CongestionSample[];
   /** Physical state at this time; absent in older recordings. */
   blocked_opening_ids?: string[];
   window_states?: WindowFrameState[];
@@ -248,6 +250,8 @@ export interface SimulationResult extends SimulationMetrics {
   frames: AnimationFrame[];
   /** Weighted world positions representing accumulated traffic, not density. */
   traffic_samples: TrafficSample[];
+  /** Crowd-delay person-seconds over every physics tick; absent in older results. */
+  congestion_samples?: CongestionSample[];
   time_step_seconds: number;
   width: number;
   height: number;
@@ -296,6 +300,8 @@ export type SimulationStreamEvent =
 
 /** A running simulation has no outcome or known duration yet. */
 export interface LiveSimulation {
+  /** Every delivered backend delay increment accumulated before React batching. */
+  congestion_samples?: CongestionSample[];
   /** Recent raw observations used for transient canvas effects. */
   effect_events?: ChatEvent[];
   frame: AnimationFrame | null;
@@ -394,6 +400,11 @@ export interface ApiErrorResponse {
 
 export interface TrafficSample extends Point {
   visits: number;
+}
+
+export interface CongestionSample extends Point {
+  /** Sum of seconds × speed deficit for occupants with a nearby neighbour. */
+  crowd_delay_seconds: number;
 }
 export interface ComputationCancellationResponse {
   status: "cancelling";

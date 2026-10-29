@@ -31,7 +31,7 @@ it("shows summaries and detailed analytics together without view tabs", async ()
   ).toBeNull();
   expect(
     element
-      .querySelector('[aria-label="Accumulated traffic heatmap"]')!
+      .querySelector('[aria-label="Congestion heatmap"]')!
       .closest("[hidden]"),
   ).toBeNull();
   const buttons = () => [...element.querySelectorAll("button")];

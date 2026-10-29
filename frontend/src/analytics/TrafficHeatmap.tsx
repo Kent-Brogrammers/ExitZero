@@ -4,7 +4,7 @@ import type { BuildingScenario, SimulationResult } from "../types/simulation";
 import { drawLayout } from "../editor/draw";
 import { canvasPalette } from "../styles/canvasPalette";
 import { useStudioTheme } from "../styles/appearance";
-import { trafficBins } from "./traffic";
+import { congestionBins } from "./traffic";
 import { trafficField, fieldPixels } from "./trafficField";
 
 export default function TrafficHeatmap({
@@ -18,8 +18,8 @@ export default function TrafficHeatmap({
   const theme = useStudioTheme();
   const [visible, setVisible] = useState(true);
   const [smoothing, setSmoothing] = useState(0.6);
-  const traffic = result
-    ? trafficBins(result.traffic_samples, result.width, result.height)
+  const traffic = result?.congestion_samples
+    ? congestionBins(result.congestion_samples, result.width, result.height)
     : null;
   const matches =
     !!building &&
@@ -28,9 +28,9 @@ export default function TrafficHeatmap({
     building.height === result.height;
   useEffect(() => {
     const target = canvas.current;
-    if (!target || !building || !result || !matches) return;
-    const data = trafficBins(
-      result.traffic_samples,
+    if (!target || !building || !result?.congestion_samples || !matches) return;
+    const data = congestionBins(
+      result.congestion_samples,
       result.width,
       result.height,
     );
@@ -79,34 +79,38 @@ export default function TrafficHeatmap({
     };
   }, [building, result, visible, matches, smoothing, theme]);
   return (
-    <section
-      className="panel traffic-panel"
-      aria-label="Accumulated traffic heatmap"
-    >
+    <section className="panel traffic-panel" aria-label="Congestion heatmap">
       <div className="panel-heading">
-        <h2>Accumulated traffic</h2>
+        <h2>Congestion</h2>
         <label>
           <input
             type="checkbox"
             checked={visible}
             onChange={(event) => setVisible(event.target.checked)}
           />{" "}
-          Show traffic
+          Show congestion
         </label>
       </div>
       {!result ? (
         <p className="note">
-          Run a simulation to see traffic on its floor plan. Stress-test
-          summaries do not include traffic samples.
+          Run a simulation to see congestion on its floor plan. Stress-test
+          summaries do not include congestion samples.
+        </p>
+      ) : result.congestion_samples === undefined ? (
+        <p className="note">
+          Congestion data is unavailable for this recording. Rerun the
+          simulation to measure crowd delay.
         </p>
       ) : !matches ? (
         <p className="note">
-          A matching floor plan is required to display traffic.
+          A matching floor plan is required to display congestion.
         </p>
       ) : (
         <>
           <div className="traffic-tools">
-            <span className="traffic-mode">COMPUTED TRAFFIC · SMOOTH VIEW</span>
+            <span className="traffic-mode">
+              COMPUTED CONGESTION · SMOOTH VIEW
+            </span>
             <label>
               Smoothing{" "}
               <input
@@ -116,7 +120,7 @@ export default function TrafficHeatmap({
                 step="0.05"
                 value={smoothing}
                 onChange={(event) => setSmoothing(Number(event.target.value))}
-                aria-label="Traffic smoothing radius"
+                aria-label="Congestion smoothing radius"
                 aria-valuetext={formatLength(smoothing, 2)}
               />{" "}
               {formatLength(smoothing, 2)}
@@ -126,7 +130,7 @@ export default function TrafficHeatmap({
             ref={canvas}
             className="traffic-canvas"
             role="img"
-            aria-label={`Traffic from the standalone simulation on a ${formatDimensions(result.width, result.height)} floor plan. Maximum ${traffic?.max ?? 0} visits per spatial bin.`}
+            aria-label={`Congestion from the standalone simulation on a ${formatDimensions(result.width, result.height)} floor plan. Maximum ${(traffic?.max ?? 0).toFixed(2)} crowd-delay person-seconds per spatial bin.`}
           />
           {traffic?.max ? (
             <div className="traffic-legend">
@@ -134,20 +138,21 @@ export default function TrafficHeatmap({
               <span className="traffic-gradient" aria-hidden="true" />
               <span>Higher intensity</span>
               <span className="traffic-peak">
-                Peak source bin: {traffic.max} visits
+                Peak source bin: {traffic.max.toFixed(2)} person-seconds
               </span>
             </div>
           ) : (
-            <p className="note">No positive traffic samples were returned.</p>
+            <p className="note">No crowd delay was recorded.</p>
           )}
           <div className="note traffic-explanation">
             <p>
-              Computed visits, smoothed for display. Color may extend beyond
-              recorded paths; it does not predict movement through walls. Source
-              counts are unchanged (
-              {traffic ? formatLength(traffic.size, 2) : "—"} bins). Colors are
-              relative to this run, not density or measured congestion. Scenario
-              selection does not change this map.
+              Crowd-delay person-seconds accumulate while people are near others
+              and move below walking speed. More people, longer waits, and
+              slower movement add heat; freely moving traffic adds none. Colors
+              are relative to this run and smoothed for display, so color can
+              extend across walls. This is a simplified simulation measure, not
+              validated real-world crowd density. Scenario selection does not
+              change this map.
             </p>
           </div>
         </>

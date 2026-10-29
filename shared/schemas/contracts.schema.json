@@ -509,6 +509,12 @@
       "additionalProperties": false,
       "required": ["step", "agents"],
       "properties": {
+        "congestion_samples": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": { "$ref": "#/$defs/CongestionSample" },
+          "description": "Backend crowd-delay increments since the preceding frame in this saved or live stream. Initial frame is empty. Absent in legacy recordings."
+        },
         "step": {
           "type": "integer",
           "minimum": 0,
@@ -705,6 +711,12 @@
             "$ref": "#/$defs/TrafficSample"
           },
           "maxItems": 100000
+        },
+        "congestion_samples": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": { "$ref": "#/$defs/CongestionSample" },
+          "description": "Accumulated crowd-delay person-seconds computed at every physics tick. Absent in legacy recordings."
         },
         "time_step_seconds": {
           "type": "number",
@@ -1161,6 +1173,21 @@
           "maximum": 10000,
           "default": 50,
           "description": "Maximum occupants admitted to this shelter. Omitted limits use 50."
+        }
+      }
+    },
+    "CongestionSample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "crowd_delay_seconds"],
+      "properties": {
+        "x": { "type": "number", "minimum": 0, "maximum": 1000 },
+        "y": { "type": "number", "minimum": 0, "maximum": 1000 },
+        "crowd_delay_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1000000000,
+          "description": "Sum of tick duration multiplied by walking-speed deficit for occupants with a nearby neighbour; an exploratory delay metric, not validated density."
         }
       }
     },

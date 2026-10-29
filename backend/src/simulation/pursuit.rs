@@ -111,6 +111,7 @@ fn snapshot(
     world: &OpeningStates,
 ) -> AnimationFrame {
     AnimationFrame {
+        congestion_samples: None,
         step,
         agents: people
             .iter()
@@ -166,6 +167,7 @@ pub(super) fn run(
     let mut window_escapes = 0;
     let mut windows = Windows::new(scenario, &[], world.blocked(), people.len(), &geometry);
     let mut frames = Vec::new();
+    let mut heatmap = super::heatmap::Heatmap::default();
     let mut traffic = BTreeMap::new();
     let replan_stride = (0.5 / scenario.time_step_seconds).ceil().max(1.0) as u32;
     let frame_stride = (u64::from(total) * (u64::from(scenario.max_steps) + 1))
@@ -236,13 +238,15 @@ pub(super) fn run(
             &world,
         );
         frame.window_states = windows.snapshots(&people);
-        if let Some(callback) = &mut emit
-            && !callback(&frame)
-        {
-            return Err(SimulationError::Cancelled);
+        if let Some(callback) = &mut emit {
+            frame.congestion_samples = heatmap.live();
+            if !callback(&frame) {
+                return Err(SimulationError::Cancelled);
+            }
         }
         let finished = gone.iter().all(|&g| g) || step == scenario.max_steps;
         if step % frame_stride == 0 || finished || last_outcomes != (escaped, caught.len()) {
+            frame.congestion_samples = heatmap.saved();
             frames.push(frame);
             last_outcomes = (escaped, caught.len());
         }
@@ -272,6 +276,7 @@ pub(super) fn run(
         }
         control::checkpoint()?;
         let before: Vec<_> = people.iter().map(|a| a.position).collect();
+        let previously_gone = gone.clone();
         // Use the ordinary reciprocal crowd controller, rather than proposing
         // straight overlapping paths and repeatedly stopping everyone involved.
         // Its velocity units use WALKING_SPEED; scaling the movement interval
@@ -471,6 +476,14 @@ pub(super) fn run(
                 retarget = true;
             }
         }
+        heatmap.record(
+            scenario,
+            &before,
+            &people,
+            &previously_gone,
+            &geometry,
+            config.survivor_speed,
+        );
         for (i, _) in windows.finish(step + 1, &people) {
             escaped += 1;
             window_escapes += 1;
@@ -481,6 +494,7 @@ pub(super) fn run(
     }
     let remaining = total - escaped;
     let result = SimulationResult {
+        congestion_samples: heatmap.total(),
         metrics: SimulationMetrics {
             status: if remaining == 0 {
                 SimulationStatus::Completed

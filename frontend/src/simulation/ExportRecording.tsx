@@ -195,7 +195,7 @@ function ExportDialog({
                 setOptions({ ...options, includeHeatmap: event.target.checked })
               }
             />
-            Include heatmap
+            Include congestion heatmap
           </label>
           <label className="export-check">
             <input
@@ -223,8 +223,9 @@ function ExportDialog({
         </p>
         {options.includeHeatmap && (
           <p>
-            The heatmap accumulates recorded position samples, matching playback
-            trails. It is not instantaneous density.
+            The heatmap accumulates backend crowd-delay person-seconds, matching
+            playback. Older recordings without congestion data export a clear
+            overlay.
           </p>
         )}
         {running && (

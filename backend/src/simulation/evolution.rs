@@ -163,14 +163,39 @@ impl HazardEvolution {
         let rotation = self.sample() * std::f64::consts::TAU;
         let inward = self.state.areas.len().is_multiple_of(5);
         let parents = self.state.areas.clone();
+        let openings = fire_opening_targets(tick, scenario);
         let mut best: Option<(f64, Point)> = None;
         for parent in &parents {
-            for direction in 0..32 {
+            let distance = parent.radius + radius * 0.85;
+            let sampled = (0..32).map(|direction| {
                 let angle = rotation + f64::from(direction) * std::f64::consts::TAU / 32.0;
-                let distance = parent.radius + radius * 0.85;
+                (
+                    Point {
+                        x: angle.cos(),
+                        y: angle.sin(),
+                    },
+                    false,
+                )
+            });
+            // Aim through reachable apertures explicitly: a narrow opening can
+            // fall between every sampled angle. Keep the ordinary frontier
+            // distance so openings cannot make fire jump across a room.
+            let directed = openings.iter().filter_map(|&target| {
+                let gap = math::distance_to_point(parent.center, target);
+                (gap > 1e-10 && gap < distance).then(|| {
+                    (
+                        Point {
+                            x: (target.x - parent.center.x) / gap,
+                            y: (target.y - parent.center.y) / gap,
+                        },
+                        true,
+                    )
+                })
+            });
+            for (direction, through_opening) in sampled.chain(directed) {
                 let center = Point {
-                    x: parent.center.x + angle.cos() * distance,
-                    y: parent.center.y + angle.sin() * distance,
+                    x: parent.center.x + direction.x * distance,
+                    y: parent.center.y + direction.y * distance,
                 };
                 if center.x < 0.0
                     || center.x > scenario.width
@@ -207,7 +232,8 @@ impl HazardEvolution {
                     })
                     .count() as f64
                     / 16.0;
-                let score = 2.0 * fresh + wall_bonus
+                let opening_bonus = if through_opening { 2.5 } else { 0.0 };
+                let score = 2.0 * fresh + wall_bonus + opening_bonus
                     - self.sample() * 0.15
                     - math::distance_to_point(center, self.config.center) * 0.01;
                 if best.is_none_or(|(old, _)| score > old) {
@@ -326,7 +352,50 @@ impl HazardEvolution {
     }
 }
 
-/// A new core may follow a wall or pass through an open doorway, but never jump through solid wall.
+fn opening_blocked(id: &str, tick: u32, scenario: &BuildingScenario) -> bool {
+    scenario
+        .opening_events
+        .iter()
+        .rev()
+        .find(|event| event.opening_id == id && event.step <= tick)
+        .map_or_else(
+            || {
+                scenario
+                    .blocked_exit_ids
+                    .iter()
+                    .any(|blocked| blocked == id)
+            },
+            |event| event.blocked,
+        )
+}
+
+/// Fire apertures are separate from occupant traversal and window preparation.
+fn fire_opening_targets(tick: u32, scenario: &BuildingScenario) -> Vec<Point> {
+    scenario
+        .doors
+        .iter()
+        .chain(&scenario.exits)
+        .filter(|opening| !opening_blocked(&opening.id, tick, scenario))
+        .map(|opening| (opening.wall_id.as_str(), opening.offset, opening.width))
+        .chain(
+            scenario
+                .windows
+                .iter()
+                .map(|window| (window.wall_id.as_str(), window.offset, window.width)),
+        )
+        .filter_map(|(wall_id, offset, width)| {
+            scenario
+                .walls
+                .iter()
+                .find(|wall| wall.id == wall_id)
+                .map(|wall| {
+                    math::interpolate(wall.start, wall.end, (offset + width / 2.0) / wall.length())
+                })
+        })
+        .collect()
+}
+
+/// Fire can pass through available doors and window apertures, never solid wall.
 fn fire_path_clear(from: Point, to: Point, tick: u32, scenario: &BuildingScenario) -> bool {
     let dx = to.x - from.x;
     let dy = to.y - from.y;
@@ -346,13 +415,14 @@ fn fire_path_clear(from: Point, to: Point, tick: u32, scenario: &BuildingScenari
         }
         let offset = u * wall.length();
         scenario.doors.iter().chain(&scenario.exits).any(|o| {
-            let blocked = scenario
-                .opening_events
-                .iter()
-                .rev()
-                .find(|e| e.opening_id == o.id && e.step <= tick)
-                .map_or_else(|| scenario.blocked_exit_ids.contains(&o.id), |e| e.blocked);
-            o.wall_id == wall.id && !blocked && offset > o.offset && offset < o.offset + o.width
+            o.wall_id == wall.id
+                && !opening_blocked(&o.id, tick, scenario)
+                && offset > o.offset
+                && offset < o.offset + o.width
+        }) || scenario.windows.iter().any(|window| {
+            window.wall_id == wall.id
+                && offset > window.offset
+                && offset < window.offset + window.width
         })
     })
 }
@@ -617,6 +687,122 @@ mod tests {
             blocked: true,
         }];
         assert!(!fire_path_clear(from, to, 1, &scenario));
+    }
+
+    #[test]
+    fn fire_aims_through_narrow_doors_and_windows_on_horizontal_and_angled_walls() {
+        for angled in [false, true] {
+            for window in [false, true] {
+                let mut scenario = scenario(DisasterKind::Fire);
+                let tangent = if angled {
+                    Point { x: 0.6, y: 0.8 }
+                } else {
+                    Point { x: 1.0, y: 0.0 }
+                };
+                let normal = Point {
+                    x: -tangent.y,
+                    y: tangent.x,
+                };
+                let opening = Point {
+                    x: 5.0 + tangent.x * 5.0,
+                    y: 5.0 + tangent.y * 5.0,
+                };
+                scenario.walls = vec![crate::models::Wall {
+                    id: "wall".into(),
+                    name: None,
+                    start: Point { x: 5.0, y: 5.0 },
+                    end: Point {
+                        x: 5.0 + tangent.x * 10.0,
+                        y: 5.0 + tangent.y * 10.0,
+                    },
+                    thickness: 0.2,
+                }];
+                scenario.doors.clear();
+                scenario.exits.clear();
+                scenario.windows.clear();
+                scenario.opening_events.clear();
+                scenario.blocked_exit_ids.clear();
+                if window {
+                    scenario.windows.push(crate::models::WindowOpening {
+                        id: "window".into(),
+                        name: None,
+                        wall_id: "wall".into(),
+                        offset: 4.999,
+                        width: 0.002,
+                        emergency_escape: None,
+                    });
+                } else {
+                    scenario.doors.push(crate::models::Opening {
+                        id: "door".into(),
+                        name: None,
+                        wall_id: "wall".into(),
+                        offset: 4.999,
+                        width: 0.002,
+                    });
+                }
+                let config = scenario.disaster.as_mut().unwrap();
+                config.center = Point {
+                    x: opening.x + normal.x * 0.8 + tangent.x * 0.14,
+                    y: opening.y + normal.y * 0.8 + tangent.y * 0.14,
+                };
+                config.dynamics.as_mut().unwrap().growth_rate = 0.0;
+                config.dynamics.as_mut().unwrap().max_patches = 2;
+                let source = config.center;
+                let mut fire = HazardEvolution::new(*config, 42);
+                let mut repeated = HazardEvolution::new(*config, 42);
+                fire.advance(5, &scenario);
+                repeated.advance(5, &scenario);
+                assert_eq!(
+                    serde_json::to_value(&fire.state).unwrap(),
+                    serde_json::to_value(&repeated.state).unwrap()
+                );
+                assert_eq!(fire.state.areas.len(), 2);
+                let reached = fire.state.areas[1];
+                assert!(
+                    (reached.center.x - opening.x) * normal.x
+                        + (reached.center.y - opening.y) * normal.y
+                        < 0.0,
+                    "the first new patch should cross the reachable opening"
+                );
+                assert!(fire_path_clear(source, reached.center, 5, &scenario));
+                assert!(
+                    math::distance_to_point(source, reached.center)
+                        < fire.state.areas[0].radius + reached.radius
+                );
+                let shifted = |point: Point| Point {
+                    x: point.x + tangent.x * 0.1,
+                    y: point.y + tangent.y * 0.1,
+                };
+                assert!(
+                    !fire_path_clear(shifted(source), shifted(reached.center), 5, &scenario),
+                    "adjacent solid wall must still stop fire"
+                );
+                if window {
+                    assert!(
+                        !super::super::geometry::Geometry::new(&scenario)
+                            .can_move(source, reached.center),
+                        "fire permeability must not let occupants walk through glazing"
+                    );
+                } else {
+                    scenario.opening_events = vec![
+                        crate::models::OpeningStateChange {
+                            step: 1,
+                            opening_id: "door".into(),
+                            blocked: true,
+                        },
+                        crate::models::OpeningStateChange {
+                            step: 2,
+                            opening_id: "door".into(),
+                            blocked: false,
+                        },
+                    ];
+                    assert!(!fire_path_clear(source, reached.center, 1, &scenario));
+                    assert!(fire_opening_targets(1, &scenario).is_empty());
+                    assert!(fire_path_clear(source, reached.center, 2, &scenario));
+                    assert_eq!(fire_opening_targets(2, &scenario).len(), 1);
+                }
+            }
+        }
     }
 
     #[test]

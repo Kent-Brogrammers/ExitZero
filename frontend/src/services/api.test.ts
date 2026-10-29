@@ -385,6 +385,51 @@ describe("API integration contract", () => {
     });
   });
 
+  it("preserves backend congestion totals and frame increments, including an empty computed map", async () => {
+    const sample = { x: 2.75, y: 1.5, crowd_delay_seconds: 0.075 };
+    for (const congestion_samples of [[], [sample]]) {
+      const recording = {
+        ...mock,
+        congestion_samples,
+        frames: mock.frames.map((frame, index) => ({
+          ...frame,
+          congestion_samples: index === 0 ? [] : congestion_samples,
+        })),
+      };
+      respond(recording);
+      await expect(client.simulate(building)).resolves.toEqual(recording);
+    }
+    respond(mock);
+    await expect(client.simulate(building)).resolves.toEqual(mock);
+  });
+
+  it.each([
+    { x: 4.01, y: 1, crowd_delay_seconds: 0.1 },
+    { x: 1, y: 3.01, crowd_delay_seconds: 0.1 },
+    { x: 1, y: 1, crowd_delay_seconds: -0.1 },
+    { x: 1, y: 1, crowd_delay_seconds: Infinity },
+    { x: NaN, y: 1, crowd_delay_seconds: 0.1 },
+  ])(
+    "rejects invalid congestion totals and frame source positions %#",
+    async (sample) => {
+      for (const invalid of [
+        { ...mock, congestion_samples: [sample] },
+        {
+          ...mock,
+          frames: mock.frames.map((frame, index) => ({
+            ...frame,
+            congestion_samples: index === 0 ? [] : [sample],
+          })),
+        },
+      ]) {
+        respond(invalid);
+        await expect(client.simulate(building)).rejects.toMatchObject({
+          code: "invalid_response",
+        });
+      }
+    },
+  );
+
   it("rejects inconsistent totals, traffic positions, and frames", async () => {
     for (const invalid of [
       { ...mock, evacuated: 2 },

@@ -53,11 +53,20 @@ describe("independent export rendering", () => {
     expect(context.putImageData).not.toHaveBeenCalled();
     expect(JSON.stringify(result)).toBe(before);
   });
-  it("uses progressive recorded trails, resets its own cache when seeking, and passes frame opening/hazard state to the shared renderer", () => {
+  it("uses backend congestion, resets its cache when seeking, and preserves recorded state", () => {
+    const congestionResult = {
+      ...result,
+      congestion_samples: [{ x: 1, y: 1.5, crowd_delay_seconds: 0.7 }],
+      frames: result.frames.map((frame, index) => ({
+        ...frame,
+        congestion_samples:
+          index === 1 ? [{ x: 1, y: 1.5, crowd_delay_seconds: 0.7 }] : [],
+      })),
+    };
     const { canvas, context } = fixture(),
       before = JSON.stringify(result);
     vi.mocked(createPlaybackRenderer).mockReturnValue(vi.fn());
-    const draw = createExportRenderer(canvas, building, result, {
+    const draw = createExportRenderer(canvas, building, congestionResult, {
       resolution: 1080,
       includeHeatmap: true,
       showAgentNumbers: false,
@@ -72,7 +81,7 @@ describe("independent export rendering", () => {
       data: Uint8ClampedArray;
     };
     expect(nextPixels.data.some((v) => v > 0)).toBe(true);
-    draw(1.25); // Interpolated movement does not invent traffic observations.
+    draw(1.25); // Interpolated movement never adds congestion.
     expect(context.putImageData).toHaveBeenCalledTimes(2);
     draw(0);
     expect(
@@ -92,7 +101,7 @@ describe("independent export rendering", () => {
     expect(drawAgents).toHaveBeenLastCalledWith(
       canvas,
       building,
-      result.frames[0],
+      congestionResult.frames[0],
       1,
       expect.anything(),
       false,

@@ -566,15 +566,13 @@ function Playback({
                 </section>
                 <section
                   className="simulation-detail-section"
-                  aria-label="Recorded traffic trails"
+                  aria-label="Recorded congestion"
                 >
-                  <h4>Recorded traffic trails</h4>
+                  <h4>Recorded congestion</h4>
                   <p className="note">
-                    Accumulates sampled positions as playback advances. Pause
-                    freezes trails; reset clears them; seeking rebuilds them.
-                    Colors use a fixed scale for this recording. These
-                    observations are not the backend's full accumulated traffic
-                    totals.
+                    {recording.congestion_samples === undefined
+                      ? "Congestion data is unavailable for this recording. Rerun the simulation to measure crowd delay."
+                      : "Accumulates backend crowd-delay person-seconds as playback advances. Nearby people moving below walking speed add heat over simulated time. Pause freezes the map; reset clears it; seeking rebuilds it. Colors use a fixed scale for this recording."}
                   </p>
                 </section>
               </SimulationDetails>
@@ -739,7 +737,7 @@ export function SimulationView({
                       })
                     }
                   />
-                  Show traffic overlay
+                  Show congestion overlay
                 </label>
                 <p className="note">
                   Closed openings retain their cross marks. Open Details for

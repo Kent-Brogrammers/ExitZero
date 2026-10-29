@@ -17,7 +17,7 @@ import { drawAgents } from "./drawPlayback";
 import { drawLayout } from "../editor/draw";
 import { canvasPalette } from "../styles/canvasPalette";
 import { trafficField, fieldPixels } from "../analytics/trafficField";
-import { trafficBins } from "../analytics/traffic";
+import { congestionBins } from "../analytics/traffic";
 import { frameCrowding } from "../analytics/crowding";
 
 import { createFrameSampler } from "./interpolation";
@@ -84,12 +84,8 @@ export function LiveSimulationView({
 
   useEffect(() => {
     if (displayOptions.showTraffic) {
-      const data = trafficBins(
-        (live.frame?.agents ?? []).map((agent) => ({
-          x: agent.x,
-          y: agent.y,
-          visits: 1,
-        })),
+      const data = congestionBins(
+        live.congestion_samples ?? [],
         building.width,
         building.height,
       );
@@ -122,7 +118,12 @@ export function LiveSimulationView({
         (previous?.step ?? frame?.step ?? 0) * building.time_step_seconds,
       receivedAt: performance.now(),
     };
-  }, [building, live.frame, displayOptions.showTraffic]);
+  }, [
+    building,
+    live.frame,
+    live.congestion_samples,
+    displayOptions.showTraffic,
+  ]);
 
   useEffect(() => {
     if (!active || !canvas.current) return;
@@ -336,10 +337,11 @@ export function LiveSimulationView({
                     occupants in a {formatDimensions(2, 2)} zone.
                   </p>
                   <p className="note">
-                    Colors show current positions, relative to this frame. They
-                    are not accumulated traffic or validated congestion
-                    measurements. Rewind, replay and peak crowding snapshots are
-                    available after the run.
+                    {live.congestion_samples === undefined
+                      ? "Congestion data is unavailable for this live run."
+                      : "The congestion overlay accumulates backend crowd-delay person-seconds while nearby people move slowly. Colors are relative to this run so far; this is a simplified simulation measure."}{" "}
+                    Rewind, replay and peak crowding snapshots are available
+                    after the run.
                   </p>
                 </section>
               </SimulationDetails>

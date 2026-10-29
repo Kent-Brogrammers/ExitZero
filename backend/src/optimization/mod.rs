@@ -262,9 +262,11 @@ mod tests {
 
     fn synthetic_run(building: &BuildingScenario, metrics: SimulationMetrics) -> SimulationResult {
         SimulationResult {
+            congestion_samples: None,
             termination_reason: None,
             metrics,
             frames: vec![AnimationFrame {
+                congestion_samples: None,
                 pursuit: None,
                 window_states: None,
                 disaster_state: None,

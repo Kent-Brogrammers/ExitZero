@@ -90,6 +90,10 @@ pub struct AgentPosition {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AnimationFrame {
+    /// Crowd-delay increments since the previous frame in this stream.
+    /// Absent in legacy recordings; an empty array means no new delay.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub congestion_samples: Option<Vec<CongestionSample>>,
     #[serde(
         default,
         deserialize_with = "super::windows::present",
@@ -115,6 +119,16 @@ pub struct TrafficSample {
     pub x: f64,
     pub y: f64,
     pub visits: u32,
+}
+
+/// Observed crowd-delay person-seconds at a world position. This is an
+/// illustrative crowding/slowdown measure, not a validated density estimate.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CongestionSample {
+    pub x: f64,
+    pub y: f64,
+    pub crowd_delay_seconds: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -160,6 +174,10 @@ pub struct SimulationAnalytics {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SimulationResult {
+    /// Whole-run congestion integrated at every physics tick. Legacy recordings
+    /// omit this rather than substituting traffic counts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub congestion_samples: Option<Vec<CongestionSample>>,
     #[serde(flatten)]
     pub metrics: SimulationMetrics,
     pub frames: Vec<AnimationFrame>,
@@ -198,6 +216,21 @@ impl SimulationResult {
             && y >= 0.0
             && x <= self.width
             && y <= self.height
+    }
+
+    fn validate_congestion(&self, samples: Option<&[CongestionSample]>) -> Result<(), String> {
+        if let Some(samples) = samples
+            && (samples.len() > 100_000
+                || samples.iter().any(|sample| {
+                    !self.in_bounds(sample.x, sample.y)
+                        || !sample.crowd_delay_seconds.is_finite()
+                        || sample.crowd_delay_seconds < 0.0
+                        || sample.crowd_delay_seconds > 1_000_000_000.0
+                }))
+        {
+            return Err("invalid continuous congestion samples".into());
+        }
+        Ok(())
     }
 
     pub fn validate(&self) -> Result<(), String> {
@@ -312,12 +345,14 @@ impl SimulationResult {
         {
             return Err("invalid workspace, time step, or continuous traffic samples".into());
         }
+        self.validate_congestion(self.congestion_samples.as_deref())?;
         let mut previous_step = None;
         let pursuit_mode = self.frames.first().is_some_and(|f| f.pursuit.is_some());
         let mut previous_caught = std::collections::HashMap::new();
         let mut previous_escaped = 0;
         let mut previous_pursuit = None;
         for frame in &self.frames {
+            self.validate_congestion(frame.congestion_samples.as_deref())?;
             if frame.pursuit.is_some() != pursuit_mode {
                 return Err("pursuit state must be present consistently in the recording".into());
             }

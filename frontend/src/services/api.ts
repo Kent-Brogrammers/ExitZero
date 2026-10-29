@@ -316,10 +316,12 @@ function checkSimulation(
     result.traffic_samples.some(
       (sample) => sample.x > result.width || sample.y > result.height,
     ) ||
+    result.congestion_samples?.some((sample) => !inBounds(sample)) ||
     result.frames.some(
       (frame, index) =>
         (index > 0 && frame.step <= result.frames[index - 1]!.step) ||
         frame.agents.length > result.total_population ||
+        frame.congestion_samples?.some((sample) => !inBounds(sample)) ||
         new Set(frame.agents.map((agent) => agent.id)).size !==
           frame.agents.length ||
         frame.disaster_state?.areas.some(
@@ -338,7 +340,7 @@ function checkSimulation(
     throw new ApiError(
       200,
       "invalid_response",
-      "Backend returned invalid traffic or animation frames.",
+      "Backend returned invalid heatmap samples or animation frames.",
     );
   return result;
 }
@@ -717,6 +719,9 @@ export function createApiClient(
           frame.step > building.max_steps ||
           ids.size !== frame.agents.length ||
           !validWindowStates(frame) ||
+          frame.congestion_samples?.some(
+            (sample) => sample.x > building.width || sample.y > building.height,
+          ) ||
           (frame.window_states?.some(
             (s) => !building.windows?.some((w) => w.id === s.window_id),
           ) ??

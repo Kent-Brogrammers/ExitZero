@@ -16,6 +16,7 @@ pub use control::{ComputationControl, ComputationProgress};
 mod emergency;
 mod evolution;
 mod geometry;
+mod heatmap;
 mod math;
 mod motion;
 mod navigation;
@@ -208,7 +209,10 @@ fn run(
     let mut window_fallback = vec![all_exits_blocked; agents.len()];
     windows.update(0, &agents, &evacuated, &window_fallback, &geometry);
     let mut window_escapes = 0;
-    let mut frames = vec![frame(0, &agents, &evacuated, &world, &windows)];
+    let mut heatmap = heatmap::Heatmap::default();
+    let mut initial_frame = frame(0, &agents, &evacuated, &world, &windows);
+    initial_frame.congestion_samples = heatmap.saved();
+    let mut frames = vec![initial_frame];
     let live_stride = (0.05 / scenario.time_step_seconds).ceil().max(1.0) as u32;
     let mut last_live_step = 0;
     let mut sent_communications = 0;
@@ -955,6 +959,14 @@ fn run(
             }
         }
 
+        heatmap.record(
+            scenario,
+            &before,
+            &agents,
+            &evacuated,
+            &geometry,
+            motion::WALKING_SPEED,
+        );
         step += 1;
         control::step(step, scenario.max_steps);
         // Include exit arrivals in traffic before removing evacuated agents.
@@ -1045,12 +1057,16 @@ fn run(
             }
         }
         if step.is_multiple_of(frame_stride) {
-            frames.push(frame(step, &agents, &evacuated, &world, &windows));
+            let mut saved = frame(step, &agents, &evacuated, &world, &windows);
+            saved.congestion_samples = heatmap.saved();
+            frames.push(saved);
         }
         if step.is_multiple_of(live_stride)
             && let Some(emit) = &mut on_frame
         {
-            if !emit(&frame(step, &agents, &evacuated, &world, &windows)) {
+            let mut live = frame(step, &agents, &evacuated, &world, &windows);
+            live.congestion_samples = heatmap.live();
+            if !emit(&live) {
                 return Err(SimulationError::Cancelled);
             }
             if !emit_chat(&communication_events, &dialogue.events) {
@@ -1087,13 +1103,18 @@ fn run(
     };
 
     if frames.last().is_none_or(|last| last.step != step) {
-        frames.push(frame(step, &agents, &evacuated, &world, &windows));
+        let mut saved = frame(step, &agents, &evacuated, &world, &windows);
+        saved.congestion_samples = heatmap.saved();
+        frames.push(saved);
     }
     if last_live_step != step
         && let Some(emit) = &mut on_frame
-        && !emit(frames.last().unwrap())
     {
-        return Err(SimulationError::Cancelled);
+        let mut live = frame(step, &agents, &evacuated, &world, &windows);
+        live.congestion_samples = heatmap.live();
+        if !emit(&live) {
+            return Err(SimulationError::Cancelled);
+        }
     }
     if !emit_chat(&communication_events, &dialogue.events) {
         return Err(SimulationError::Cancelled);
@@ -1117,6 +1138,7 @@ fn run(
     let analytics = analytics::summarize(statistics, f64::from(step) * scenario.time_step_seconds);
     control::checkpoint()?;
     Ok(SimulationResult {
+        congestion_samples: heatmap.total(),
         metrics: SimulationMetrics {
             sheltered: sheltered_count,
             status,
@@ -1156,6 +1178,7 @@ fn frame(
     windows: &windows::Windows<'_>,
 ) -> AnimationFrame {
     AnimationFrame {
+        congestion_samples: None,
         pursuit: None,
         window_states: windows.snapshots(agents),
         disaster_state: world.disaster_state().cloned(),

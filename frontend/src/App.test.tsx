@@ -396,6 +396,32 @@ describe("optimization editor history", () => {
 });
 
 describe("stopping live simulation", () => {
+  it("retains every congestion interval when live frames arrive in one React batch", async () => {
+    vi.mocked(api.simulateLive).mockImplementationOnce(
+      (_building, onFrame, signal) =>
+        new Promise((_resolve, reject) => {
+          for (const [step, delay] of [0, 0.25, 0.75].entries())
+            onFrame({
+              step,
+              agents: [],
+              congestion_samples: delay
+                ? [{ x: 1, y: 1, crowd_delay_seconds: delay }]
+                : [],
+            });
+          signal!.addEventListener("abort", () =>
+            reject(new DOMException("The operation was aborted", "AbortError")),
+          );
+        }),
+    );
+    await mount();
+    await click("Run Simulation");
+    expect(workspace().live).toMatchObject({
+      frame: { step: 2 },
+      congestion_samples: [{ crowd_delay_seconds: 1 }],
+    });
+    await click("Stop Simulation");
+  });
+
   it("aborts, discards old results and late frames, restores controls, and can run again", async () => {
     vi.mocked(api.simulateLive).mockResolvedValueOnce(recording);
     await mount();

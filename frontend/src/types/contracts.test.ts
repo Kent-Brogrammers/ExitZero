@@ -67,6 +67,49 @@ describe("shared continuous geometry schemas", () => {
     ).toBe(true);
     expect(mock.frames[0]!.agents[0]!.x % 1).not.toBe(0);
   });
+  it("accepts optional congestion totals and per-frame delay increments without changing legacy recordings", () => {
+    const sample = { x: 2.75, y: 1.5, crowd_delay_seconds: 0.075 };
+    for (const congestion_samples of [[], [sample]]) {
+      const recording: SimulationResult = {
+        ...mock,
+        status: "incomplete",
+        congestion_samples,
+        frames: mock.frames.map((frame, index) => ({
+          ...frame,
+          congestion_samples: index === 0 ? [] : congestion_samples,
+        })),
+      };
+      expect(
+        validateSimulation(recording),
+        ajv.errorsText(validateSimulation.errors),
+      ).toBe(true);
+    }
+    expect(validateSimulation(mock)).toBe(true);
+    expect("congestion_samples" in mock).toBe(false);
+  });
+  it.each([
+    { x: 1, y: 1, crowd_delay_seconds: -0.1 },
+    { x: 1, y: 1, crowd_delay_seconds: NaN },
+    { x: 1, y: 1, crowd_delay_seconds: Infinity },
+    { x: NaN, y: 1, crowd_delay_seconds: 1 },
+    { x: 1, y: Infinity, crowd_delay_seconds: 1 },
+    { x: -1, y: 1, crowd_delay_seconds: 1 },
+    { x: 1, y: 1, crowd_delay_seconds: "1" },
+    { x: 1, y: 1, visits: 1 },
+  ])("rejects malformed congestion source samples %#", (sample) => {
+    expect(validateSimulation({ ...mock, congestion_samples: [sample] })).toBe(
+      false,
+    );
+    expect(
+      validateSimulation({
+        ...mock,
+        frames: mock.frames.map((frame) => ({
+          ...frame,
+          congestion_samples: [sample],
+        })),
+      }),
+    ).toBe(false);
+  });
   it("rejects legacy cells, non-finite coordinates, unsafe seeds, and missing references", () => {
     for (const invalid of [
       { ...building, blocked_cells: [] },
