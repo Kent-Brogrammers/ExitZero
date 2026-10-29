@@ -95,9 +95,10 @@ export function applyOptimizationCandidate(
     "exits",
     "spawn_zones",
     "obstructions",
+    "placed_occupants",
   ] as const) {
-    for (const element of next[kind]) {
-      const name = current[kind].find((item) => item.id === element.id)?.name;
+    for (const element of next[kind] ?? []) {
+      const name = current[kind]?.find((item) => item.id === element.id)?.name;
       if (name !== undefined) element.name = name;
     }
   }

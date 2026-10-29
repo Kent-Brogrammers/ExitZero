@@ -201,6 +201,7 @@ function Playback({
           disasterState: agents?.disaster_state,
           ...displayOptions,
           showPursuitStart: false,
+          showPlacedOccupants: !agents,
           underlay: (ctx) => {
             ctx.save();
             ctx.beginPath();

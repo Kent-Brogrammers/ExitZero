@@ -120,6 +120,21 @@ pub struct SpawnZone {
     pub holes: Vec<Vec<Point>>,
 }
 
+/// Exact occupant centre. IDs are editor references; array order supplies recorded numeric IDs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlacedOccupant {
+    pub id: String,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_name",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub name: Option<String>,
+    pub x: f64,
+    pub y: f64,
+}
+
 /// Walkable architectural metadata. It is not collision geometry or a floor connection.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -168,6 +183,9 @@ pub struct BuildingScenario {
     )]
     pub window_escape_context: Option<super::WindowEscapeContext>,
     pub spawn_zones: Vec<SpawnZone>,
+    /// Exact centres, in recorded ID order, followed by seeded area occupants.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub placed_occupants: Vec<PlacedOccupant>,
     pub blocked_exit_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "super::AgentAwareness::is_default")]
     pub awareness: super::AgentAwareness,
@@ -205,6 +223,14 @@ fn positive(value: f64, maximum: f64) -> bool {
 }
 
 impl BuildingScenario {
+    pub fn population(&self) -> u64 {
+        self.placed_occupants.len() as u64
+            + self
+                .spawn_zones
+                .iter()
+                .map(|zone| u64::from(zone.count))
+                .sum::<u64>()
+    }
     fn contains(&self, point: Point) -> bool {
         point.x.is_finite()
             && point.y.is_finite()
@@ -245,14 +271,15 @@ impl BuildingScenario {
             || self.doors.len() > 1000
             || self.exits.is_empty()
             || self.exits.len() > 1000
-            || self.spawn_zones.is_empty()
+            || (self.spawn_zones.is_empty() && self.placed_occupants.is_empty())
             || self.spawn_zones.len() > 100
+            || self.placed_occupants.len() > 10_000
             || self.obstructions.len() > 100
             || self.stair_areas.len() > 100
             || self.windows.len() > 100
             || self.tornado_zones.len() > 100
         {
-            return Err("require 1–1000 exits and 1–100 spawn zones; limits are 500 walls, 1000 doors, 100 obstructions, and 100 stair areas".into());
+            return Err("require 1–1000 exits and occupants from spawn zones or exact placement; limits are 100 spawn zones, 500 walls, 1000 doors, 100 obstructions, and 100 stair areas".into());
         }
         for name in self
             .walls
@@ -262,6 +289,7 @@ impl BuildingScenario {
             .chain(self.exits.iter().map(|v| &v.name))
             .chain(self.windows.iter().map(|v| &v.name))
             .chain(self.spawn_zones.iter().map(|v| &v.name))
+            .chain(self.placed_occupants.iter().map(|v| &v.name))
             .chain(self.obstructions.iter().map(|v| &v.name))
             .chain(self.stair_areas.iter().map(|v| &v.name))
             .chain(self.tornado_zones.iter().map(|v| &v.name))
@@ -284,6 +312,7 @@ impl BuildingScenario {
             .chain(self.exits.iter().map(|v| &v.id))
             .chain(self.windows.iter().map(|v| &v.id))
             .chain(self.spawn_zones.iter().map(|v| &v.id))
+            .chain(self.placed_occupants.iter().map(|v| &v.id))
             .chain(self.obstructions.iter().map(|v| &v.id))
             .chain(self.stair_areas.iter().map(|v| &v.id))
             .chain(self.tornado_zones.iter().map(|v| &v.id))
@@ -452,7 +481,22 @@ impl BuildingScenario {
                 return Err("obstructions must be positive, in-bounds rectangles".into());
             }
         }
-        let mut population = 0_u64;
+        for occupant in &self.placed_occupants {
+            if !self.contains(Point {
+                x: occupant.x,
+                y: occupant.y,
+            }) || occupant.x < self.agent_radius
+                || occupant.y < self.agent_radius
+                || occupant.x > self.width - self.agent_radius
+                || occupant.y > self.height - self.agent_radius
+            {
+                return Err(format!(
+                    "placed occupant '{}' needs its full body inside the workspace",
+                    occupant.id
+                ));
+            }
+        }
+
         for (index, zone) in self.spawn_zones.iter().enumerate() {
             zone.validate_polygon()?;
             if zone
@@ -479,9 +523,8 @@ impl BuildingScenario {
             {
                 return Err("spawn zones must not overlap each other".into());
             }
-            population += u64::from(zone.count);
         }
-        if population > 10_000 {
+        if self.population() > 10_000 {
             return Err("total population must not exceed 10000".into());
         }
         Ok(())

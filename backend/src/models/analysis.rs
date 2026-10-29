@@ -45,6 +45,15 @@ impl StressTestRequest {
             let mut modified = self.building.clone();
             modified.obstructions.push(candidate.clone());
             modified.validate()?;
+            if self.building.placed_occupants.iter().any(|person| {
+                (person.x - person.x.clamp(candidate.x, candidate.x + candidate.width))
+                    .hypot(person.y - person.y.clamp(candidate.y, candidate.y + candidate.height))
+                    < self.building.agent_radius
+            }) {
+                return Err(
+                    "stress-test obstruction candidates must not overlap placed occupants".into(),
+                );
+            }
         }
         if !self.config.block_each_exit && self.config.obstruction_candidates.is_empty() {
             return Err("configure at least one stress scenario source".into());

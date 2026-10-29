@@ -34,10 +34,6 @@
   border-color: var(--cad-shelter);
   background: var(--cad-hover);
 }
-.welcome-edition {
-  font-size: 11px;
-  color: var(--cad-muted);
-}
 .welcome-composition {
   flex: 1;
   position: relative;
@@ -200,9 +196,6 @@
 @media (max-width: 760px) {
   .welcome-header {
     padding: 22px 24px;
-  }
-  .welcome-edition {
-    display: none;
   }
   .welcome-composition {
     width: calc(100% - 48px);

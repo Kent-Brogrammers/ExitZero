@@ -1,6 +1,8 @@
 import type { BuildingScenario, Point, Wall } from "../types/simulation";
+import { totalPopulation } from "../utils/population";
 import { nextObjectName } from "./names";
 import { polygonBounds, signedArea } from "./spawnGeometry";
+import { constrainWallEnd } from "./wallAngles";
 
 export const CIRCLE_WALL_SEGMENTS = 32;
 export type WallShape = "wall" | "wall-rectangle" | "wall-circle";
@@ -40,7 +42,8 @@ export function wallShapePoints(
   bounds: Bounds,
   constrain = false,
 ): Point[] {
-  if (shape === "wall") return [start, end];
+  if (shape === "wall")
+    return [start, constrain ? constrainWallEnd(start, end, bounds) : end];
   if (shape === "wall-rectangle") {
     const r = dragRectangle(start, end, bounds, constrain);
     const first = { x: r.x, y: r.y };
@@ -116,8 +119,7 @@ export function addSpawnZone(
 ): BuildingScenario {
   const rectangle = dragRectangle(start, end, building, square);
   const area = rectangle.width * rectangle.height;
-  const remaining =
-    10000 - building.spawn_zones.reduce((sum, zone) => sum + zone.count, 0);
+  const remaining = 10000 - totalPopulation(building);
   const count = Math.max(
     1,
     Math.min(
@@ -146,8 +148,7 @@ export function addPolygonSpawn(
   id = `spawn_${crypto.randomUUID()}`,
 ): BuildingScenario {
   const area = Math.abs(signedArea(polygon));
-  const remaining =
-    10000 - building.spawn_zones.reduce((sum, z) => sum + z.count, 0);
+  const remaining = 10000 - totalPopulation(building);
   const count = Math.max(
     1,
     Math.min(

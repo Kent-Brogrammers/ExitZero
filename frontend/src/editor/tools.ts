@@ -11,6 +11,7 @@ export type EditorTool =
   | "spawn"
   | "spawn-polygon"
   | "spawn-room"
+  | "occupant"
   | "stairs"
   | "tornado-zone"
   | "hazard"

@@ -86,3 +86,27 @@ fn overlapping_bounds_do_not_reject_disjoint_polygons_or_regions_inside_holes() 
     ])).unwrap();
     b.validate().unwrap();
 }
+
+#[test]
+fn exact_placements_keep_their_positions_and_ids_alongside_polygon_spawning() {
+    let mut b = building();
+    b.placed_occupants = serde_json::from_value(json!([{"id":"fixed","x":2.6,"y":2.6}])).unwrap();
+    b.validate().unwrap();
+    let result = simulate(&b).unwrap();
+    result.validate().unwrap();
+    assert_eq!(result.metrics.total_population, 21);
+    let initial = &result.frames[0].agents;
+    assert_eq!(initial[0].id, 0);
+    assert_eq!(initial[0].x, 2.6);
+    assert_eq!(initial[0].y, 2.6);
+    for person in &initial[1..] {
+        assert!(b.spawn_zones[0].contains_disc(
+            Point {
+                x: person.x,
+                y: person.y
+            },
+            b.agent_radius
+        ));
+        assert!((person.x - 2.6).hypot(person.y - 2.6) >= 2.0 * b.agent_radius);
+    }
+}

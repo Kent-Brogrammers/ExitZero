@@ -54,6 +54,32 @@ pub(super) fn spawn_agents(
     let mut random_state = scenario.seed;
     let radius = scenario.agent_radius;
 
+    // Reserve exact bodies first without consuming the legacy area's random sequence.
+    // Validation uses the same authoritative collision geometry as movement.
+    for occupant in &scenario.placed_occupants {
+        super::control::checkpoint()?;
+        let position = Point {
+            x: occupant.x,
+            y: occupant.y,
+        };
+        if !geometry.can_stand_at(position) {
+            return Err(SimulationError::InvalidScenario(format!(
+                "placed occupant '{}' overlaps a wall, blocked opening, obstruction, or excluded area",
+                occupant.id
+            )));
+        }
+        if spawned
+            .iter()
+            .any(|agent| math::circles_overlap(position, radius, agent.position, radius))
+        {
+            return Err(SimulationError::InvalidScenario(format!(
+                "placed occupant '{}' overlaps another occupant",
+                occupant.id
+            )));
+        }
+        spawned.push(Agent::new(spawned.len() as u32, position));
+    }
+
     for zone in &scenario.spawn_zones {
         // Sample the bounding box; accept only discs inside the actual region and outside holes.
         let min_x = zone.x + radius;

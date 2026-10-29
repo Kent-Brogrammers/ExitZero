@@ -280,17 +280,22 @@ fn corrected_saved_layout_uses_windows_when_gas_covers_its_exit() {
 }
 
 #[test]
-fn window_readout_explains_disabled_escape_missing_context_and_out_of_bounds_landing() {
+fn window_readout_explains_disabled_escape_ineligible_context_and_out_of_bounds_landing() {
     for (change, expected) in [
         ("disabled", "disabled"),
-        ("context", "Ground-floor"),
+        ("context", "ground-floor"),
         ("landing", "Exterior landing availability"),
         ("bounds", "does not fit in the workspace"),
     ] {
         let mut b = scenario();
         match change {
             "disabled" => b.windows[0].emergency_escape.as_mut().unwrap().enabled = false,
-            "context" => b.window_escape_context = None,
+            "context" => {
+                b.window_escape_context
+                    .as_mut()
+                    .unwrap()
+                    .floor_elevation_metres = 3.0;
+            }
             "landing" => {
                 b.windows[0]
                     .emergency_escape
@@ -436,11 +441,35 @@ fn ineligible_windows_never_evict_occupants() {
         assert_eq!(result.metrics.evacuated, 0, "{pointer}");
         assert_ne!(result.metrics.status, SimulationStatus::Completed);
     }
-    for field in ["window_escape_context", "windows"] {
+    // Absent windows cannot provide an escape. Absent optional settings use
+    // the documented ground-floor defaults rather than disabling a window.
+    let mut no_windows = original.clone();
+    no_windows.as_object_mut().unwrap().remove("windows");
+    let result = simulate(&serde_json::from_value(no_windows).unwrap()).unwrap();
+    result.validate().unwrap();
+    assert_eq!(result.metrics.evacuated, 0);
+    for field in ["window_escape_context", "emergency_escape"] {
         let mut value = original.clone();
-        value.as_object_mut().unwrap().remove(field);
-        let result = simulate(&serde_json::from_value(value).unwrap()).unwrap();
-        assert_eq!(result.metrics.evacuated, 0);
+        let object = if field == "emergency_escape" {
+            value.pointer_mut("/windows/0").unwrap()
+        } else {
+            &mut value
+        };
+        object.as_object_mut().unwrap().remove(field);
+        let legacy: BuildingScenario = serde_json::from_value(value).unwrap();
+        let before = serde_json::to_value(&legacy).unwrap();
+        let result = simulate(&legacy).unwrap();
+        result.validate().unwrap();
+        assert_eq!(
+            result.metrics.status,
+            SimulationStatus::Completed,
+            "{field}"
+        );
+        assert_eq!(
+            result.metrics.evacuated_by_route.unwrap().emergency_window,
+            4
+        );
+        assert_eq!(serde_json::to_value(&legacy).unwrap(), before);
     }
 }
 
@@ -620,7 +649,7 @@ fn blocked_exterior_landing_is_not_an_escape_and_ordinary_glazing_stays_solid() 
     assert_eq!(result.metrics.evacuated, 0);
     assert_eq!(result.metrics.trapped, 4);
     b.obstructions.clear();
-    b.windows[0].emergency_escape = None;
+    b.windows[0].emergency_escape.as_mut().unwrap().enabled = false;
     let result = simulate(&b).unwrap();
     assert_eq!(result.metrics.evacuated, 0);
     assert!(

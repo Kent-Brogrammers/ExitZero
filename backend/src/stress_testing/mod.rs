@@ -177,7 +177,7 @@ fn validate_run(
     run.validate().map_err(|message| {
         SimulationError::InvalidScenario(format!("invalid simulation output: {message}"))
     })?;
-    let population: u32 = building.spawn_zones.iter().map(|zone| zone.count).sum();
+    let population = building.population() as u32;
     if run.metrics.total_population != population
         || run.width != building.width
         || run.height != building.height
@@ -264,6 +264,7 @@ mod tests {
     fn request() -> StressTestRequest {
         StressTestRequest {
             building: BuildingScenario {
+                placed_occupants: vec![],
                 pursuit: None,
                 tornado_zones: vec![],
                 disaster: None,

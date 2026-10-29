@@ -26,13 +26,13 @@ describe("snapshot replay navigation", () => {
           ...syntheticResult,
           frames: [
             { step: 0, agents: [{ id: 0, x: 0.5, y: 1 }] },
-            { step: 10, agents: [{ id: 0, x: 3, y: 1 }] },
+            { step: 30, agents: [{ id: 0, x: 3, y: 1 }] },
           ],
         },
         onViewInSimulation: () => {},
       }),
     );
     expect(html).toContain("View in simulation");
-    expect(html).toContain("View crowded spot 1 in simulation at");
+    expect(html).toContain("View crowded spot 1 in simulation at 3.00 seconds");
   });
 });

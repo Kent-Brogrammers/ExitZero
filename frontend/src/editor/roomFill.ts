@@ -141,6 +141,9 @@ export function populateRoom(
               y - Math.max(o.y, Math.min(y, o.y + o.height)),
             ) < r,
         ) &&
+        !(building.placed_occupants ?? []).some(
+          (person) => Math.hypot(person.x - p.x, person.y - p.y) < 2 * r,
+        ) &&
         !remaining.some((z) => spawnContains(z, p))
       )
         capacity++;

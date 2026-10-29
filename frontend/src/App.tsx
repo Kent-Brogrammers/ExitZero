@@ -1,6 +1,4 @@
-import halloweenPreset from "./editor/presets/halloween-pursuit.json";
-import { LengthInput } from "./ui/LengthInput";
-import { formatDimensions } from "./utils/units";
+import { halloweenPreset } from "./editor/presets";
 import type { ReplayTarget } from "./simulation/replayTarget";
 import { appendChat } from "./simulation/communication";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
@@ -12,9 +10,8 @@ import { withWindowEscapeDefaults } from "./editor/openings";
 import { BuildingWorkspace } from "./editor/BuildingWorkspace";
 import type { BuildingEditorHandle } from "./editor/BuildingEditor";
 import { StudioPopover } from "./ui/StudioPopover";
-import { AppearanceSelector } from "./styles/StudioAppearance";
 import { StudioWelcome } from "./studio/StudioWelcome";
-import { StudioAbout } from "./studio/StudioAbout";
+import { StudioSettings } from "./studio/StudioSettings";
 import { TemplatesPage } from "./templates/TemplatesPage";
 import { LayoutNameDialog } from "./templates/LayoutNameDialog";
 import { PursuitReport } from "./simulation/PursuitMetrics";
@@ -64,6 +61,7 @@ function viewFromHash(): StudioView {
 
 export default function App() {
   const [view, setView] = useState<StudioView>(viewFromHash);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   function navigate(next: StudioView, focus = false) {
     setView(next);
     window.history.replaceState(
@@ -170,9 +168,9 @@ export default function App() {
     action: "edit" | "simulate",
     source?: UserTemplate,
   ) {
-    if (busy || !canReplace(name)) return;
+    if (busy || !canReplace(name)) return false;
     // Pass this same independent copy to run(), without waiting for React state.
-    setHalloweenMusic(!source && next === halloweenPreset);
+    setHalloweenMusic(!source && next === halloweenPreset.building);
     const selected = withWindowEscapeDefaults(structuredClone(next));
     setBuilding(selected);
     setBaseline(null);
@@ -192,6 +190,7 @@ export default function App() {
     setMessage("");
     if (action === "edit") navigate("edit");
     else void run("simulate", selected);
+    return true;
   }
   function changeBuilding(next: BuildingScenario) {
     next = withWindowEscapeDefaults(next);
@@ -757,7 +756,11 @@ export default function App() {
   return (
     <div
       className={`workspace-app${view === "welcome" ? " is-welcome" : ""}`}
-      data-halloween={building.pursuit ? "true" : undefined}
+      data-halloween={
+        building.pursuit && (view === "edit" || view === "simulation")
+          ? "true"
+          : undefined
+      }
     >
       <div className="welcome-view" hidden={view !== "welcome"}>
         <StudioWelcome
@@ -774,12 +777,14 @@ export default function App() {
                     doors: [],
                     exits: [],
                     spawn_zones: [],
+                    placed_occupants: [],
                   },
                   "an empty layout",
                   "edit",
                 )
           }
           onTemplates={() => navigate("templates")}
+          onSettings={() => setSettingsOpen(true)}
           onOpenTemplate={loadTemplate}
           online={connection === "online"}
           onLoadExample={() =>
@@ -881,120 +886,22 @@ export default function App() {
                 </div>
               </div>
             )}
-            <StudioPopover
-              label="Settings"
-              className="app-settings"
-              indicator={
+            <div className="app-settings">
+              <button
+                type="button"
+                className="studio-control"
+                aria-haspopup="dialog"
+                aria-expanded={settingsOpen}
+                aria-controls="studio-settings-dialog"
+                onClick={() => setSettingsOpen(true)}
+              >
                 <span
                   className={`connection-dot ${connection}`}
                   aria-hidden="true"
                 />
-              }
-            >
-              {(close) => (
-                <div className="settings-content">
-                  <div className="control-popover-heading">
-                    <h3>Studio settings</h3>
-                    <button
-                      type="button"
-                      className="studio-control studio-control--icon"
-                      aria-label="Close Settings"
-                      onClick={close}
-                    >
-                      ×
-                    </button>
-                  </div>
-                  <AppearanceSelector />
-                  <fieldset disabled={busy}>
-                    <legend>Agent awareness</legend>
-                    {(
-                      [
-                        ["sight_range_metres", "Sight range (ft)", 8],
-                        [
-                          "communication_range_metres",
-                          "Communication range (ft)",
-                          3,
-                        ],
-                      ] as const
-                    ).map(([key, label, fallback]) => (
-                      <label key={key}>
-                        {label}
-                        <LengthInput
-                          min={0}
-                          max={1000}
-                          value={building.awareness?.[key] ?? fallback}
-                          onValue={(value) => {
-                            if (
-                              !Number.isFinite(value) ||
-                              value < 0 ||
-                              value > 1000
-                            )
-                              return;
-                            changeBuilding({
-                              ...building,
-                              awareness: {
-                                sight_range_metres: 8,
-                                communication_range_metres: 3,
-                                ...building.awareness,
-                                [key]: value,
-                              },
-                            });
-                          }}
-                        />
-                      </label>
-                    ))}
-                    <p className="note">
-                      Agents assume exits are open until they see or hear
-                      otherwise. Walls block sight and communication. Set
-                      communication to 0 to disable sharing.
-                    </p>
-                  </fieldset>
-                  <dl className="settings-values">
-                    <div>
-                      <dt>Display units</dt>
-                      <dd>Feet (ft)</dd>
-                    </div>
-                  </dl>
-                  <p className="note">
-                    Layout JSON and simulation coordinates stay in meters.
-                  </p>
-                  <div className="settings-connection" role="status">
-                    <span>
-                      <i
-                        className={`connection-dot ${connection}`}
-                        aria-hidden="true"
-                      />{" "}
-                      Backend {connection}
-                    </span>
-                    {connection === "offline" && (
-                      <button
-                        type="button"
-                        className="studio-control"
-                        onClick={() => {
-                          setConnection("checking");
-                          setHealthAttempt((attempt) => attempt + 1);
-                        }}
-                      >
-                        Retry
-                      </button>
-                    )}
-                  </div>
-                  <p className="settings-layout">
-                    {formatDimensions(building.width, building.height)} ·{" "}
-                    {building.exits.length} exits ·{" "}
-                    {building.spawn_zones.reduce(
-                      (total, zone) => total + zone.count,
-                      0,
-                    )}{" "}
-                    occupants
-                  </p>
-                  {layoutProblem && (
-                    <p className="settings-warning">{layoutProblem}</p>
-                  )}
-                  <StudioAbout />
-                </div>
-              )}
-            </StudioPopover>
+                Settings
+              </button>
+            </div>
             <StudioPopover
               label="Computations"
               className="computations-popover"
@@ -1297,6 +1204,31 @@ export default function App() {
           </div>
         )}
       </div>
+      {settingsOpen && (
+        <StudioSettings
+          building={building}
+          busy={busy}
+          connection={connection}
+          layoutProblem={layoutProblem}
+          onChange={changeBuilding}
+          onRetry={() => {
+            setConnection("checking");
+            setHealthAttempt((attempt) => attempt + 1);
+          }}
+          onHalloween={(action) => {
+            if (
+              loadTemplate(
+                halloweenPreset.building,
+                halloweenPreset.label,
+                action,
+              )
+            ) {
+              setSettingsOpen(false);
+            }
+          }}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
     </div>
   );
 }

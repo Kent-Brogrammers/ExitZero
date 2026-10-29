@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import example from "../../../shared/examples/building.json";
 import type { BuildingScenario, Point, SpawnZone } from "../types/simulation";
 import { addPolygonSpawn } from "./shapes";
+import { duplicateSelection } from "./duplication";
 import { buildingError, translateElement } from "./geometry";
 import { moveSelection, resizeSelection } from "./selection";
 import {
@@ -25,6 +26,23 @@ const region = (): SpawnZone => ({
   count: 12,
 });
 describe("polygon spawn regions", () => {
+  it("preserves polygon vertices when using main's selection duplication", () => {
+    const b: BuildingScenario = {
+      ...structuredClone(example),
+      spawn_zones: [region()],
+    };
+    const copied = duplicateSelection(
+      b,
+      [{ kind: "spawn_zones", id: "polygon" }],
+      () => "copied-polygon",
+    ).building;
+    expect(copied.spawn_zones).toHaveLength(2);
+    const copy = copied.spawn_zones[1]!;
+    expect(copy.polygon).toHaveLength(polygon.length);
+    expect(copy.polygon![0]!.x).toBeCloseTo(copy.x);
+    expect(copy.count).toBe(region().count);
+    expect(buildingError(copied)).toBeNull();
+  });
   it("keeps concave geometry and count across serialization, dragging and scaling", () => {
     const b: BuildingScenario = {
       ...structuredClone(example),

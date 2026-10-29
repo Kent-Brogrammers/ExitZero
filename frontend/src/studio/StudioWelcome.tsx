@@ -12,6 +12,7 @@ interface StudioWelcomeProps {
   onLoadExample: () => void;
   onOpenDemo?: () => void;
   onTemplates?: () => void;
+  onSettings?: () => void;
   onOpenTemplate?: (
     building: BuildingScenario,
     name: string,
@@ -27,6 +28,7 @@ export function StudioWelcome({
   onLoadExample,
   onOpenDemo,
   onTemplates,
+  onSettings,
   onOpenTemplate,
   online = false,
   disabled = false,
@@ -59,7 +61,6 @@ export function StudioWelcome({
           ExitZero <span>Studio</span>
         </div>
         <div className="welcome-header-actions">
-          <span className="welcome-edition">Stark State Hackathon 2026</span>
           {onTemplates && (
             <button
               type="button"
@@ -68,6 +69,17 @@ export function StudioWelcome({
               title="Browse all templates and emergency scenarios"
             >
               Open Templates <span aria-hidden="true">↗</span>
+            </button>
+          )}
+          {onSettings && (
+            <button
+              type="button"
+              className="studio-control"
+              aria-haspopup="dialog"
+              aria-controls="studio-settings-dialog"
+              onClick={onSettings}
+            >
+              Settings
             </button>
           )}
         </div>

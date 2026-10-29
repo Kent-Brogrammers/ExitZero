@@ -43,6 +43,56 @@ function fixture(width: number, height: number) {
 }
 
 describe("playback Canvas", () => {
+  it("shows exact initial markers only before a recording, never as stationary ghost agents during playback", () => {
+    const { context, element } = fixture(600, 400);
+    const building = {
+      ...syntheticBuilding,
+      walls: [],
+      doors: [],
+      exits: [],
+      windows: [],
+      spawn_zones: [],
+      obstructions: [],
+      placed_occupants: [{ id: "person", x: 2, y: 2 }],
+    };
+    drawLayout(element, building, null);
+    expect(context.arc).toHaveBeenCalledTimes(1);
+    context.arc.mockClear();
+    drawPlayback(element, building, { step: 10, agents: [] }, 1);
+    expect(context.arc).not.toHaveBeenCalled();
+    drawPlayback(
+      element,
+      building,
+      { step: 0, agents: [{ id: 0, x: 2, y: 2 }] },
+      1,
+    );
+    expect(context.arc).toHaveBeenCalledTimes(1);
+  });
+  it("refreshes the cached floor plan when initial markers give way to recorded agents", () => {
+    const main = fixture(600, 400),
+      cached = fixture(600, 400);
+    const building = {
+      ...syntheticBuilding,
+      walls: [],
+      doors: [],
+      exits: [],
+      windows: [],
+      spawn_zones: [],
+      obstructions: [],
+      placed_occupants: [{ id: "person", x: 2, y: 2 }],
+    };
+    const render = createPlaybackRenderer(
+      main.element,
+      building,
+      cached.element,
+    );
+    render(null, 1);
+    expect(main.context.arc).toHaveBeenCalledTimes(1);
+    main.context.arc.mockClear();
+    render({ step: 10, agents: [] }, 1);
+    expect(main.context.arc).not.toHaveBeenCalled();
+    expect(cached.context.drawImage).toHaveBeenCalledTimes(2);
+  });
   it("keeps closed doors visible as shut panels in both normal and blueprint playback", () => {
     for (const blueprint of ["0", "1"]) {
       const { context, element } = fixture(600, 400);

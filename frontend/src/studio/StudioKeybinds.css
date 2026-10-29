@@ -1,0 +1,45 @@
+.studio-keybinds {
+  font-size: var(--text-control);
+  line-height: 1.5;
+}
+.studio-keybinds-content {
+  display: grid;
+  gap: var(--space-4);
+  padding-bottom: var(--space-3);
+}
+.studio-keybinds h4 {
+  margin: 0 0 var(--space-2);
+  color: var(--cad-text);
+  font-size: inherit;
+  font-weight: 500;
+}
+.studio-keybinds ul {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  list-style: none;
+}
+.studio-keybinds li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--cad-text);
+}
+.studio-keybinds kbd {
+  padding: 2px var(--space-1);
+  border: 1px solid var(--cad-border);
+  border-radius: var(--radius-control);
+  background: var(--cad-control);
+  color: var(--cad-text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.studio-keybinds-note {
+  margin: 0;
+  color: var(--cad-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}

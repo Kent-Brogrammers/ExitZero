@@ -5,11 +5,7 @@
   line-height: 1.5;
 }
 .studio-about summary {
-  position: sticky;
-  top: calc(-1 * var(--popover-padding));
-  z-index: 1;
-  background: var(--cad-panel);
-  padding: var(--space-3) 2px;
+  padding: var(--space-3) 0;
   color: var(--cad-muted);
   cursor: pointer;
 }

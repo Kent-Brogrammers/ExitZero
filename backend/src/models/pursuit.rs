@@ -35,14 +35,7 @@ impl PursuitConfig {
         {
             return Err("pursuit requires an in-bounds stalker start, speeds in [0.1, 3] m/s, a body-sized capture radius, and avoidance radius up to 20 m".into());
         }
-        if building.disaster.is_some()
-            || building
-                .spawn_zones
-                .iter()
-                .map(|z| u64::from(z.count))
-                .sum::<u64>()
-                > 64
-        {
+        if building.disaster.is_some() || building.population() > 64 {
             return Err("Halloween pursuit is a separate mode, with at most 64 survivors and no simultaneous disaster".into());
         }
         Ok(())

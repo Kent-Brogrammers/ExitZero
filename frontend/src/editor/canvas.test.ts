@@ -4,6 +4,7 @@ import { drawLayout } from "./draw";
 import { canvasPalette } from "../styles/canvasPalette";
 import { mergeEditedDoors } from "./doorEditing";
 import { setOpeningBlocked } from "./openingState";
+import { measurementVisibility } from "./measurements";
 
 function canvasFixture(width: number, height = (width * 2) / 3) {
   const strokes: { cap: string; width: number; color: string }[] = [];
@@ -14,6 +15,7 @@ function canvasFixture(width: number, height = (width * 2) / 3) {
     clearRect: vi.fn(),
     fillRect: vi.fn(),
     fillText: vi.fn(),
+    measureText: vi.fn((text: string) => ({ width: text.length * 7 })),
     beginPath: vi.fn(),
     closePath: vi.fn(),
     rect: vi.fn(),
@@ -136,6 +138,255 @@ describe("freeform Canvas drawing", () => {
     expect(labels).toContain("Tornado zone · Max 50");
   });
 
+  it.each(Array.from({ length: 16 }, (_, combination) => [combination]))(
+    "renders exactly the requested wall/opening measurement combination %s",
+    (combination) => {
+      const building = {
+        ...example,
+        walls: [
+          {
+            id: "dimension-wall",
+            start: { x: 2, y: 2 },
+            end: { x: 28, y: 2 },
+            thickness: 0.2,
+          },
+        ],
+        doors: [
+          {
+            id: "dimension-door",
+            wall_id: "dimension-wall",
+            offset: 2,
+            width: 1.1,
+          },
+        ],
+        exits: [
+          {
+            id: "dimension-exit",
+            wall_id: "dimension-wall",
+            offset: 13,
+            width: 1.7,
+          },
+        ],
+        windows: [
+          {
+            id: "dimension-window",
+            wall_id: "dimension-wall",
+            offset: 7,
+            width: 1.4,
+          },
+        ],
+        spawn_zones: [],
+        obstructions: [],
+        blocked_exit_ids: [],
+      };
+      const before = JSON.stringify(building);
+      const measurements = measurementVisibility({
+        walls: !!(combination & 1),
+        doors: !!(combination & 2),
+        windows: !!(combination & 4),
+        exits: !!(combination & 8),
+      });
+      const { context, element } = canvasFixture(600);
+      drawLayout(element, building, null, undefined, 1, undefined, {
+        showLabels: false,
+        showDimensions: false,
+        measurements,
+      });
+      const expected = [
+        measurements.walls ? "85.3 ft" : null,
+        measurements.doors ? "3.6 ft" : null,
+        measurements.windows ? "4.6 ft" : null,
+        measurements.exits ? "5.6 ft" : null,
+      ].filter(Boolean);
+      expect(context.fillText.mock.calls.map(([text]) => text).sort()).toEqual(
+        expected.sort(),
+      );
+      expect(JSON.stringify(building)).toBe(before);
+    },
+  );
+  it("updates live straight-wall length from the preview endpoints without changing geometry", () => {
+    const { context, element } = canvasFixture(600);
+    const before = JSON.stringify(example);
+    const start = { x: 4, y: 5 };
+    drawLayout(element, example, null, {
+      shape: "wall",
+      start,
+      end: { x: 7, y: 5 },
+    });
+    expect(context.fillText.mock.calls.at(-1)?.[0]).toBe("9.84 ft");
+    drawLayout(element, example, null, {
+      shape: "wall",
+      start,
+      end: { x: 7, y: 9 },
+    });
+    expect(context.fillText.mock.calls.at(-1)?.[0]).toBe("16.4 ft");
+    expect(JSON.stringify(example)).toBe(before);
+    context.measureText.mockClear();
+    context.fillText.mockClear();
+    drawLayout(element, example, null);
+    expect(
+      context.fillText.mock.calls.some(([text]) =>
+        /^\d+(\.\d+)? ft$/.test(text),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps live measurements the same display size across zoom and pixel densities", () => {
+    const sizes: number[][] = [];
+    for (const ratio of [1, 2])
+      for (const zoom of [0.5, 1, 2]) {
+        const { context, element } = canvasFixture(600);
+        drawLayout(
+          element,
+          example,
+          null,
+          {
+            shape: "wall",
+            start: { x: 12, y: 8 },
+            end: { x: 15, y: 12 },
+          },
+          ratio,
+          undefined,
+          { camera: { zoom, pan: { x: 17, y: -9 } } },
+        );
+        expect(context.font).toBe("500 12px system-ui");
+        expect(context.fillText.mock.calls.at(-1)?.[0]).toBe("16.4 ft");
+        expect(context.setTransform).toHaveBeenLastCalledWith(
+          ratio,
+          0,
+          0,
+          ratio,
+          0,
+          0,
+        );
+        sizes.push(context.fillRect.mock.calls.at(-1)!.slice(2));
+      }
+    expect(
+      sizes.every((size) => JSON.stringify(size) === JSON.stringify(sizes[0])),
+    ).toBe(true);
+  });
+
+  it.each([
+    [
+      { x: 0.1, y: 0.1 },
+      { x: 0.5, y: 0.5 },
+    ],
+    [
+      { x: 0.2, y: 2 },
+      { x: 0.2, y: 5 },
+    ],
+    [
+      { x: 29.8, y: 18 },
+      { x: 29.8, y: 19.8 },
+    ],
+    [
+      { x: 29.5, y: 0.1 },
+      { x: 29.9, y: 0.5 },
+    ],
+  ])(
+    "keeps edge-adjacent labels visible and clear of the unsnapped pointer (%j → %j)",
+    (start, end) => {
+      const { context, element } = canvasFixture(600);
+      const pointer = { x: end.x - 0.2, y: end.y + 0.1 };
+      drawLayout(element, example, null, {
+        shape: "wall",
+        start,
+        end,
+        pointer,
+      });
+      const [left, top, width, height] = context.fillRect.mock.calls.at(-1)!;
+      expect(left).toBeGreaterThanOrEqual(8);
+      expect(top).toBeGreaterThanOrEqual(8);
+      expect(left + width).toBeLessThanOrEqual(592);
+      expect(top + height).toBeLessThanOrEqual(392);
+      const clearance = Math.hypot(
+        Math.max(left - pointer.x * 20, 0, pointer.x * 20 - left - width),
+        Math.max(top - pointer.y * 20, 0, pointer.y * 20 - top - height),
+      );
+      expect(clearance).toBeGreaterThanOrEqual(12 - 1e-8);
+    },
+  );
+
+  it("retains a short diagonal's label when both normal offsets are clipped by the Canvas corner", () => {
+    const { context, element } = canvasFixture(600);
+    const end = { x: 2, y: 2 };
+    drawLayout(element, example, null, {
+      shape: "wall",
+      start: { x: 0.5, y: 0.5 },
+      end,
+      pointer: end,
+    });
+    expect(context.fillText.mock.calls.at(-1)?.[0]).toBe("6.96 ft");
+    const [left, top, width, height] = context.fillRect.mock.calls.at(-1)!;
+    expect(
+      Math.hypot(
+        Math.max(left - 40, 0, 40 - left - width),
+        Math.max(top - 40, 0, 40 - top - height),
+      ),
+    ).toBeGreaterThanOrEqual(12);
+  });
+
+  it.each(["wall-rectangle", "spawn", "marquee", "object-rectangle"] as const)(
+    "does not add straight-wall measurements to the %s tool",
+    (shape) => {
+      const { context, element } = canvasFixture(600);
+      drawLayout(element, example, null, {
+        shape,
+        start: { x: 4, y: 5 },
+        end: { x: 7, y: 9 },
+      });
+      expect(
+        context.fillText.mock.calls.some(([text]) =>
+          /^\d+(\.\d+)? ft$/.test(text),
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it("does not measure an unstarted zero-length wall", () => {
+    const { context, element } = canvasFixture(600);
+    drawLayout(element, example, null, {
+      shape: "wall",
+      start: { x: 4, y: 5 },
+      end: { x: 4, y: 5 },
+    });
+    expect(
+      context.fillText.mock.calls.some(([text]) =>
+        /^\d+(\.\d+)? ft$/.test(text),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps the active snap guide the same display size at high DPI", () => {
+    const normal = canvasFixture(600);
+    const retina = canvasFixture(600);
+    const before = JSON.stringify(example);
+    const snapTarget = {
+      point: { x: 5, y: 6 },
+      kind: "endpoint" as const,
+      wallIds: ["wall"],
+    };
+    for (const [fixture, ratio] of [
+      [normal, 1],
+      [retina, 2],
+    ] as const) {
+      drawLayout(fixture.element, example, null, undefined, ratio, undefined, {
+        snapTarget,
+      });
+      expect(fixture.context.strokeRect).toHaveBeenLastCalledWith(
+        4.75,
+        5.75,
+        0.5,
+        0.5,
+      );
+      expect(fixture.context.moveTo).toHaveBeenCalledWith(4.55, 6);
+      expect(fixture.context.restore).toHaveBeenCalled();
+    }
+    expect(retina.context.strokeRect.mock.calls.at(-1)).toEqual(
+      normal.context.strokeRect.mock.calls.at(-1),
+    );
+    expect(JSON.stringify(example)).toBe(before);
+  });
   it("layers traffic above spawn fills but below labels, outlines and obstacles", () => {
     const { context, element } = canvasFixture(600);
     const underlay = vi.fn();

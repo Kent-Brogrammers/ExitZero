@@ -22,7 +22,10 @@ export function comparisonContext(
   if (original.seed !== current.seed) differences.push("random seed changed");
   if (before.result.total_population !== result.total_population)
     differences.push("population changed");
-  if (!equal(original.spawn_zones, current.spawn_zones))
+  if (
+    !equal(original.spawn_zones, current.spawn_zones) ||
+    !equal(original.placed_occupants ?? [], current.placed_occupants ?? [])
+  )
     differences.push("spawn configuration changed");
   if (
     !equal(

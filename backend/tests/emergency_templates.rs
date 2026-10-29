@@ -1,6 +1,9 @@
 //! The gallery's editable inputs must exercise the production engine, not fixtures of results.
 use exitzero::{
-    models::{BuildingScenario, EscapeRouteKind, Point, SimulationResult, SimulationStatus},
+    models::{
+        BuildingScenario, EscapeRouteKind, Point, SimulationResult, SimulationStatus,
+        TerminationReason,
+    },
     simulation::simulate,
 };
 use std::collections::BTreeSet;
@@ -28,9 +31,10 @@ fn run(b: &BuildingScenario) -> SimulationResult {
 }
 
 #[test]
-fn office_fire_redirects_people_from_the_affected_exit_to_a_reachable_alternative() {
+fn office_fire_redirects_evacuations_and_reports_the_occupant_cut_off_by_growth() {
     let b = building(FIRE);
-    let fire = run(&b);
+    let fire = simulate(&b).unwrap();
+    fire.validate().unwrap();
     let clear = building(CORPORATE);
     let mut matching = b.clone();
     matching.disaster = None;
@@ -39,7 +43,31 @@ fn office_fire_redirects_people_from_the_affected_exit_to_a_reachable_alternativ
         serde_json::to_value(&clear).unwrap()
     );
     let baseline = run(&clear);
-    assert_eq!(fire.metrics.evacuated, 44);
+    assert_eq!(fire.metrics.status, SimulationStatus::Incomplete);
+    assert!(matches!(
+        fire.termination_reason,
+        Some(TerminationReason::MovementStagnation)
+    ));
+    assert_eq!(fire.metrics.evacuated, 43);
+    assert_eq!(fire.metrics.remaining, 1);
+    assert_eq!(fire.metrics.trapped, 0);
+    assert_eq!(fire.metrics.clearance_steps, None);
+    // The east-bound kitchen occupant entered the first restroom. Growing fire
+    // then cut off that room's only door.
+    // A partial evacuation must not be presented as measured full clearance.
+    let final_frame = fire.frames.last().unwrap();
+    assert_eq!(final_frame.agents.len(), 1);
+    let stranded = &final_frame.agents[0];
+    assert!(stranded.x > 31.0 && stranded.x < 36.0);
+    assert!(stranded.y > 16.0 && stranded.y < 19.0);
+    assert!(
+        final_frame
+            .blocked_opening_ids
+            .as_ref()
+            .unwrap()
+            .iter()
+            .any(|id| id == "corp-door-bath-1")
+    );
     assert_eq!(baseline.metrics.evacuated, 44);
     let baseline_exits: BTreeSet<_> = baseline
         .analytics
@@ -80,6 +108,12 @@ fn office_fire_redirects_people_from_the_affected_exit_to_a_reachable_alternativ
         "east exit must become unavailable during the run, not start blocked"
     );
     assert_growth(&fire);
+    assert!(
+        fire.frames
+            .iter()
+            .any(|frame| frame.disaster_state.as_ref().unwrap().areas.len() > 1),
+        "fire must ignite additional patches"
+    );
     let baseline_people = &baseline.analytics.as_ref().unwrap().agents;
     let redirected: BTreeSet<_> = baseline_people
         .iter()
@@ -98,10 +132,17 @@ fn office_fire_redirects_people_from_the_affected_exit_to_a_reachable_alternativ
             .is_empty()
     );
     let people = &fire.analytics.as_ref().unwrap().agents;
-    assert!(people.iter().all(|a| matches!(
-        a.exit_id.as_deref(),
-        Some("corp-exit-west" | "corp-exit-front")
-    )));
+    assert!(people.iter().all(|a| {
+        if a.id == stranded.id {
+            a.exit_id.is_none() && a.evacuation_step.is_none() && !a.route_found
+        } else {
+            a.evacuation_step.is_some()
+                && matches!(
+                    a.exit_id.as_deref(),
+                    Some("corp-exit-west" | "corp-exit-front")
+                )
+        }
+    }));
     assert!(
         people
             .iter()
@@ -164,9 +205,9 @@ fn assert_growth(result: &SimulationResult) {
     assert!(
         result.frames.iter().any(|f| {
             let areas = &f.disaster_state.as_ref().unwrap().areas;
-            areas.len() > initial.len() && areas[0].radius > initial[0].radius
+            areas[0].radius > initial[0].radius
         }),
-        "actual frames must record expanding connected hazard patches"
+        "actual frames must record hazard growth"
     );
 }
 
@@ -191,6 +232,21 @@ fn laboratory_gas_redirects_west_foyer_occupants_to_the_safe_lower_corridor() {
     let baseline = run(&clear);
     assert_eq!(gas.metrics.evacuated, 34);
     assert_growth(&gas);
+    let source = b.disaster.unwrap();
+    assert!(
+        gas.frames.iter().all(|frame| {
+            let areas = &frame.disaster_state.as_ref().unwrap().areas;
+            let dynamics = source.dynamics.unwrap();
+            let expected_radius = (source.radius
+                + f64::from(frame.step) * b.time_step_seconds * dynamics.growth_rate)
+                .min(dynamics.max_radius);
+            areas.len() == 1
+                && areas[0].center.x == source.center.x
+                && areas[0].center.y == source.center.y
+                && (areas[0].radius - expected_radius).abs() < 1e-9
+        }),
+        "gas must remain one growing cloud at its source"
+    );
     assert!(
         gas.analytics
             .as_ref()
@@ -217,13 +273,10 @@ fn laboratory_gas_redirects_west_foyer_occupants_to_the_safe_lower_corridor() {
             .is_empty()
     );
     assert!(
-        gas.frames.iter().any(|f| f
-            .blocked_opening_ids
-            .as_ref()
-            .unwrap()
+        gas.frames
             .iter()
-            .any(|id| id == "lab-door-west-north")),
-        "gas growth must make an initially open lab door unavailable"
+            .all(|f| f.blocked_opening_ids.as_ref().unwrap().is_empty()),
+        "the single cloud obstructs the upper corridor without inventing door closures"
     );
 }
 
