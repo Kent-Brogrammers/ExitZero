@@ -52,6 +52,29 @@ function fixture(): BuildingScenario {
 }
 
 describe("room fill as a single spawn polygon", () => {
+  it("fills only the selected hand-drawn room when a divider touches the wall footprint", () => {
+    const b = fixture();
+    b.walls.find((wall) => wall.id === "divider")!.start.y += 0.03;
+    const room = detectRoom(b, { x: 2, y: 2 });
+    expect(room.spawnIds).toEqual(["left-spawn"]);
+    expect(roomContains(room, { x: 10, y: 2 })).toBe(false);
+    const filled = populateRoom(b, room, 10, "contact-room");
+    expect(filled.building.spawn_zones).toHaveLength(2);
+    expect(
+      filled.building.spawn_zones.find((zone) => zone.id === "right-spawn"),
+    ).toEqual(b.spawn_zones[1]);
+    expect(buildingError(filled.building)).toBeNull();
+    const restored: BuildingScenario = JSON.parse(
+      JSON.stringify(filled.building),
+    );
+    expect(detectRoom(restored, { x: 2, y: 2 }).boundary).toEqual(
+      room.boundary,
+    );
+    expect(
+      roomContains(detectRoom(restored, { x: 10, y: 2 }), { x: 2, y: 2 }),
+    ).toBe(false);
+  });
+
   it("keeps dangling interior walls out of the polygon boundary", () => {
     const b = fixture();
     b.spawn_zones = [];

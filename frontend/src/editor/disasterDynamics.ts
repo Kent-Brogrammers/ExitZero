@@ -6,8 +6,8 @@ export function defaultDynamics(
 ): DisasterDynamics {
   return {
     enabled: true,
-    growth_rate: kind === "fire" ? 0.18 : kind === "gas_leak" ? 0.12 : 0.06,
-    spread_interval_seconds: kind === "fire" ? 0.6 : 2.5,
+    growth_rate: kind === "fire" ? 0.036 : kind === "gas_leak" ? 0.12 : 0.06,
+    spread_interval_seconds: kind === "fire" ? 3 : 2.5,
     max_patches: kind === "fire" ? 64 : kind === "gas_leak" ? 1 : 32,
     max_radius:
       kind === "fire"

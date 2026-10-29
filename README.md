@@ -237,7 +237,7 @@ The house starts with the west bedroom door and garage access blocked, plus a bl
 
 The example is a 30×20 m workspace with angled and straight walls, two exits, two doorways, and two spawn zones containing 34 occupants.
 
-- Choose **Wall** and drag to draw at any angle. Nearby endpoints snap together to help join walls; positions do not snap to a grid.
+- Choose **Wall** and drag to draw at any angle. Endpoints snap to nearby endpoints, corners, and wall segments so custom room dividers join exactly. Room fill also recognizes existing wall joins whose thicknesses overlap; an actual gap still leaves rooms connected. Grid snapping is optional.
 - Choose **Door** and click near a wall. A door with an enclosed room on one side and exterior space on the other automatically becomes an exit. Close the wall perimeter first; the workspace edge does not define the exterior. Interior doors remain doors, and wall/opening edits refresh classifications while preserving IDs and blocked states. Adjust width and offset in Properties.
 - Under **Spawn zone**, choose **Draw Polygon** and click corners, then click the first corner or press Enter to finish. Escape cancels. **Draw Zone** still draws rectangles. **Fill Room** creates one polygon matching the room boundary, with holes for enclosed inner rooms. Select a region to edit its count, move it, or scale its bounds. Furniture and walls remain excluded by Rust placement checks. **Obstruction** draws a rectangle.
 - Use **Select / move** to drag elements. Drag a selected wall's endpoint to reshape it. Moving a wall carries its openings with it; deleting a wall removes its openings and stale blocked-exit references.
