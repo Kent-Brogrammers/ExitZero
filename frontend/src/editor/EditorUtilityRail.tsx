@@ -119,6 +119,15 @@ export function EditorUtilityRail(props: EditorUtilityRailProps) {
           </div>
         )}
       </StudioPopover>
+      <button
+        type="button"
+        className="studio-control rail-button"
+        disabled={props.disabled}
+        onClick={props.onNew}
+        title="Clear the plan (Undo restores it)"
+      >
+        {content("clear", "Clear Plan")}
+      </button>
       <StudioPopover
         label="Grid & snap"
         side="left"

@@ -42,13 +42,13 @@ describe("automatic DXF suggestions", () => {
     expect(value.confidence).toBe("medium");
     expect(value.reason).toContain("does not prove");
   });
-  it("keeps a window gap sealed and never opens an unknown gap", () => {
+  it("identifies solid windows and never opens an unknown gap", () => {
     expect(
       guess({
         ...drawing,
         strokes: [...drawing.strokes, stroke("w", "WINDOWS", 4, 0, 5, 0)],
       }).role,
-    ).toBe("closed");
+    ).toBe("window");
     expect(guess(drawing).confidence).toBe("uncertain");
     expect(guess(drawing).role).toBe("closed");
   });
