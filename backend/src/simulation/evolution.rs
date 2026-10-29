@@ -50,11 +50,14 @@ impl HazardEvolution {
                 (self.config.kind == DisasterKind::Fire
                     && self.state.areas.len() < d.max_patches as usize)
                     || (d.growth_rate > 0.0
-                        && self
-                            .state
-                            .areas
-                            .iter()
-                            .any(|area| area.radius < d.max_radius))
+                        && self.state.areas.iter().enumerate().any(|(i, area)| {
+                            area.radius + 1e-12
+                                < if self.config.kind == DisasterKind::Fire {
+                                    self.fire_radius_limit(i, d.max_radius)
+                                } else {
+                                    d.max_radius
+                                }
+                        }))
             }
         })
     }
@@ -87,7 +90,15 @@ impl HazardEvolution {
                     }
                 }
             } else {
-                for area in &mut self.state.areas {
+                if self.config.kind == DisasterKind::Fire {
+                    changed |= self.grow_fire(tick, dt);
+                }
+                for area in self
+                    .state
+                    .areas
+                    .iter_mut()
+                    .filter(|_| self.config.kind == DisasterKind::GasLeak)
+                {
                     // Persistent per-patch variation produces uneven growth.
                     let variation = if self.config.kind == DisasterKind::GasLeak {
                         1.0
@@ -115,45 +126,105 @@ impl HazardEvolution {
         changed
     }
 
-    /// Ignite new ground at an exposed edge of an existing flame. The new
-    /// footprint overlaps its parent, but its centre is outside every current
-    /// footprint, so patches cannot disappear inside the growing source.
+    /// Cap every fire pod independently and stop neighboring cores from swallowing one another.
+    fn fire_radius_limit(&self, index: usize, maximum: f64) -> f64 {
+        let area = self.state.areas[index];
+        self.state
+            .areas
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i != index)
+            .fold(maximum, |limit, (_, other)| {
+                limit.min(math::distance_to_point(area.center, other.center) / 0.88 - other.radius)
+            })
+    }
+    fn grow_fire(&mut self, tick: u32, dt: f64) -> bool {
+        let d = self.config.dynamics.unwrap();
+        let mut changed = false;
+        for i in 0..self.state.areas.len() {
+            let old = self.state.areas[i];
+            let limit = self.fire_radius_limit(i, d.max_radius);
+            let radius = (old.radius + dt * d.growth_rate).min(limit).max(old.radius);
+            if radius > old.radius {
+                self.state.areas[i].radius = radius;
+                self.state.areas[i].revision = tick;
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    /// Compare all flame frontiers in every direction. Favor wall-side propagation,
+    /// periodically filling inward, with only a small connecting overlap between cores.
     fn ignite_frontier(&mut self, tick: u32, scenario: &BuildingScenario) -> bool {
-        let radius = (self.config.radius * 0.25)
+        let radius = (self.config.radius * 0.65)
             .max(0.01)
             .min(self.config.dynamics.unwrap().max_radius);
-        for _ in 0..64 {
-            let index = if self.sample() < 0.65 {
-                self.state.areas.len() - 1
-            } else {
-                (self.sample() * self.state.areas.len() as f64) as usize
-            };
-            let parent = self.state.areas[index];
-            let angle = self.sample() * std::f64::consts::TAU;
-            let distance = parent.radius + radius * 0.5;
-            let center = Point {
-                x: parent.center.x + angle.cos() * distance,
-                y: parent.center.y + angle.sin() * distance,
-            };
-            if center.x < 0.0
-                || center.x > scenario.width
-                || center.y < 0.0
-                || center.y > scenario.height
-                || self.state.areas.iter().any(|area| {
-                    math::distance_to_point(center, area.center) <= area.radius + radius * 0.1
-                })
-            {
-                continue;
+        let rotation = self.sample() * std::f64::consts::TAU;
+        let inward = self.state.areas.len().is_multiple_of(5);
+        let parents = self.state.areas.clone();
+        let mut best: Option<(f64, Point)> = None;
+        for parent in &parents {
+            for direction in 0..32 {
+                let angle = rotation + f64::from(direction) * std::f64::consts::TAU / 32.0;
+                let distance = parent.radius + radius * 0.85;
+                let center = Point {
+                    x: parent.center.x + angle.cos() * distance,
+                    y: parent.center.y + angle.sin() * distance,
+                };
+                if center.x < 0.0
+                    || center.x > scenario.width
+                    || center.y < 0.0
+                    || center.y > scenario.height
+                    || parents.iter().any(|a| {
+                        math::distance_to_point(center, a.center) < (a.radius + radius) * 0.88
+                    })
+                    || !fire_path_clear(parent.center, center, tick, scenario)
+                {
+                    continue;
+                }
+                let wall_distance = scenario
+                    .walls
+                    .iter()
+                    .map(|w| math::distance_to_segment(center, w.start, w.end) - w.thickness / 2.0)
+                    .fold(f64::INFINITY, f64::min)
+                    .max(0.0);
+                let wall_bonus = if inward {
+                    0.0
+                } else {
+                    2.5 / (1.0 + (wall_distance - radius * 0.65).abs() / radius)
+                };
+                let fresh = (0..16)
+                    .filter(|&i| {
+                        let a = f64::from(i) * std::f64::consts::TAU / 16.0;
+                        let p = Point {
+                            x: center.x + radius * 0.8 * a.cos(),
+                            y: center.y + radius * 0.8 * a.sin(),
+                        };
+                        parents
+                            .iter()
+                            .all(|old| math::distance_to_point(p, old.center) > old.radius)
+                    })
+                    .count() as f64
+                    / 16.0;
+                let score = 2.0 * fresh + wall_bonus
+                    - self.sample() * 0.15
+                    - math::distance_to_point(center, self.config.center) * 0.01;
+                if best.is_none_or(|(old, _)| score > old) {
+                    best = Some((score, center));
+                }
             }
-            self.state.areas.push(HazardArea {
-                id: self.state.areas.len() as u32,
-                revision: tick,
-                center,
-                radius,
-            });
-            return true;
         }
-        false
+        let Some((_, center)) = best else {
+            return false;
+        };
+        self.state.areas.push(HazardArea {
+            id: self.state.areas.len() as u32,
+            revision: tick,
+            center,
+            radius,
+        });
+        true
     }
 
     fn move_tornado(&mut self, dt: f64, now: f64, scenario: &BuildingScenario) {
@@ -255,10 +326,41 @@ impl HazardEvolution {
     }
 }
 
+/// A new core may follow a wall or pass through an open doorway, but never jump through solid wall.
+fn fire_path_clear(from: Point, to: Point, tick: u32, scenario: &BuildingScenario) -> bool {
+    let dx = to.x - from.x;
+    let dy = to.y - from.y;
+    scenario.walls.iter().all(|wall| {
+        let wx = wall.end.x - wall.start.x;
+        let wy = wall.end.y - wall.start.y;
+        let den = dx * wy - dy * wx;
+        if den.abs() < 1e-10 {
+            return true;
+        }
+        let ax = wall.start.x - from.x;
+        let ay = wall.start.y - from.y;
+        let t = (ax * wy - ay * wx) / den;
+        let u = (ax * dy - ay * dx) / den;
+        if !(1e-8..1.0 - 1e-8).contains(&t) || !(0.0..=1.0).contains(&u) {
+            return true;
+        }
+        let offset = u * wall.length();
+        scenario.doors.iter().chain(&scenario.exits).any(|o| {
+            let blocked = scenario
+                .opening_events
+                .iter()
+                .rev()
+                .find(|e| e.opening_id == o.id && e.step <= tick)
+                .map_or_else(|| scenario.blocked_exit_ids.contains(&o.id), |e| e.blocked);
+            o.wall_id == wall.id && !blocked && offset > o.offset && offset < o.offset + o.width
+        })
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{DisasterDynamics, Obstruction};
+    use crate::models::{DisasterDynamics, TornadoZone};
 
     fn scenario(kind: DisasterKind) -> BuildingScenario {
         let mut scenario: BuildingScenario =
@@ -416,7 +518,7 @@ mod tests {
                 .state
                 .areas
                 .iter()
-                .all(|area| (area.radius - 0.8).abs() < 1e-9)
+                .all(|area| area.radius <= 0.8 && area.radius > 0.0)
         );
         assert!(!bounded.is_changing());
         config.radius = 0.005;
@@ -427,20 +529,113 @@ mod tests {
     }
 
     #[test]
+    fn fire_fronts_spread_in_all_directions_without_core_pileups() {
+        let mut scenario = scenario(DisasterKind::Fire);
+        scenario.walls.clear();
+        let config = scenario.disaster.as_mut().unwrap();
+        config.center = Point { x: 15.0, y: 10.0 };
+        let d = config.dynamics.as_mut().unwrap();
+        d.max_patches = 32;
+        d.max_radius = 0.8;
+        d.spread_interval_seconds = 0.25;
+        let mut fire = HazardEvolution::new(*config, 42);
+        fire.advance(200, &scenario);
+        assert_eq!(fire.state.areas.len(), 32);
+        for area in &fire.state.areas {
+            assert!(area.radius <= 0.8);
+        }
+        for axis in [true, false] {
+            let values: Vec<_> = fire
+                .state
+                .areas
+                .iter()
+                .map(|a| {
+                    if axis {
+                        a.center.x - 15.0
+                    } else {
+                        a.center.y - 10.0
+                    }
+                })
+                .collect();
+            assert!(
+                values.iter().any(|&v| v > 0.8) && values.iter().any(|&v| v < -0.8),
+                "fire must explore both directions of each axis"
+            );
+        }
+        for (i, a) in fire.state.areas.iter().enumerate() {
+            for b in &fire.state.areas[i + 1..] {
+                assert!(
+                    math::distance_to_point(a.center, b.center) + 1e-8
+                        >= (a.radius + b.radius) * 0.88,
+                    "neighboring pods must not grow over one another"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn fire_follows_both_wall_directions_then_fills_inward_without_crossing_solid_walls() {
+        let mut scenario = scenario(DisasterKind::Fire);
+        scenario.walls = vec![crate::models::Wall {
+            id: "wall".into(),
+            name: None,
+            start: Point { x: 0.0, y: 5.0 },
+            end: Point { x: 30.0, y: 5.0 },
+            thickness: 0.2,
+        }];
+        scenario.doors.clear();
+        scenario.exits.clear();
+        let config = scenario.disaster.as_mut().unwrap();
+        config.center = Point { x: 15.0, y: 5.6 };
+        let d = config.dynamics.as_mut().unwrap();
+        d.max_patches = 32;
+        d.max_radius = 1.0;
+        d.growth_rate = 0.0;
+        d.spread_interval_seconds = 0.25;
+        let mut fire = HazardEvolution::new(*config, 42);
+        fire.advance(200, &scenario);
+        assert_eq!(fire.state.areas.len(), 32);
+        assert!(fire.state.areas[1..5].iter().all(|a| a.center.y < 6.2));
+        assert!(fire.state.areas.iter().all(|a| a.center.y >= 5.0));
+        assert!(fire.state.areas.iter().any(|a| a.center.x < 14.0));
+        assert!(fire.state.areas.iter().any(|a| a.center.x > 16.0));
+        assert!(fire.state.areas.iter().any(|a| a.center.y > 6.5));
+        let from = Point { x: 15.0, y: 4.0 };
+        let to = Point { x: 15.0, y: 6.0 };
+        assert!(!fire_path_clear(from, to, 0, &scenario));
+        scenario.doors.push(crate::models::Opening {
+            id: "door".into(),
+            name: None,
+            wall_id: "wall".into(),
+            offset: 14.0,
+            width: 2.0,
+        });
+        assert!(fire_path_clear(from, to, 0, &scenario));
+        scenario.opening_events = vec![crate::models::OpeningStateChange {
+            step: 1,
+            opening_id: "door".into(),
+            blocked: true,
+        }];
+        assert!(!fire_path_clear(from, to, 1, &scenario));
+    }
+
+    #[test]
     fn tornado_wanders_smoothly_without_entering_any_shelter_or_leaving_the_workspace() {
         for seed in [1, 42, 110] {
             let mut scenario = scenario(DisasterKind::Tornado);
             scenario.tornado_zones = vec![
-                Obstruction {
+                TornadoZone {
                     id: "safe".into(),
+                    max_occupants: None,
                     name: None,
                     x: 12.0,
                     y: 7.0,
                     width: 5.0,
                     height: 5.0,
                 },
-                Obstruction {
+                TornadoZone {
                     id: "safe2".into(),
+                    max_occupants: None,
                     name: None,
                     x: 22.0,
                     y: 2.0,

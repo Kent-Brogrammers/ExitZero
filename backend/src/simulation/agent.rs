@@ -81,7 +81,7 @@ pub(super) fn spawn_agents(
     }
 
     for zone in &scenario.spawn_zones {
-        // Keep each agent's whole disc within its spawn rectangle.
+        // Sample the bounding box; accept only discs inside the actual region and outside holes.
         let min_x = zone.x + radius;
         let min_y = zone.y + radius;
         let available_width = zone.width - 2.0 * radius;
@@ -95,7 +95,7 @@ pub(super) fn spawn_agents(
                     x: min_x + random_unit(&mut random_state) * available_width,
                     y: min_y + random_unit(&mut random_state) * available_height,
                 };
-                if !geometry.can_stand_at(position) {
+                if !zone.contains_disc(position, radius) || !geometry.can_stand_at(position) {
                     continue;
                 }
                 if spawned

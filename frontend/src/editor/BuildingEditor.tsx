@@ -5,6 +5,10 @@ import {
   lengthFromInput,
 } from "../utils/units";
 import DxfImport from "./dxf/DxfImport";
+import { classifyDoors, openingGeometryChanged } from "./exteriorDoors";
+import { isSpawnZone, spawnContains, transformSpawn } from "./spawnGeometry";
+import { addPolygonSpawn } from "./shapes";
+import { DEFAULT_SHELTER_CAPACITY } from "../types/simulation";
 import type { LayoutSaveActions } from "../templates/layouts";
 import { DisasterControls } from "./DisasterControls";
 import {
@@ -122,11 +126,15 @@ function NumberField({
   value,
   onCommit,
   integer = false,
+  min,
+  max,
 }: {
   label: string;
   value: number;
   onCommit: (value: number) => void;
   integer?: boolean;
+  min?: number;
+  max?: number;
 }) {
   const displayed = integer ? value : lengthInputValue(value);
   return (
@@ -137,6 +145,8 @@ function NumberField({
         key={value}
         type="number"
         step={integer ? 1 : "any"}
+        min={min}
+        max={max}
         defaultValue={displayed}
         onBlur={(event) => {
           const input = event.currentTarget.valueAsNumber;
@@ -193,6 +203,8 @@ export function BuildingEditor({
   const [selections, setSelections] = useState<Selection[]>([]);
   const selected = selections.at(-1) ?? null;
   const [propertiesOpen, setPropertiesOpen] = useState(false);
+  const [spawnPolygon, setSpawnPolygon] = useState<Point[]>([]);
+  const [polygonHover, setPolygonHover] = useState<Point | null>(null);
   const [gesture, setGesture] = useState<Gesture | null>(null);
   const [roomDraft, setRoomDraft] = useState<Room | null>(null);
   const [roomCount, setRoomCount] = useState(10);
@@ -323,6 +335,8 @@ export function BuildingEditor({
       return false;
     }
     if (edit) next = edit.building;
+    const geometryChanged = openingGeometryChanged(building, next);
+    if (geometryChanged) next = classifyDoors(next);
     const problem = buildingError(next, false);
     if (problem) {
       setError(problem);
@@ -336,14 +350,25 @@ export function BuildingEditor({
         ? "Openings merged · Undo restores the originals."
         : "",
     );
-    if (afterSelection || edit?.replacements.size) {
+    if (afterSelection || edit?.replacements.size || geometryChanged) {
       const mapped = (afterSelection ?? selections).map((item) =>
         item.kind === "doors" || item.kind === "exits"
           ? { ...item, id: edit?.replacements.get(item.id) ?? item.id }
           : item,
       );
       setSelections(
-        mapped.filter((v, i) => mapped.findIndex((m) => m.id === v.id) === i),
+        mapped
+          .map((item) =>
+            item.kind === "doors" || item.kind === "exits"
+              ? {
+                  ...item,
+                  kind: next.exits.some((o) => o.id === item.id)
+                    ? ("exits" as const)
+                    : ("doors" as const),
+                }
+              : item,
+          )
+          .filter((v, i, all) => all.findIndex((m) => m.id === v.id) === i),
       );
     }
     onChange(next);
@@ -357,6 +382,8 @@ export function BuildingEditor({
   }));
 
   function changeTool(next: EditorTool) {
+    setSpawnPolygon([]);
+    setPolygonHover(null);
     setCursor(null);
     setPanMode(false);
     setPropertiesOpen(false);
@@ -576,6 +603,11 @@ export function BuildingEditor({
       "tornado_zones",
     ] as const)
       for (const rectangle of building[kind] ?? []) {
+        if (kind === "spawn_zones" && isSpawnZone(rectangle)) {
+          if (spawnContains(rectangle, point))
+            return { kind, id: rectangle.id };
+          continue;
+        }
         if (
           point.x >= rectangle.x &&
           point.x <= rectangle.x + rectangle.width &&
@@ -744,12 +776,10 @@ export function BuildingEditor({
       ? moved(gesture)
       : null;
   const placement =
-    !gesture &&
-    (tool === "door" || tool === "exit" || tool === "window") &&
-    cursor
+    !gesture && (tool === "door" || tool === "window") && cursor
       ? openingAt(
           cursor,
-          tool === "window" ? "windows" : tool === "door" ? "doors" : "exits",
+          tool === "window" ? "windows" : "doors",
           openingId.current,
         )
       : null;
@@ -828,12 +858,7 @@ export function BuildingEditor({
           : placement
             ? [
                 {
-                  kind:
-                    tool === "window"
-                      ? "windows"
-                      : tool === "exit"
-                        ? "exits"
-                        : "doors",
+                  kind: tool === "window" ? "windows" : "doors",
                   id:
                     openingPreview?.replacements.get(placement.opening.id) ??
                     placement.opening.id,
@@ -857,7 +882,14 @@ export function BuildingEditor({
               points: freehand?.points,
               invalid: !!spawnProblem,
             }
-          : undefined,
+          : tool === "spawn-polygon" && spawnPolygon.length
+            ? {
+                start: spawnPolygon[0]!,
+                end: polygonHover ?? spawnPolygon.at(-1)!,
+                shape: "spawn-polygon",
+                points: spawnPolygon,
+              }
+            : undefined,
         window.devicePixelRatio,
         undefined,
         {
@@ -891,6 +923,8 @@ export function BuildingEditor({
     openingPreview,
     furnitureSymbols,
     spawnProblem,
+    spawnPolygon,
+    polygonHover,
     camera,
     activeSnap,
     cursor,
@@ -922,6 +956,21 @@ export function BuildingEditor({
     setCursor(point);
     setError("");
     setNotice("");
+    if (tool === "spawn-polygon") {
+      if (
+        spawnPolygon.length >= 3 &&
+        distance(point, spawnPolygon[0]!) < tolerance()
+      )
+        finishSpawnPolygon();
+      else if (spawnPolygon.length < 512) {
+        setSpawnPolygon((points) => [...points, point]);
+        setPolygonHover(point);
+      } else
+        setError(
+          "A spawn polygon supports up to 512 vertices. Close this polygon first.",
+        );
+      return;
+    }
     if (tool === "spawn-room") {
       try {
         setRoomDraft(detectRoom(building, point));
@@ -979,9 +1028,8 @@ export function BuildingEditor({
       }
       return;
     }
-    if (tool === "door" || tool === "exit" || tool === "window") {
-      const kind =
-        tool === "window" ? "windows" : tool === "door" ? "doors" : "exits";
+    if (tool === "door" || tool === "window") {
+      const kind = tool === "window" ? "windows" : "doors";
       const candidate = openingAt(point, kind, openingId.current);
       if (!candidate) {
         setError("Click near a wall to place an opening.");
@@ -1089,6 +1137,7 @@ export function BuildingEditor({
     }
     const point = world(event);
     setCursor(point);
+    if (tool === "spawn-polygon") setPolygonHover(point);
     setGesture((g) => {
       if (!g) return g;
       if (g.curve)
@@ -1224,6 +1273,7 @@ export function BuildingEditor({
       const zone = {
         id: `shelter_${crypto.randomUUID()}`,
         name: nextObjectName(building, "tornado_zones"),
+        max_occupants: DEFAULT_SHELTER_CAPACITY,
         ...dragRectangle(g.start, g.current, base),
       };
       if (
@@ -1266,6 +1316,22 @@ export function BuildingEditor({
         });
     }
   }
+  function finishSpawnPolygon() {
+    if (spawnPolygon.length < 3) {
+      setError("Add at least three vertices before closing the polygon.");
+      return;
+    }
+    const next = addPolygonSpawn(
+      extendForPoints(building, ...spawnPolygon),
+      spawnPolygon,
+    );
+    const zone = next.spawn_zones.at(-1)!;
+    if (commit(next, false, [{ kind: "spawn_zones", id: zone.id }])) {
+      setSpawnPolygon([]);
+      setPolygonHover(null);
+      setTool("select");
+    }
+  }
   function changeSelected(field: string, value: number) {
     if (!selected || !selectedElement) return;
     if (field === "count" && selectedRoomZones.length) {
@@ -1290,7 +1356,39 @@ export function BuildingEditor({
     const element = (next[selected.kind] ?? []).find(
       (v) => v.id === selected.id,
     )!;
-    if ("start" in element && field.includes(".")) {
+    if (
+      isSpawnZone(element) &&
+      element.polygon &&
+      (field === "width" || field === "height") &&
+      value <= 0
+    ) {
+      setError("Polygon width and height must be positive.");
+      return;
+    }
+    if (
+      isSpawnZone(element) &&
+      element.polygon &&
+      ["x", "y", "width", "height"].includes(field)
+    ) {
+      const old = { ...element };
+      Object.assign(
+        element,
+        transformSpawn(old, (p) => ({
+          x:
+            field === "x"
+              ? p.x + value - old.x
+              : field === "width"
+                ? old.x + ((p.x - old.x) * value) / old.width
+                : p.x,
+          y:
+            field === "y"
+              ? p.y + value - old.y
+              : field === "height"
+                ? old.y + ((p.y - old.y) * value) / old.height
+                : p.y,
+        })),
+      );
+    } else if ("start" in element && field.includes(".")) {
       const [endpoint, axis] = field.split(".") as ["start" | "end", "x" | "y"];
       element[endpoint][axis] = value;
     } else Object.assign(element, { [field]: value });
@@ -1498,7 +1596,7 @@ export function BuildingEditor({
               );
             setRoomCount(count);
             setNotice(
-              `Room filled · ${count} occupants across ${edit.ids.length} spawn areas · Edit the total in Properties`,
+              `Room filled · ${count} occupants in one polygon · Edit the total in Properties`,
             );
           }}
         />
@@ -1655,20 +1753,20 @@ export function BuildingEditor({
                               ? "Drag opposite corners · Shift for square · Creates four walls"
                               : tool === "wall-circle"
                                 ? "Drag an ellipse · Shift for circle · Saves 32 connected wall segments"
-                                : tool === "door" ||
-                                    tool === "exit" ||
-                                    tool === "window"
-                                  ? `Click a wall to place ${tool === "exit" ? "an exit" : tool === "window" ? "a window" : "a door"}. Adjust its width in Properties.`
+                                : tool === "door" || tool === "window"
+                                  ? `Click a wall to place ${tool === "window" ? "a window" : "a door (exterior doors become exits)"}. Adjust its width in Properties.`
                                   : tool === "stairs"
                                     ? "Drag a walkable stair-area marker. It does not connect floors or block occupants."
-                                    : tool === "spawn-room"
-                                      ? "Click inside an enclosed room · Set its occupant count · Walls, furniture and body clearance are respected"
-                                      : tool === "spawn"
-                                        ? (spawnProblem ??
-                                          (spawnDraft
-                                            ? `${formatDimensions(spawnDraft.spawn_zones.at(-1)!.width, spawnDraft.spawn_zones.at(-1)!.height, 2)} · ${spawnDraft.spawn_zones.at(-1)!.count} occupants · Release to place`
-                                            : "Drag across rooms or furniture · Agents spawn in clear space · Shift for square · Set occupants in Properties"))
-                                        : "Drag a rectangle · Shift for square · Edit dimensions in Properties"}
+                                    : tool === "spawn-polygon"
+                                      ? "Click corners; click the first corner or press Enter to finish. Escape cancels."
+                                      : tool === "spawn-room"
+                                        ? "Click inside an enclosed room · Set its occupant count · Walls, furniture and body clearance are respected"
+                                        : tool === "spawn"
+                                          ? (spawnProblem ??
+                                            (spawnDraft
+                                              ? `${formatDimensions(spawnDraft.spawn_zones.at(-1)!.width, spawnDraft.spawn_zones.at(-1)!.height, 2)} · ${spawnDraft.spawn_zones.at(-1)!.count} occupants · Release to place`
+                                              : "Drag across rooms or furniture · Agents spawn in clear space · Shift for square · Set occupants in Properties"))
+                                          : "Drag a rectangle · Shift for square · Edit dimensions in Properties"}
             </p>
             <div className="canvas-wrap editor-canvas-wrap">
               <canvas
@@ -1739,7 +1837,14 @@ export function BuildingEditor({
                     return;
                   }
                   if (disabled) return;
+                  if (event.key === "Enter" && tool === "spawn-polygon") {
+                    event.preventDefault();
+                    finishSpawnPolygon();
+                    return;
+                  }
                   if (event.key === "Escape") {
+                    setSpawnPolygon([]);
+                    setPolygonHover(null);
                     setGesture(null);
                     setCursor(null);
                     if (propertiesOpen) closeProperties();
@@ -1964,13 +2069,17 @@ export function BuildingEditor({
                 )}
                 {selectedRoomZones.length > 0 && (
                   <p className="note">
-                    Room fill · {selectedRoomZones.length} clear areas. Room
-                    occupants updates the whole fill; positions and sizes below
-                    apply to this area.
+                    Room fill. Room occupants updates the total; positions and
+                    sizes below move or scale this region.
                   </p>
                 )}
                 {(selected.kind === "doors" || selected.kind === "exits") && (
                   <>
+                    <p className="note">
+                      {selected.kind === "exits"
+                        ? "Exterior door · evacuation exit"
+                        : "Interior door · connects rooms"}
+                    </p>
                     <label className="block-toggle">
                       <input
                         type="checkbox"
@@ -2023,6 +2132,28 @@ export function BuildingEditor({
                       JSON saves names and geometry. Styles support Undo/Redo
                       but last only this session; import/reload restores plain
                       objects.
+                    </p>
+                  </>
+                )}
+                {selected.kind === "tornado_zones" && (
+                  <>
+                    <NumberField
+                      label="Maximum occupants"
+                      value={
+                        building.tornado_zones?.find(
+                          (zone) => zone.id === selected.id,
+                        )?.max_occupants ?? DEFAULT_SHELTER_CAPACITY
+                      }
+                      integer
+                      min={1}
+                      max={10000}
+                      onCommit={(value) =>
+                        changeSelected("max_occupants", value)
+                      }
+                    />
+                    <p className="note">
+                      When full, people head to another available shelter. If no
+                      shelter has room, they remain unsheltered.
                     </p>
                   </>
                 )}

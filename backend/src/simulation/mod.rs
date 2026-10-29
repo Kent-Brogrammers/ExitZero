@@ -158,6 +158,7 @@ fn run(
     let mut routed_disaster = vec![Vec::new(); agents.len()];
     let mut last_disaster_replan = vec![f64::NEG_INFINITY; agents.len()];
     let mut sheltered_count = 0;
+    let mut shelter_admissions = BTreeMap::new();
     let tornado = scenario
         .disaster
         .is_some_and(|d| d.kind == crate::models::DisasterKind::Tornado);
@@ -267,13 +268,25 @@ fn run(
                 .map(|area| (area.id, area.revision))
                 .collect();
             let changed_disaster = versions != routed_disaster[i];
-            if evacuated[i] || windows.controls(i) || (!changed_beliefs[i] && !changed_disaster) {
+            let shelter_full = !evacuated[i]
+                && routes[i].as_ref().is_some_and(|route| {
+                    tornado
+                        && beliefs
+                            .geometry_for_agent(&agents[i])
+                            .full_shelters
+                            .contains(&route.exit_id)
+                });
+            if evacuated[i]
+                || windows.controls(i)
+                || (!changed_beliefs[i] && !changed_disaster && !shelter_full)
+            {
                 continue;
             }
             let map = beliefs.geometry_for_agent(&agents[i]);
             let mut from = agents[i].position;
             let valid = routes[i].as_ref().is_some_and(|route| {
-                !map.opening_is_unsafe(&route.exit_id)
+                !shelter_full
+                    && !map.opening_is_unsafe(&route.exit_id)
                     && route.waypoints[next_waypoint[i]..].iter().all(|&to| {
                         let clear = map.can_move(from, to);
                         from = to;
@@ -929,7 +942,8 @@ fn run(
                 continue;
             }
             let route = routes[i].as_ref().unwrap();
-            if (tornado && catastrophe::shelter_at(scenario, proposed[i]).is_some())
+            if (tornado
+                && catastrophe::shelter_at(scenario, proposed[i], &shelter_admissions).is_some())
                 || (!tornado && geometry.at_exit(proposed[i], &route.exit_id))
             {
                 leaving.push(i);
@@ -946,14 +960,28 @@ fn run(
         // Include exit arrivals in traffic before removing evacuated agents.
         record_traffic(scenario, &agents, &evacuated, &mut traffic);
         for i in leaving {
+            // Admit sequentially so simultaneous arrivals cannot exceed the limit.
+            let shelter_id = if tornado {
+                let Some(zone) =
+                    catastrophe::shelter_at(scenario, agents[i].position, &shelter_admissions)
+                else {
+                    continue;
+                };
+                let admitted = shelter_admissions.entry(zone.id.clone()).or_insert(0);
+                *admitted += 1;
+                if *admitted == zone.capacity() {
+                    beliefs.close_shelter(&zone.id);
+                }
+                Some(zone.id.clone())
+            } else {
+                None
+            };
             evacuated[i] = true;
             if tornado {
                 sheltered_count += 1;
                 agents[i].sheltered = true;
                 statistics[i].shelter = Some(crate::models::ShelterArrival {
-                    id: catastrophe::shelter_at(scenario, agents[i].position)
-                        .unwrap()
-                        .into(),
+                    id: shelter_id.unwrap(),
                     step,
                     seconds: f64::from(step) * scenario.time_step_seconds,
                 });

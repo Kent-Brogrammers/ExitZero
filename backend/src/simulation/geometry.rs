@@ -229,6 +229,8 @@ pub(super) struct Geometry<'a> {
     service_apertures: Vec<Opening>,
     pub(super) disaster: Option<crate::models::Disaster>,
     pub(super) hazard_areas: Vec<crate::models::HazardArea>,
+    /// Shelter availability is shared by the alarm response, independently of hazard knowledge.
+    pub(super) full_shelters: BTreeSet<String>,
 }
 
 // Create geometry operations for a borrowed building scenario.
@@ -347,6 +349,7 @@ impl<'a> Geometry<'a> {
             partial_knowledge,
             observed_openings,
             service_apertures: Vec::new(),
+            full_shelters: BTreeSet::new(),
             disaster: scenario.disaster,
             hazard_areas: scenario
                 .disaster
@@ -461,6 +464,7 @@ impl<'a> Geometry<'a> {
                 .sum::<usize>()
             + set_bytes(&self.blocked_openings)
             + set_bytes(&self.observed_openings)
+            + set_bytes(&self.full_shelters)
             + self.index.entries.capacity() * std::mem::size_of::<IndexedPrimitive>()
             + self.index.nodes.capacity() * std::mem::size_of::<BoundsNode>()
     }
@@ -964,7 +968,8 @@ impl<'a> Geometry<'a> {
             .is_some_and(|d| d.kind == crate::models::DisasterKind::Tornado);
         if tornado
             && self.scenario.tornado_zones.iter().any(|zone| {
-                to.x >= zone.x + self.scenario.agent_radius
+                !self.full_shelters.contains(&zone.id)
+                    && to.x >= zone.x + self.scenario.agent_radius
                     && to.x <= zone.x + zone.width - self.scenario.agent_radius
                     && to.y >= zone.y + self.scenario.agent_radius
                     && to.y <= zone.y + zone.height - self.scenario.agent_radius

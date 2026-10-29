@@ -483,6 +483,12 @@ impl Navigation {
                 None => &direct_connections,
             };
             for edge in connections {
+                if geometry
+                    .full_shelters
+                    .contains(&self.goals.exits[edge.exit].id)
+                {
+                    continue;
+                }
                 if avoid_danger && !edge.safe {
                     continue;
                 }

@@ -132,7 +132,6 @@ export function EditorDrawingRail({
         )}
       </StudioPopover>
       {button("door", "Door", "door")}
-      {button("exit", "Exit", "exit")}
       {button("window", "Window", "window")}
       <StudioPopover
         label="Spawn zone"
@@ -140,7 +139,7 @@ export function EditorDrawingRail({
         className="editor-shapes"
         disabled={disabled}
         indicator={false}
-        triggerClassName={`rail-button${tool === "spawn" || tool === "spawn-room" || tool === "occupant" ? " is-selected" : ""}`}
+        triggerClassName={`rail-button${tool === "spawn" || tool === "spawn-room" || tool === "spawn-polygon" || tool === "occupant" ? " is-selected" : ""}`}
         triggerContent={content("spawn", "Spawn zone")}
         onOpen={onOpenPanel}
       >
@@ -154,6 +153,13 @@ export function EditorDrawingRail({
               "Draw Zone",
               "Drag a rectangular area",
               "rectangle",
+              close,
+            )}
+            {choice(
+              "spawn-polygon",
+              "Draw Polygon",
+              "Click vertices, then close the polygon",
+              "spawn",
               close,
             )}
             {choice(

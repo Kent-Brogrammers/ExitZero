@@ -17,6 +17,9 @@ function canvasFixture(width: number, height = (width * 2) / 3) {
     fillText: vi.fn(),
     measureText: vi.fn((text: string) => ({ width: text.length * 7 })),
     beginPath: vi.fn(),
+    closePath: vi.fn(),
+    rect: vi.fn(),
+    clip: vi.fn(),
     moveTo: vi.fn(),
     lineTo: vi.fn(),
     stroke: vi.fn(function (this: {
@@ -56,6 +59,85 @@ function canvasFixture(width: number, height = (width * 2) / 3) {
 }
 
 describe("freeform Canvas drawing", () => {
+  it("draws polygon outlines and holes instead of their bounding rectangles", () => {
+    const { context, element } = canvasFixture(600);
+    const polygon = [
+      { x: 2, y: 2 },
+      { x: 8, y: 2 },
+      { x: 2, y: 8 },
+    ];
+    drawLayout(
+      element,
+      {
+        ...example,
+        spawn_zones: [
+          { id: "poly", x: 2, y: 2, width: 6, height: 6, count: 2, polygon },
+        ],
+      },
+      null,
+    );
+    expect(context.fill).toHaveBeenCalledWith("evenodd");
+    expect(context.lineTo).toHaveBeenCalledWith(8, 2);
+    expect(context.fillRect).not.toHaveBeenCalledWith(2, 2, 6, 6);
+  });
+  it("renders hazard unions above spawn fills without stacking overlapping patch opacity", () => {
+    const { context, element } = canvasFixture(600);
+    const fillColors: string[] = [];
+    context.fill.mockImplementation(() => {
+      fillColors.push(context.fillStyle);
+    });
+    const building = {
+      ...example,
+      disaster: { kind: "fire" as const, center: { x: 5, y: 5 }, radius: 1 },
+    };
+    drawLayout(element, building, null, undefined, 1, undefined, {
+      disasterState: {
+        kind: "fire",
+        areas: [
+          { id: 0, revision: 0, center: { x: 5, y: 5 }, radius: 1 },
+          { id: 1, revision: 1, center: { x: 6, y: 5 }, radius: 1 },
+        ],
+      },
+    });
+    const index = fillColors.indexOf("#f47b3924");
+    expect(fillColors.filter((c) => c === "#f47b3924")).toHaveLength(1);
+    expect(fillColors.filter((c) => c === "#f47b3960")).toHaveLength(1);
+    const zone = building.spawn_zones[0]!;
+    const spawnIndex = context.fillRect.mock.calls.findIndex(
+      (args) =>
+        JSON.stringify(args) ===
+        JSON.stringify([zone.x, zone.y, zone.width, zone.height]),
+    );
+    expect(context.fill.mock.invocationCallOrder[index]!).toBeGreaterThan(
+      context.fillRect.mock.invocationCallOrder[spawnIndex]!,
+    );
+  });
+  it("labels tornado shelters with their configured or legacy maximum", () => {
+    const { context, element } = canvasFixture(600);
+    drawLayout(
+      element,
+      {
+        ...example,
+        tornado_zones: [
+          {
+            id: "limited",
+            name: "Safe room",
+            x: 20,
+            y: 10,
+            width: 4,
+            height: 4,
+            max_occupants: 12,
+          },
+          { id: "legacy", x: 20, y: 15, width: 4, height: 4 },
+        ],
+      },
+      null,
+    );
+    const labels = context.fillText.mock.calls.map(([text]) => text);
+    expect(labels).toContain("Safe room · Max 12");
+    expect(labels).toContain("Tornado zone · Max 50");
+  });
+
   it.each(Array.from({ length: 16 }, (_, combination) => [combination]))(
     "renders exactly the requested wall/opening measurement combination %s",
     (combination) => {

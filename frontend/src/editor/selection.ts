@@ -1,4 +1,5 @@
 import type { BuildingScenario, Point } from "../types/simulation";
+import { isSpawnZone, transformSpawn } from "./spawnGeometry";
 import {
   clamp,
   hasRectangleSize,
@@ -195,6 +196,13 @@ export function moveSelection(
         wallLength(wall) - e.width,
       );
     } else {
+      if (isSpawnZone(e)) {
+        Object.assign(
+          e,
+          transformSpawn(e, (p) => ({ x: p.x + delta.x, y: p.y + delta.y })),
+        );
+        continue;
+      }
       e.x += delta.x;
       e.y += delta.y;
     }
@@ -223,6 +231,8 @@ export function resizeSelection(
 ): BuildingScenario {
   const bounds = selectionBounds(b, items);
   if (!bounds || !canResizeSelection(b, items)) return b;
+  if ((bounds.width > 0 && width <= 0) || (bounds.height > 0 && height <= 0))
+    return b;
   const sx = bounds.width ? width / bounds.width : 1,
     sy = bounds.height ? height / bounds.height : 1;
   const transform = (p: Point) => ({
@@ -238,6 +248,10 @@ export function resizeSelection(
       e.start = transform(e.start);
       e.end = transform(e.end);
     } else if (!("wall_id" in e)) {
+      if (isSpawnZone(e)) {
+        Object.assign(e, transformSpawn(e, transform));
+        continue;
+      }
       const p = transform(e);
       e.x = p.x;
       e.y = p.y;

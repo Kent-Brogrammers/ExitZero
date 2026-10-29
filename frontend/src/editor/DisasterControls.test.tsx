@@ -56,6 +56,30 @@ describe("catastrophe configuration and tornado zones", () => {
     building.disaster.center = { x: 21, y: 11 };
     expect(buildingError(building)).toContain("outside");
   });
+
+  it("preserves shelter limits across edits and JSON and rejects invalid limits", () => {
+    const building = fixture();
+    building.tornado_zones = [
+      { id: "shelter", x: 20, y: 10, width: 2, height: 2, max_occupants: 12 },
+    ];
+    const moved = moveSelection(
+      building,
+      [{ kind: "tornado_zones", id: "shelter" }],
+      { x: 1, y: 0 },
+    );
+    const restored = JSON.parse(JSON.stringify(moved)) as BuildingScenario;
+    expect(restored.tornado_zones![0]!.max_occupants).toBe(12);
+    expect(buildingError(restored)).toBeNull();
+    for (const limit of [0, -1, 1.5, 10001, null, "12"]) {
+      const invalid = structuredClone(restored);
+      Object.assign(invalid.tornado_zones![0]!, { max_occupants: limit });
+      expect(buildingError(invalid)).toContain(
+        "whole number between 1 and 10,000",
+      );
+    }
+    delete restored.tornado_zones![0]!.max_occupants;
+    expect(buildingError(restored)).toBeNull();
+  });
 });
 
 it("exposes kind-specific evolution parameters and validates their bounds", async () => {
