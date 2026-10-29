@@ -1444,6 +1444,28 @@ export function BuildingEditor({
     }
     return false;
   }
+  function clearPlan() {
+    return replaceLayout(
+      {
+        ...building,
+        walls: [],
+        doors: [],
+        exits: [],
+        windows: [],
+        spawn_zones: [],
+        placed_occupants: [],
+        blocked_exit_ids: [],
+        opening_events: [],
+        obstructions: [],
+        stair_areas: [],
+        tornado_zones: [],
+        disaster: undefined,
+        pursuit: undefined,
+        window_escape_context: undefined,
+      },
+      "an empty layout",
+    );
+  }
   function exportLayout() {
     savedLayout.current = JSON.stringify(building);
     onSaved?.(building, "export");
@@ -1615,26 +1637,7 @@ export function BuildingEditor({
               propertiesButton={propertiesButton}
               onUndo={undo}
               onRedo={redoChange}
-              onNew={() =>
-                replaceLayout(
-                  {
-                    ...building,
-                    walls: [],
-                    doors: [],
-                    exits: [],
-                    ...(building.windows ? { windows: [] } : {}),
-                    spawn_zones: [],
-                    placed_occupants: [],
-                    blocked_exit_ids: [],
-                    ...(building.opening_events ? { opening_events: [] } : {}),
-                    obstructions: [],
-                    ...(building.stair_areas ? { stair_areas: [] } : {}),
-                    tornado_zones: [],
-                    disaster: undefined,
-                  },
-                  "an empty layout",
-                )
-              }
+              onNew={clearPlan}
               onImport={() => importInput.current?.click()}
               onImportDxf={() => dxfDialog.current?.showModal()}
               onExport={exportLayout}

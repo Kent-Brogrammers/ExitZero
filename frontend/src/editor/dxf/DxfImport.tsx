@@ -15,6 +15,7 @@ import {
   buildDxf,
   dxfScale,
   suggestedWallLayers,
+  suggestedSolidWalls,
   type DxfDrawing,
   type OpeningChoice,
   type OpeningCandidate,
@@ -61,7 +62,9 @@ function Preview({
           ? "#176e56"
           : building.doors.some((o) => o.id === opening.id)
             ? "#5d4a22"
-            : "#3b4350";
+            : building.windows?.some((o) => o.id === opening.id)
+              ? "#245d80"
+              : "#3b4350";
         ctx.fill();
         ctx.strokeStyle = "#86ceff";
         ctx.stroke();
@@ -235,7 +238,8 @@ export default function DxfImport({
         const next = event.data.drawing;
         setDrawing(next);
         setScale(dxfScale(next.units) ?? 0.001);
-        setLayers(suggestedWallLayers(next));
+        const wallLayers = suggestedWallLayers(next);
+        setLayers(wallLayers);
         const points = next.strokes.flatMap((s) => [s.start, s.end]);
         setCrop({
           minX: Math.min(...points.map((p) => p.x)),
@@ -244,7 +248,9 @@ export default function DxfImport({
           maxY: Math.max(...points.map((p) => p.y)),
         });
         setCropEnabled(false);
-        setClosedRectanglesAreWalls(false);
+        setClosedRectanglesAreWalls(
+          suggestedSolidWalls(next, wallLayers, dxfScale(next.units)),
+        );
         setChoices({ key: "", values: {} });
         setRemoved({ key: "", ids: [] });
       };
@@ -375,8 +381,8 @@ export default function DxfImport({
                   Closed rectangles are solid walls
                 </label>
                 <p>
-                  Leave off for room outlines. Enable only for filled wall
-                  footprints.
+                  Suggested for collections of thin wall footprints. Leave off
+                  for room outlines; verify the preview before importing.
                 </p>
                 <label>
                   Line-wall thickness (ft)
@@ -472,13 +478,15 @@ export default function DxfImport({
                 <h3>4 · Automatic door / exit suggestions</h3>
                 <p>
                   Roles are prefilled using source layers and geometry. Window
-                  gaps stay sealed; door symbols suggest doors; doors on the
-                  outer plan extent suggest exits. The outer extent is only a
-                  heuristic, so verify exits lead outdoors. Uncertain gaps stay
-                  sealed. You can override any suggestion below.
+                  symbols become solid glazing with emergency escape disabled;
+                  door symbols suggest doors; doors on the outer plan extent
+                  suggest exits. The outer extent is only a heuristic, so verify
+                  exits lead outdoors. Uncertain gaps stay sealed. You can
+                  override any suggestion below.
                 </p>
                 <p>
                   {preview.walls.length} walls · {preview.doors.length} doors ·{" "}
+                  {preview.windows?.length ?? 0} windows ·{" "}
                   {preview.exits.length} suggested exits ·{" "}
                   {
                     candidates.filter(
@@ -512,6 +520,9 @@ export default function DxfImport({
                             <option value="review">Choose role…</option>
                             <option value="door">Door</option>
                             <option value="exit">Emergency exit</option>
+                            <option value="window">
+                              Window (solid glazing)
+                            </option>
                             <option value="closed">Seal gap</option>
                           </select>
                           <small className="dxf-guess">
@@ -547,9 +558,10 @@ export default function DxfImport({
                   </p>
                 </details>
                 <p>
-                  After applying: review wall joins, place occupants in spawn
-                  zones, then use Run simulation. No occupants or exit
-                  connectivity are invented from the drawing.
+                  After applying: review wall joins, place occupants, then use
+                  Run simulation. Configure window escape in Properties if
+                  appropriate. No occupants or exit connectivity are invented
+                  from the drawing.
                 </p>
                 <button
                   className="primary"

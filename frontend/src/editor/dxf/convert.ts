@@ -1,6 +1,7 @@
 import { formatLength } from "../../utils/units";
 import DxfParser from "dxf-parser";
 import type { Point, BuildingScenario, Wall } from "../../types/simulation";
+import { configureWindowEscape } from "../openings";
 
 export interface DxfStroke {
   id: string;
@@ -14,6 +15,7 @@ export interface DxfDrawing {
   rectangles?: {
     strokeIds: string[];
     centerline: DxfStroke;
+    alternateCenterline?: DxfStroke;
   }[];
   units: number;
   warnings: string[];
@@ -24,7 +26,7 @@ export interface OpeningCandidate {
   offset: number;
   width: number;
 }
-export type OpeningChoice = "review" | "door" | "exit" | "closed";
+export type OpeningChoice = "review" | "door" | "exit" | "window" | "closed";
 export interface ImportOptions {
   layers: string[];
   scale: number;
@@ -190,6 +192,7 @@ export function parseDxf(text: string): DxfDrawing {
       points.pop();
     // Keep outlines until the reviewer explicitly identifies filled wall rectangles.
     let centerline: Omit<DxfStroke, "id"> | undefined;
+    let alternateCenterline: Omit<DxfStroke, "id"> | undefined;
     if (e.shape && points.length === 4) {
       const [a, b, c, d] = points as [Point, Point, Point, Point];
       const lengths = [
@@ -203,11 +206,7 @@ export function parseDxf(text: string): DxfDrawing {
         Math.abs(dot) < 1e-5 * lengths[0]! * lengths[1]! &&
         Math.abs(lengths[0]! - lengths[2]!) < 1e-5 * lengths[0]! &&
         Math.abs(lengths[1]! - lengths[3]!) < 1e-5 * lengths[1]!;
-      if (
-        rectangular &&
-        Math.max(lengths[0]!, lengths[1]!) >
-          Math.min(lengths[0]!, lengths[1]!) * 1.2
-      ) {
+      if (rectangular) {
         const mid = (p: Point, q: Point) => ({
           x: (p.x + q.x) / 2,
           y: (p.y + q.y) / 2,
@@ -218,6 +217,17 @@ export function parseDxf(text: string): DxfDrawing {
           end: lengths[0]! >= lengths[1]! ? mid(b, c) : mid(c, d),
           thickness: Math.min(lengths[0]!, lengths[1]!),
         };
+        if (
+          Math.max(lengths[0]!, lengths[1]!) <=
+          Math.min(lengths[0]!, lengths[1]!) * 1.2
+        ) {
+          alternateCenterline = {
+            layer: e.layer,
+            start: lengths[0]! >= lengths[1]! ? mid(a, b) : mid(a, d),
+            end: lengths[0]! >= lengths[1]! ? mid(c, d) : mid(b, c),
+            thickness: Math.max(lengths[0]!, lengths[1]!),
+          };
+        }
       }
     }
     const firstStroke = strokes.length;
@@ -229,6 +239,14 @@ export function parseDxf(text: string): DxfDrawing {
       rectangles.push({
         strokeIds,
         centerline: { id: strokeIds[0]!, ...centerline },
+        ...(alternateCenterline
+          ? {
+              alternateCenterline: {
+                id: strokeIds[0]!,
+                ...alternateCenterline,
+              },
+            }
+          : {}),
       });
     }
   }
@@ -265,6 +283,35 @@ export function dxfScale(units: number): number | null {
     )[units] ?? null
   );
 }
+
+/** Prefill only a consistent collection of thin wall footprints; room outlines
+ * and unitless drawings still require the reviewer's explicit choice. */
+export function suggestedSolidWalls(
+  drawing: DxfDrawing,
+  layers: string[],
+  scale: number | null,
+): boolean {
+  if (scale === null || !Number.isFinite(scale) || scale <= 0) return false;
+  const selected = drawing.strokes.filter((s) => layers.includes(s.layer));
+  const ids = new Set(selected.map((s) => s.id));
+  const thin = (drawing.rectangles ?? []).filter(
+    (r) =>
+      /wall|partition|mur|pared/i.test(r.centerline.layer.split(" · ")[0]!) &&
+      r.strokeIds.every((id) => ids.has(id)) &&
+      r.centerline.thickness! * scale >= 0.05 &&
+      r.centerline.thickness! * scale <= 0.4,
+  );
+  return (
+    thin.filter(
+      (r) =>
+        distance(r.centerline.start, r.centerline.end) >=
+        3 * r.centerline.thickness!,
+    ).length >= 3 &&
+    thin.reduce((count, r) => count + r.strokeIds.length, 0) >=
+      selected.length * 0.8
+  );
+}
+
 export function buildDxf(
   drawing: DxfDrawing,
   options: ImportOptions,
@@ -349,9 +396,53 @@ export function buildDxf(
   const replacements = new Map<string, DxfStroke>();
   const replaced = new Set<string>();
   if (options.closedRectanglesAreWalls) {
-    for (const rectangle of drawing.rectangles ?? []) {
-      if (!rectangle.strokeIds.every((id) => selectedIds.has(id))) continue;
-      replacements.set(rectangle.strokeIds[0]!, rectangle.centerline);
+    const rectangles = (drawing.rectangles ?? []).filter((r) =>
+      r.strokeIds.every((id) => selectedIds.has(id)),
+    );
+    for (const rectangle of rectangles) {
+      let centerline = rectangle.centerline;
+      if (rectangle.alternateCenterline) {
+        // A square wall end has no intrinsic long axis. Use an aligned wall
+        // footprint across a nearby gap, never vertex order or a room outline.
+        const aligned = [centerline, rectangle.alternateCenterline].filter(
+          (candidate) => {
+            const length = distance(candidate.start, candidate.end);
+            const ux = (candidate.end.x - candidate.start.x) / length;
+            const uy = (candidate.end.y - candidate.start.y) / length;
+            const along = (p: Point) =>
+              (p.x - candidate.start.x) * ux + (p.y - candidate.start.y) * uy;
+            return rectangles.some((other) => {
+              const line = other.centerline;
+              if (
+                other === rectangle ||
+                other.alternateCenterline ||
+                line.layer !== candidate.layer ||
+                Math.abs(line.thickness! - candidate.thickness!) *
+                  options.scale >
+                  0.015
+              )
+                return false;
+              const normal = (p: Point) =>
+                Math.abs(
+                  (p.x - candidate.start.x) * uy -
+                    (p.y - candidate.start.y) * ux,
+                );
+              if (
+                Math.max(normal(line.start), normal(line.end)) * options.scale >
+                0.015
+              )
+                return false;
+              const a = along(line.start),
+                b = along(line.end);
+              const gap = Math.max(0, Math.min(a, b) - length, -Math.max(a, b));
+              return gap * options.scale <= options.maxGap;
+            });
+          },
+        );
+        if (aligned.length !== 1) continue;
+        centerline = aligned[0]!;
+      }
+      replacements.set(rectangle.strokeIds[0]!, centerline);
       for (const id of rectangle.strokeIds) replaced.add(id);
     }
   }
@@ -367,7 +458,9 @@ export function buildDxf(
   for (const stroke of wallStrokes) {
     let a = world(stroke.start),
       b = world(stroke.end);
-    if (a.x > b.x || (a.x === b.x && a.y > b.y)) [a, b] = [b, a];
+    // Rotated verticals can differ in X by floating-point roundoff. Orient
+    // them consistently so collinear footprints share one interval group.
+    if (Math.abs(a.x - b.x) < 1e-8 ? a.y > b.y : a.x > b.x) [a, b] = [b, a];
     const length = distance(a, b);
     if (length < 0.1) {
       discarded++;
@@ -456,6 +549,7 @@ export function buildDxf(
     exits: [],
     ...(base.windows ? { windows: [] } : {}),
     spawn_zones: [],
+    placed_occupants: [],
     blocked_exit_ids: [],
     opening_events: [],
     obstructions: [],
@@ -463,6 +557,8 @@ export function buildDxf(
     tornado_zones: [],
   };
   delete building.disaster;
+  delete building.pursuit;
+  delete building.window_escape_context;
   return {
     building,
     openings,
@@ -486,16 +582,22 @@ export function applyOpenings(
   choices: Record<string, OpeningChoice>,
   preview = false,
 ): BuildingScenario {
-  const next = {
+  let next: BuildingScenario = {
     ...building,
     doors: [] as OpeningCandidate[],
     exits: [] as OpeningCandidate[],
+    windows: [],
   };
   for (const opening of candidates) {
     const choice = choices[opening.id] ?? "review";
     if (choice === "review" && !preview)
       throw new Error("Review every suggested opening before importing.");
     if (choice === "exit") next.exits.push(opening);
+    else if (choice === "window")
+      next = configureWindowEscape(next, opening, {
+        enabled: false,
+        exterior_available: false,
+      });
     else if (choice === "door" || (choice === "review" && preview))
       next.doors.push(opening);
   }
