@@ -136,7 +136,7 @@ fn validate_run(
             "invalid optimization simulation output: {message}"
         ))
     })?;
-    let population: u32 = building.spawn_zones.iter().map(|zone| zone.count).sum();
+    let population = building.population() as u32;
     if run.metrics.total_population != population
         || run.width != building.width
         || run.height != building.height

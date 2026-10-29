@@ -53,6 +53,7 @@ export function drawLayout(
     showBlockedLabels?: boolean;
     snapTarget?: WallSnapTarget | null;
     measurements?: MeasurementVisibility;
+    showPlacedOccupants?: boolean;
   },
 ) {
   const ctx = canvas.getContext("2d");
@@ -262,6 +263,39 @@ export function drawLayout(
     }
   }
   ctx.lineCap = "round";
+  if (options?.showPlacedOccupants !== false) {
+    for (const [index, occupant] of (
+      building.placed_occupants ?? []
+    ).entries()) {
+      ctx.beginPath();
+      ctx.arc(occupant.x, occupant.y, building.agent_radius, 0, Math.PI * 2);
+      ctx.fillStyle = palette.selection;
+      ctx.fill();
+      ctx.strokeStyle = selectedIds.has(occupant.id)
+        ? palette.wall
+        : palette.background;
+      ctx.lineWidth = selectedIds.has(occupant.id) ? 2 * px : px;
+      ctx.stroke();
+      if (selectedIds.has(occupant.id)) {
+        ctx.beginPath();
+        ctx.arc(
+          occupant.x,
+          occupant.y,
+          building.agent_radius + 3 * px,
+          0,
+          Math.PI * 2,
+        );
+        ctx.stroke();
+        ctx.font = `${11 * px}px system-ui`;
+        ctx.fillStyle = palette.wall;
+        ctx.fillText(
+          occupant.name ?? `Occupant ${index + 1}`,
+          occupant.x + building.agent_radius + 6 * px,
+          occupant.y - 6 * px,
+        );
+      }
+    }
+  }
   for (const wall of building.walls) {
     for (const [start, end] of solidWallSegments(
       building,

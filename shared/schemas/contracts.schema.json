@@ -219,6 +219,12 @@
           },
           "maxItems": 100
         },
+        "placed_occupants": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": { "$ref": "#/$defs/PlacedOccupant" },
+          "description": "Optional exact occupant centres in metres. Stable editor IDs; numeric recorded IDs are array indices, before seeded area occupants."
+        },
         "blocked_exit_ids": {
           "type": "array",
           "items": {
@@ -1033,6 +1039,27 @@
           "pattern": "[^\\s\\u0085]",
           "description": "Optional user-facing display name. Stable object references continue to use id; names do not affect simulation."
         }
+      }
+    },
+    "PlacedOccupant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "x", "y"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "\\S"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "[^\\s\\u0085]"
+        },
+        "x": { "type": "number", "minimum": 0, "maximum": 1000 },
+        "y": { "type": "number", "minimum": 0, "maximum": 1000 }
       }
     },
     "Obstruction": {

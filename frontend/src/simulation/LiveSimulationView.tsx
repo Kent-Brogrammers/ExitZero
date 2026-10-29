@@ -1,4 +1,5 @@
 import { createAgentEffects } from "./agentEffects";
+import { totalPopulation } from "../utils/population";
 import { useEffect, useRef, useState } from "react";
 import { SimulationDetails } from "./SimulationDetails";
 import { AgentChat } from "./AgentChat";
@@ -152,6 +153,7 @@ export function LiveSimulationView({
           windowStates: frame?.window_states,
           disasterState: frame?.disaster_state,
           showPursuitStart: false,
+          showPlacedOccupants: !frame,
           ...displayOptions,
           underlay: displayOptions.showTraffic
             ? (ctx) => {
@@ -197,10 +199,7 @@ export function LiveSimulationView({
     displayOptions,
   ]);
 
-  const population = building.spawn_zones.reduce(
-    (sum, zone) => sum + zone.count,
-    0,
-  );
+  const population = totalPopulation(building);
   const frame = live.frame;
   return (
     <div className="playback-workspace">

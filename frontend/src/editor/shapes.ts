@@ -1,4 +1,5 @@
 import type { BuildingScenario, Point, Wall } from "../types/simulation";
+import { totalPopulation } from "../utils/population";
 import { nextObjectName } from "./names";
 import { constrainWallEnd } from "./wallAngles";
 
@@ -117,8 +118,7 @@ export function addSpawnZone(
 ): BuildingScenario {
   const rectangle = dragRectangle(start, end, building, square);
   const area = rectangle.width * rectangle.height;
-  const remaining =
-    10000 - building.spawn_zones.reduce((sum, zone) => sum + zone.count, 0);
+  const remaining = 10000 - totalPopulation(building);
   const count = Math.max(
     1,
     Math.min(

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApiClient } from "./api";
+import type { BuildingScenario } from "../types/simulation";
 import {
   syntheticBuilding as building,
   syntheticResult as result,
@@ -85,6 +86,74 @@ describe("live simulation transport", () => {
     await expect(client.simulateLive(building, vi.fn())).resolves.toEqual(
       result,
     );
+  });
+
+  describe.each(["exact-only", "mixed"])("%s occupant population", (source) => {
+    function scenario(): BuildingScenario {
+      const next = structuredClone(building);
+      // The scripted transport recording has two occupants. In mixed mode,
+      // ID 0 is exact and ID 1 comes from the eastern spawn zone.
+      next.spawn_zones = source === "mixed" ? next.spawn_zones.slice(1) : [];
+      next.placed_occupants = result.frames[0]!.agents.slice(
+        0,
+        source === "mixed" ? 1 : 2,
+      ).map((agent) => ({
+        id: `placed-${agent.id}`,
+        x: agent.x,
+        y: agent.y,
+      }));
+      return next;
+    }
+
+    it("accepts all initial occupants and preserves exact centres in the request", async () => {
+      const next = scenario();
+      const original = structuredClone(next);
+      streamEvents([
+        ...result.frames.map((frame) => ({ type: "frame", frame })),
+        { type: "complete", result },
+      ]);
+      const onFrame = vi.fn();
+      await expect(client.simulateLive(next, onFrame)).resolves.toEqual(result);
+      expect(onFrame).toHaveBeenNthCalledWith(1, result.frames[0]);
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/simulate/live",
+        expect.objectContaining({ body: JSON.stringify(original) }),
+      );
+      expect(next).toEqual(original);
+    });
+
+    it("rejects an initial frame that omits an occupant", async () => {
+      streamEvents([
+        {
+          type: "frame",
+          frame: { step: 0, agents: result.frames[0]!.agents.slice(1) },
+        },
+      ]);
+      await expect(
+        client.simulateLive(scenario(), vi.fn()),
+      ).rejects.toMatchObject({ code: "invalid_response" });
+    });
+
+    it("rejects a completed recording with a different population", async () => {
+      streamEvents([
+        ...result.frames.map((frame) => ({ type: "frame", frame })),
+        {
+          type: "complete",
+          result: {
+            ...result,
+            total_population: 1,
+            evacuated: 1,
+            frames: result.frames.map((frame) => ({
+              ...frame,
+              agents: frame.agents.filter((agent) => agent.id === 0),
+            })),
+          },
+        },
+      ]);
+      await expect(
+        client.simulateLive(scenario(), vi.fn()),
+      ).rejects.toMatchObject({ code: "invalid_response" });
+    });
   });
 
   it("does not mistake an interrupted stream for a completed recording", async () => {

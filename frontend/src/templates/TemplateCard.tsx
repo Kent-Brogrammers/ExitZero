@@ -1,4 +1,5 @@
 import { formatDimensions } from "../utils/units";
+import { totalPopulation } from "../utils/population";
 import type { ReactNode } from "react";
 import type { BuildingScenario } from "../types/simulation";
 import { buildingError } from "../editor/geometry";
@@ -34,14 +35,13 @@ export function TemplateCard({
         <h3>{name}</h3>
         {building.pursuit && (
           <p className="templates-local-note">
-            Halloween track · A masked stalker, blocked routes, and emergency
-            windows. Edit the house or run a real seeded pursuit.
+            A masked stalker, blocked routes, and emergency windows. Edit the
+            house or run a real seeded pursuit.
           </p>
         )}
         <p className="template-metadata">
           {formatDimensions(building.width, building.height)}{" "}
-          <span aria-hidden="true">·</span>{" "}
-          {building.spawn_zones.reduce((count, zone) => count + zone.count, 0)}{" "}
+          <span aria-hidden="true">·</span> {totalPopulation(building)}{" "}
           occupants
         </p>
         <div className="template-actions">

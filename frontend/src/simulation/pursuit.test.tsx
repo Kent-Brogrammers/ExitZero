@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import haunted from "../editor/presets/halloween-pursuit.json";
-import { buildingPresets } from "../editor/presets";
+import { buildingPresets, halloweenPreset } from "../editor/presets";
 import { buildingError } from "../editor/geometry";
 import { TemplateCard } from "../templates/TemplateCard";
 import {
@@ -61,9 +61,8 @@ const result: SimulationResult = {
 afterEach(() => vi.unstubAllGlobals());
 describe("Halloween template and recorded outcomes", () => {
   it("provides an editable house with blocked routes and explicitly configured emergency windows", () => {
-    expect(
-      buildingPresets.find((p) => p.id === "halloween-pursuit")?.label,
-    ).toBe("Halloween — The Pursuit");
+    expect(halloweenPreset.label).toBe("Halloween — The Pursuit");
+    expect(buildingPresets.some((p) => p.building.pursuit)).toBe(false);
     expect(buildingError(haunted)).toBeNull();
     expect(haunted.walls.length).toBeGreaterThan(20);
     expect(haunted.obstructions.length).toBeGreaterThan(15);

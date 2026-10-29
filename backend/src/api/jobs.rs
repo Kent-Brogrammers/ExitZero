@@ -62,7 +62,7 @@ impl JobRequest {
             "{} × {} m · {} occupants · {emergency} · seed {}",
             building.width,
             building.height,
-            building.spawn_zones.iter().map(|z| z.count).sum::<u32>(),
+            building.population(),
             building.seed
         )
     }

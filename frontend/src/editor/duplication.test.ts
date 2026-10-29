@@ -51,6 +51,7 @@ function fixture(): BuildingScenario {
         count: 2,
       },
     ],
+    placed_occupants: [{ id: "person", x: 35, y: 35 }],
     obstructions: [
       { id: "object", name: "Desk", x: 12, y: 10, width: 2, height: 1 },
     ],
@@ -162,8 +163,8 @@ it("duplicates mixed selections with one shared translation and independent pare
     id: original[kind]![0]!.id,
   }));
   const edit = duplicateSelection(original, selections, ids());
-  expect(edit.ids.size).toBe(8);
-  expect(edit.selections).toHaveLength(8);
+  expect(edit.ids.size).toBe(9);
+  expect(edit.selections).toHaveLength(9);
   const delta = {
     x: edit.building.walls[1]!.start.x - original.walls[0]!.start.x,
     y: edit.building.walls[1]!.start.y - original.walls[0]!.start.y,

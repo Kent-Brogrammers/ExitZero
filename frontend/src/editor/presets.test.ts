@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildingPresets } from "./presets";
+import { buildingPresets, halloweenPreset } from "./presets";
 import { buildingError, removeElement } from "./geometry";
 import {
   createTemplate,
@@ -9,7 +9,7 @@ import {
 import school from "./presets/school-emergency.json";
 import type { BuildingScenario } from "../types/simulation";
 describe("editable building presets", () => {
-  it.each(buildingPresets)(
+  it.each([...buildingPresets, halloweenPreset])(
     "validates $label as a complete metre-coordinate building",
     (preset) => {
       expect(buildingError(preset.building)).toBeNull();

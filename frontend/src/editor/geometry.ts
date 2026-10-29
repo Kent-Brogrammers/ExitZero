@@ -1,5 +1,6 @@
 import Ajv from "ajv";
 import { formatLength } from "../utils/units";
+import { solidWallSegments } from "./openings";
 import schema from "../../../shared/schemas/contracts.schema.json";
 import type {
   BuildingScenario,
@@ -20,11 +21,22 @@ export type Selection = {
     | "spawn_zones"
     | "obstructions"
     | "stair_areas"
-    | "tornado_zones";
+    | "tornado_zones"
+    | "placed_occupants";
   id: string;
 };
 export const distance = (a: Point, b: Point) =>
   Math.hypot(a.x - b.x, a.y - b.y);
+export function hasRectangleSize(
+  value: Point,
+): value is Point & { width: number; height: number } {
+  return (
+    "width" in value &&
+    typeof value.width === "number" &&
+    "height" in value &&
+    typeof value.height === "number"
+  );
+}
 export const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
 export const wallLength = (wall: Pick<Wall, "start" | "end">) =>
@@ -115,8 +127,11 @@ export function buildingError(
     return "Layout JSON does not match the continuous-geometry contract. Check required fields and numeric ranges.";
   }
   const b = value;
-  if (requireReady && (!b.exits.length || !b.spawn_zones.length))
-    return "Add at least one exit and one spawn zone before running a simulation.";
+  if (
+    requireReady &&
+    (!b.exits.length || (!b.spawn_zones.length && !b.placed_occupants?.length))
+  )
+    return "Add at least one exit and occupants from a spawn zone or exact placement before running a simulation.";
   const ids = new Set<string>();
   for (const element of [
     ...b.walls,
@@ -124,6 +139,7 @@ export function buildingError(
     ...b.exits,
     ...(b.windows ?? []),
     ...b.spawn_zones,
+    ...(b.placed_occupants ?? []),
     ...b.obstructions,
     ...(b.stair_areas ?? []),
     ...(b.tornado_zones ?? []),
@@ -240,7 +256,7 @@ export function buildingError(
     )
       return "Tornado zones must be outside the tornado exposure area.";
   }
-  let population = 0;
+  let population = b.placed_occupants?.length ?? 0;
   for (let index = 0; index < b.spawn_zones.length; index++) {
     const zone = b.spawn_zones[index]!;
     if (
@@ -267,6 +283,52 @@ export function buildingError(
     )
       return "Pursuit capture range must fit the agents' bodies, and avoidance range must be at least capture range.";
   }
+  const bodies = new Map<string, Point[]>();
+  const diameter = b.agent_radius * 2;
+  const segments = b.placed_occupants?.length
+    ? b.walls.flatMap((wall) =>
+        solidWallSegments(b, wall).map(([start, end]) => ({
+          ...wall,
+          start,
+          end,
+        })),
+      )
+    : [];
+  for (const person of b.placed_occupants ?? []) {
+    if (
+      person.x < b.agent_radius ||
+      person.y < b.agent_radius ||
+      person.x > b.width - b.agent_radius ||
+      person.y > b.height - b.agent_radius
+    )
+      return "Placed occupants need their full body inside the workspace.";
+    if (
+      segments.some(
+        (wall) =>
+          project(person, wall).distance < b.agent_radius + wall.thickness / 2,
+      ) ||
+      b.obstructions.some(
+        (object) =>
+          Math.hypot(
+            person.x - clamp(person.x, object.x, object.x + object.width),
+            person.y - clamp(person.y, object.y, object.y + object.height),
+          ) < b.agent_radius,
+      )
+    )
+      return "Placed occupants need clearance from walls, closed openings, windows and objects.";
+    const x = Math.floor(person.x / diameter),
+      y = Math.floor(person.y / diameter);
+    for (let dx = -1; dx <= 1; dx++)
+      for (let dy = -1; dy <= 1; dy++)
+        if (
+          bodies
+            .get(`${x + dx},${y + dy}`)
+            ?.some((other) => distance(person, other) < diameter)
+        )
+          return "Placed occupants must not overlap each other.";
+    const key = `${x},${y}`;
+    bodies.set(key, [...(bodies.get(key) ?? []), person]);
+  }
   return null;
 }
 
@@ -290,6 +352,11 @@ export function removeElement(
       break;
     case "spawn_zones":
       next.spawn_zones = next.spawn_zones.filter((v) => v.id !== selection.id);
+      break;
+    case "placed_occupants":
+      next.placed_occupants = (next.placed_occupants ?? []).filter(
+        (v) => v.id !== selection.id,
+      );
       break;
     case "tornado_zones":
       next.tornado_zones = (next.tornado_zones ?? []).filter(
@@ -366,11 +433,16 @@ export function translateElement(
     const rectangle = (next[selection.kind] ?? []).find(
       (v) => v.id === selection.id,
     )!;
-    rectangle.x = clamp(rectangle.x + delta.x, 0, next.width - rectangle.width);
+    const margin = hasRectangleSize(rectangle) ? 0 : next.agent_radius;
+    rectangle.x = clamp(
+      rectangle.x + delta.x,
+      margin,
+      next.width - (hasRectangleSize(rectangle) ? rectangle.width : margin),
+    );
     rectangle.y = clamp(
       rectangle.y + delta.y,
-      0,
-      next.height - rectangle.height,
+      margin,
+      next.height - (hasRectangleSize(rectangle) ? rectangle.height : margin),
     );
   }
   return next;

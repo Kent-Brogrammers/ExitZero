@@ -6,12 +6,13 @@ import schoolEmergency from "./presets/school-emergency.json";
 import corporateOffice from "./presets/corporate-office.json";
 import halloween from "./presets/halloween-pursuit.json";
 import type { BuildingScenario } from "../types/simulation";
+// The original hackathon scenario lives in Settings → Hackathon Origins.
+export const halloweenPreset = {
+  id: "halloween-pursuit",
+  label: "Halloween — The Pursuit",
+  building: halloween as BuildingScenario,
+} as const;
 export const buildingPresets = [
-  {
-    id: "halloween-pursuit",
-    label: "Halloween — The Pursuit",
-    building: halloween as BuildingScenario,
-  },
   { id: "house", label: "Small house", building: house as BuildingScenario },
   {
     id: "classroom",

@@ -1,6 +1,7 @@
 import type { BuildingScenario, Point } from "../types/simulation";
 import {
   clamp,
+  hasRectangleSize,
   openingSegment,
   project,
   wallLength,
@@ -15,6 +16,7 @@ export const elementKinds = [
   "obstructions",
   "stair_areas",
   "tornado_zones",
+  "placed_occupants",
 ] as const;
 export interface Bounds {
   x: number;
@@ -46,12 +48,19 @@ export function elementBounds(
   const element = (b[s.kind] ?? []).find((e) => e.id === s.id);
   if (!element) return null;
   if ("x" in element)
-    return {
-      x: element.x,
-      y: element.y,
-      width: element.width,
-      height: element.height,
-    };
+    return hasRectangleSize(element)
+      ? {
+          x: element.x,
+          y: element.y,
+          width: element.width,
+          height: element.height,
+        }
+      : {
+          x: element.x - b.agent_radius,
+          y: element.y - b.agent_radius,
+          width: b.agent_radius * 2,
+          height: b.agent_radius * 2,
+        };
   const wall =
     "start" in element
       ? element
@@ -196,6 +205,7 @@ export function canResizeSelection(
   b: BuildingScenario,
   items: readonly Selection[],
 ): boolean {
+  if (items.some((item) => item.kind === "placed_occupants")) return false;
   const walls = new Set(
     items.filter((s) => s.kind === "walls").map((s) => s.id),
   );
@@ -231,8 +241,10 @@ export function resizeSelection(
       const p = transform(e);
       e.x = p.x;
       e.y = p.y;
-      e.width *= sx;
-      e.height *= sy;
+      if (hasRectangleSize(e)) {
+        e.width *= sx;
+        e.height *= sy;
+      }
     }
   }
   for (const o of [...next.doors, ...next.exits, ...(next.windows ?? [])])

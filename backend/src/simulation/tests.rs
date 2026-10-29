@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 
 fn room() -> BuildingScenario {
     BuildingScenario {
+        placed_occupants: vec![],
         pursuit: None,
         tornado_zones: vec![],
         disaster: None,

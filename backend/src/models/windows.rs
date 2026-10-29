@@ -71,6 +71,17 @@ fn default_exterior_side(scenario: &super::BuildingScenario, window: &WindowOpen
             }
         }
     }
+    for person in &scenario.placed_occupants {
+        let distance =
+            ((person.x - wall.start.x) * -dy + (person.y - wall.start.y) * dx) / wall.length();
+        let side = if distance >= 0.0 { 1 } else { -1 };
+        if distance.abs() <= wall.thickness / 2.0 + scenario.agent_radius
+            || (occupied_side != 0 && side != occupied_side)
+        {
+            ambiguous = true;
+        }
+        occupied_side = side;
+    }
     if !ambiguous && occupied_side != 0 {
         return -occupied_side;
     }
