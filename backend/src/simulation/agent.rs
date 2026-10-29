@@ -69,7 +69,7 @@ pub(super) fn spawn_agents(
                     x: min_x + random_unit(&mut random_state) * available_width,
                     y: min_y + random_unit(&mut random_state) * available_height,
                 };
-                if !geometry.can_stand_at(position) {
+                if !zone.contains_disc(position, radius) || !geometry.can_stand_at(position) {
                     continue;
                 }
                 if spawned

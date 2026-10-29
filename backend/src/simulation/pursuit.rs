@@ -676,6 +676,7 @@ mod tests {
         b.pursuit.as_mut().unwrap().stalker_speed = 3.0;
         b.pursuit.as_mut().unwrap().survivor_speed = 0.1;
         b.spawn_zones.push(crate::models::SpawnZone {
+            polygon: None,
             id: "second".into(),
             name: None,
             x: 5.4,

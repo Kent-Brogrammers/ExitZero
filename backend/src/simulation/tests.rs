@@ -416,6 +416,7 @@ fn disconnecting_a_live_view_stops_the_simulation() {
 
 fn pinned_zone(id: &str, center_x: f64, center_y: f64) -> SpawnZone {
     SpawnZone {
+        polygon: None,
         name: None,
         id: id.into(),
         x: center_x - 0.2,
@@ -738,6 +739,7 @@ fn inset_exit_keeps_waiting_agents_inside_the_room() {
         wall.end.y += 2.0;
     }
     scenario.spawn_zones = vec![SpawnZone {
+        polygon: None,
         name: None,
         id: "crowd".into(),
         x: 3.0,
@@ -1061,6 +1063,7 @@ fn crowded_open_room_keeps_flowing_across_seeds() {
         for seed in 0..4 {
             let mut scenario = room();
             scenario.spawn_zones = vec![SpawnZone {
+                polygon: None,
                 name: None,
                 id: "crowd".into(),
                 x: 1.0,
@@ -1688,6 +1691,7 @@ fn a_thirty_person_two_exit_crowd_clears_without_repeated_route_reversals() {
             width: 4.0,
         });
         scenario.spawn_zones = vec![SpawnZone {
+            polygon: None,
             id: "crowd".into(),
             name: None,
             x: 3.5,

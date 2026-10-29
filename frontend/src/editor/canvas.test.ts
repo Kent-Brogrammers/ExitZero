@@ -15,6 +15,9 @@ function canvasFixture(width: number, height = (width * 2) / 3) {
     fillRect: vi.fn(),
     fillText: vi.fn(),
     beginPath: vi.fn(),
+    closePath: vi.fn(),
+    rect: vi.fn(),
+    clip: vi.fn(),
     moveTo: vi.fn(),
     lineTo: vi.fn(),
     stroke: vi.fn(function (this: {
@@ -54,6 +57,46 @@ function canvasFixture(width: number, height = (width * 2) / 3) {
 }
 
 describe("freeform Canvas drawing", () => {
+  it("draws a continuous room polygon beneath fire and overlapping furniture", () => {
+    const { context, element } = canvasFixture(600);
+    const zone = {
+      id: "room", x: 2, y: 2, width: 8, height: 8, count: 4,
+      polygon: {
+        boundary: [{ x: 2, y: 2 }, { x: 10, y: 2 }, { x: 10, y: 5 }, { x: 6, y: 5 }, { x: 6, y: 10 }, { x: 2, y: 10 }],
+        holes: [[{ x: 3, y: 3 }, { x: 4, y: 3 }, { x: 4, y: 4 }, { x: 3, y: 4 }]],
+      },
+    };
+    const building = {
+      ...example,
+      spawn_zones: [zone],
+      obstructions: [{ id: "desk", x: 4, y: 6, width: 1, height: 1 }],
+      disaster: { kind: "fire" as const, center: { x: 5, y: 5 }, radius: 1 },
+    };
+    drawLayout(element, building, null);
+    expect(context.fill).toHaveBeenNthCalledWith(1, "evenodd");
+    expect(context.closePath).toHaveBeenCalledTimes(4);
+    expect(context.fillRect).not.toHaveBeenCalledWith(2, 2, 8, 8);
+    expect(context.lineTo).toHaveBeenCalledWith(6, 5);
+    const fireOrder = context.arc.mock.invocationCallOrder[0]!;
+    expect(context.fill.mock.invocationCallOrder[0]!).toBeLessThan(fireOrder);
+    expect(context.stroke.mock.invocationCallOrder[0]!).toBeLessThan(fireOrder);
+    const obstacleIndex = context.fillRect.mock.calls.findIndex(args => JSON.stringify(args) === "[4,6,1,1]");
+    expect(context.fillRect.mock.invocationCallOrder[obstacleIndex]!).toBeGreaterThan(fireOrder);
+  });
+
+  it("draws fire above rectangular spawn fills without a traffic overlay", () => {
+    const { context, element } = canvasFixture(600);
+    drawLayout(element, {
+      ...example,
+      disaster: { kind: "fire", center: { x: 6, y: 6 }, radius: 1 },
+    }, null);
+    const fireOrder = context.arc.mock.invocationCallOrder[0]!;
+    for (const zone of example.spawn_zones) {
+      const fillIndex = context.fillRect.mock.calls.findIndex(args => JSON.stringify(args) === JSON.stringify([zone.x, zone.y, zone.width, zone.height]));
+      expect(context.fillRect.mock.invocationCallOrder[fillIndex]!).toBeLessThan(fireOrder);
+    }
+  });
+
   it("layers traffic above spawn fills but below labels, outlines and obstacles", () => {
     const { context, element } = canvasFixture(600);
     const underlay = vi.fn();

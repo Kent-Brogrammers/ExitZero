@@ -75,8 +75,8 @@ export function RoomFillDialog({
           </button>
         </div>
         <p>
-          Populate the clear floor area. Doors and windows define the room
-          edges; furniture stays clear.
+          Fill the room with one spawn polygon beneath furniture and objects.
+          Occupants are placed in clear floor space; walls define the room edges.
         </p>
         {existingCount > 0 && (
           <p className="room-fill-replace">

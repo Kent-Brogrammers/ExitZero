@@ -1,5 +1,5 @@
 //! Seeded footprint evolution. No randomness is shared with occupant spawning.
-use super::math;
+use super::{geometry::Geometry, math};
 use crate::models::{BuildingScenario, Disaster, DisasterKind, DisasterState, HazardArea, Point};
 
 pub(super) struct HazardEvolution {
@@ -115,36 +115,104 @@ impl HazardEvolution {
         changed
     }
 
-    /// Ignite new ground at an exposed edge of an existing flame. The new
-    /// footprint overlaps its parent, but its centre is outside every current
-    /// footprint, so patches cannot disappear inside the growing source.
+    /// Score the whole reached frontier, rather than repeatedly extending its
+    /// newest tip. Nearby wall surfaces guide most ignitions; regular floor
+    /// ignitions fill behind that front. This is an illustrative propagation
+    /// rule, not a fuel, airflow, or material-combustion model.
     fn ignite_frontier(&mut self, tick: u32, scenario: &BuildingScenario) -> bool {
-        let radius = (self.config.radius * 0.25)
+        let radius = (self.config.radius * 0.55)
             .max(0.01)
             .min(self.config.dynamics.unwrap().max_radius);
-        for _ in 0..64 {
-            let index = if self.sample() < 0.65 {
-                self.state.areas.len() - 1
-            } else {
-                (self.sample() * self.state.areas.len() as f64) as usize
-            };
+        // Reuse the simulation's wall/opening decomposition. Furniture does not
+        // divide a room for this model, but intact walls block ignition paths.
+        let geometry = Geometry::with_blocked_openings(
+            scenario,
+            &[],
+            scenario.blocked_exit_ids.iter().cloned().collect(),
+        );
+        let walls: Vec<_> = geometry.wall_fragments().collect();
+        let floor_ignition = self.state.areas.len().is_multiple_of(4);
+        let mut best: Option<(f64, Point)> = None;
+        for index in 0..self.state.areas.len() {
             let parent = self.state.areas[index];
-            let angle = self.sample() * std::f64::consts::TAU;
-            let distance = parent.radius + radius * 0.5;
-            let center = Point {
-                x: parent.center.x + angle.cos() * distance,
-                y: parent.center.y + angle.sin() * distance,
-            };
-            if center.x < 0.0
-                || center.x > scenario.width
-                || center.y < 0.0
-                || center.y > scenario.height
-                || self.state.areas.iter().any(|area| {
-                    math::distance_to_point(center, area.center) <= area.radius + radius * 0.1
-                })
-            {
-                continue;
+            let phase = self.sample() * std::f64::consts::TAU;
+            let mut angles: Vec<_> = (0..16)
+                .map(|direction| phase + f64::from(direction) * std::f64::consts::TAU / 16.0)
+                .collect();
+            // Exact tangents keep a front following even thin angled walls,
+            // without relying on a sampled direction happening to align.
+            for &(start, end, half_thickness) in &walls {
+                if math::distance_to_segment(parent.center, start, end) - half_thickness
+                    <= parent.radius + radius
+                {
+                    let tangent = (end.y - start.y).atan2(end.x - start.x);
+                    angles.extend([tangent, tangent + std::f64::consts::PI]);
+                }
             }
+            for angle in angles {
+                let distance = parent.radius + radius * 0.5;
+                let center = Point {
+                    x: parent.center.x + angle.cos() * distance,
+                    y: parent.center.y + angle.sin() * distance,
+                };
+                if center.x < 0.0
+                    || center.x > scenario.width
+                    || center.y < 0.0
+                    || center.y > scenario.height
+                    || self.state.areas.iter().any(|area| {
+                        math::distance_to_point(center, area.center) <= area.radius + radius * 0.1
+                    })
+                    || walls.iter().any(|&(start, end, half_thickness)| {
+                        math::distance_to_segment(center, start, end)
+                            <= half_thickness + radius * 0.1
+                            || (math::distance_to_segment(parent.center, start, end)
+                                > half_thickness + math::EPSILON
+                                && math::distance_between_segments(
+                                    parent.center,
+                                    center,
+                                    start,
+                                    end,
+                                ) <= half_thickness)
+                    })
+                {
+                    continue;
+                }
+                let wall_gap = walls
+                    .iter()
+                    .map(|&(start, end, half_thickness)| {
+                        math::distance_to_segment(center, start, end) - half_thickness
+                    })
+                    .fold(f64::INFINITY, f64::min);
+                let wall_priority = if floor_ignition {
+                    0.0
+                } else {
+                    3.0 / (1.0 + wall_gap / radius)
+                };
+                // Prefer fresh area and less advanced sides of the fire, so a
+                // single lucky branch cannot consume the entire patch budget.
+                let fresh = (0..8)
+                    .filter(|sample| {
+                        let a = f64::from(*sample) * std::f64::consts::TAU / 8.0;
+                        let edge = Point {
+                            x: center.x + a.cos() * radius,
+                            y: center.y + a.sin() * radius,
+                        };
+                        self.state
+                            .areas
+                            .iter()
+                            .all(|area| math::distance_to_point(edge, area.center) > area.radius)
+                    })
+                    .count() as f64
+                    / 8.0;
+                let score = wall_priority + fresh
+                    - 0.035 * math::distance_to_point(center, self.config.center) / radius
+                    + self.sample() * 0.05;
+                if best.is_none_or(|(old_score, _)| score > old_score) {
+                    best = Some((score, center));
+                }
+            }
+        }
+        if let Some((_, center)) = best {
             self.state.areas.push(HazardArea {
                 id: self.state.areas.len() as u32,
                 revision: tick,
@@ -258,7 +326,7 @@ impl HazardEvolution {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{DisasterDynamics, Obstruction};
+    use crate::models::{DisasterDynamics, Obstruction, Wall};
 
     fn scenario(kind: DisasterKind) -> BuildingScenario {
         let mut scenario: BuildingScenario =
@@ -354,6 +422,74 @@ mod tests {
                 .any(|area| math::distance_to_point(area.center, origin.center)
                     > origin.radius + 2.0 * area.radius),
             "spread must propagate beyond the initial source, even without radius growth"
+        );
+    }
+
+    #[test]
+    fn open_floor_fire_spreads_in_every_direction_instead_of_following_one_tip() {
+        for seed in [1, 42, 43, 110] {
+            let mut scenario = scenario(DisasterKind::Fire);
+            scenario.walls.clear();
+            scenario.doors.clear();
+            scenario.exits.clear();
+            scenario.width = 40.0;
+            scenario.height = 40.0;
+            let config = scenario.disaster.as_mut().unwrap();
+            config.center = Point { x: 20.0, y: 20.0 };
+            let dynamics = config.dynamics.as_mut().unwrap();
+            dynamics.growth_rate = 0.0;
+            dynamics.max_patches = 32;
+            let mut fire = HazardEvolution::new(*config, seed);
+            fire.advance(200, &scenario);
+            for (x, y) in [(-1.0, -1.0), (-1.0, 1.0), (1.0, -1.0), (1.0, 1.0)] {
+                assert!(
+                    fire.state.areas.iter().any(|area| {
+                        (area.center.x - 20.0) * x > 0.5 && (area.center.y - 20.0) * y > 0.5
+                    }),
+                    "seed {seed} must reach all four sides of its initial fire"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn fire_reaches_wall_then_follows_both_directions_and_branches_onto_floor() {
+        let mut scenario = scenario(DisasterKind::Fire);
+        scenario.width = 30.0;
+        scenario.height = 30.0;
+        scenario.walls = vec![Wall {
+            id: "divider".into(),
+            name: None,
+            start: Point { x: 6.0, y: 0.0 },
+            end: Point { x: 6.0, y: 30.0 },
+            thickness: 0.2,
+        }];
+        scenario.doors.clear();
+        scenario.exits.clear();
+        let config = scenario.disaster.as_mut().unwrap();
+        config.center = Point { x: 5.0, y: 15.0 };
+        let dynamics = config.dynamics.as_mut().unwrap();
+        dynamics.growth_rate = 0.0;
+        dynamics.max_patches = 64;
+        let mut fire = HazardEvolution::new(*config, 42);
+        fire.advance(10, &scenario);
+        assert!(
+            fire.state.areas[1..].iter().all(|area| area.center.x > 5.5),
+            "the earliest ignitions should seek the nearby wall surface"
+        );
+        fire.advance(400, &scenario);
+        assert_eq!(fire.state.areas.len(), 64);
+        assert!(fire.state.areas.iter().all(|area| area.center.x < 5.9));
+        for direction in [-1.0, 1.0] {
+            assert!(
+                fire.state.areas.iter().any(|area| {
+                    area.center.x > 5.5 && (area.center.y - 15.0) * direction > 3.0
+                })
+            );
+        }
+        assert!(
+            fire.state.areas.iter().any(|area| area.center.x < 4.0),
+            "floor ignitions must continue while the wall front advances"
         );
     }
 

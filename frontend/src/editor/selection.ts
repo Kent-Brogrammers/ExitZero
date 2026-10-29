@@ -188,6 +188,11 @@ export function moveSelection(
     } else {
       e.x += delta.x;
       e.y += delta.y;
+      if ("polygon" in e && e.polygon) {
+        const translate = (p: Point) => ({ x: p.x + delta.x, y: p.y + delta.y });
+        e.polygon.boundary = e.polygon.boundary.map(translate);
+        if (e.polygon.holes) e.polygon.holes = e.polygon.holes.map((ring) => ring.map(translate));
+      }
     }
   }
   return next;
@@ -233,6 +238,10 @@ export function resizeSelection(
       e.y = p.y;
       e.width *= sx;
       e.height *= sy;
+      if ("polygon" in e && e.polygon) {
+        e.polygon.boundary = e.polygon.boundary.map(transform);
+        if (e.polygon.holes) e.polygon.holes = e.polygon.holes.map((ring) => ring.map(transform));
+      }
     }
   }
   for (const o of [...next.doors, ...next.exits, ...(next.windows ?? [])])

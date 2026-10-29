@@ -4,6 +4,7 @@ mod building;
 mod live;
 mod pursuit;
 mod simulation;
+mod spawn;
 mod windows;
 
 pub use analysis::*;

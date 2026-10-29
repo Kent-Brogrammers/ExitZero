@@ -1,6 +1,7 @@
 import Ajv from "ajv";
 import { formatLength } from "../utils/units";
 import schema from "../../../shared/schemas/contracts.schema.json";
+import { spawnZoneError, spawnZonesOverlap } from "./spawnGeometry";
 import type {
   BuildingScenario,
   Opening,
@@ -243,13 +244,9 @@ export function buildingError(
   let population = 0;
   for (let index = 0; index < b.spawn_zones.length; index++) {
     const zone = b.spawn_zones[index]!;
-    if (
-      zone.width < 2 * b.agent_radius ||
-      zone.height < 2 * b.agent_radius ||
-      zone.count * Math.PI * b.agent_radius ** 2 > zone.width * zone.height
-    )
-      return "Spawn zones need enough area and width for the configured occupant discs.";
-    if (b.spawn_zones.slice(0, index).some((other) => overlaps(zone, other)))
+    const problem = spawnZoneError(b, zone);
+    if (problem) return problem;
+    if (b.spawn_zones.slice(0, index).some((other) => spawnZonesOverlap(zone, other)))
       return "Spawn zones cannot overlap other spawn zones.";
     population += zone.count;
   }

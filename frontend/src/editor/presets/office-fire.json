@@ -840,9 +840,9 @@
     "dynamics": {
       "enabled": true,
       "growth_rate": 0.18,
-      "spread_interval_seconds": 2.5,
-      "max_patches": 4,
-      "max_radius": 2.4,
+      "spread_interval_seconds": 0.6,
+      "max_patches": 64,
+      "max_radius": 1.2,
       "speed": 0.9,
       "turn_rate_degrees": 60,
       "wander_interval_seconds": 3,

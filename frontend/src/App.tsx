@@ -8,6 +8,7 @@ import example from "../../shared/examples/building.json";
 import defaultOffice from "./editor/presets/corporate-office.json";
 import { withoutObjectNames } from "./editor/names";
 import { buildingError } from "./editor/geometry";
+import { reclassifyDoors } from "./editor/exteriorDoors";
 import { withWindowEscapeDefaults } from "./editor/openings";
 import { BuildingWorkspace } from "./editor/BuildingWorkspace";
 import type { BuildingEditorHandle } from "./editor/BuildingEditor";
@@ -80,8 +81,8 @@ export default function App() {
   }, []);
 
   const [building, setBuilding] = useState<BuildingScenario>(() =>
-    withWindowEscapeDefaults(
-      structuredClone(defaultOffice as BuildingScenario),
+    reclassifyDoors(
+      withWindowEscapeDefaults(structuredClone(defaultOffice as BuildingScenario)),
     ),
   );
   const [halloweenMusic, setHalloweenMusic] = useState(false);
@@ -173,7 +174,7 @@ export default function App() {
     if (busy || !canReplace(name)) return;
     // Pass this same independent copy to run(), without waiting for React state.
     setHalloweenMusic(!source && next === halloweenPreset);
-    const selected = withWindowEscapeDefaults(structuredClone(next));
+    const selected = reclassifyDoors(withWindowEscapeDefaults(structuredClone(next)));
     setBuilding(selected);
     setBaseline(null);
     setActiveLayout(source?.kind === "layout" ? structuredClone(source) : null);
@@ -194,7 +195,7 @@ export default function App() {
     else void run("simulate", selected);
   }
   function changeBuilding(next: BuildingScenario) {
-    next = withWindowEscapeDefaults(next);
+    next = reclassifyDoors(withWindowEscapeDefaults(next));
     const namesOnly =
       JSON.stringify(withoutObjectNames(building)) ===
       JSON.stringify(withoutObjectNames(next));

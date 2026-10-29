@@ -80,6 +80,20 @@ pub struct SpawnZone {
     pub width: f64,
     pub height: f64,
     pub count: u32,
+    #[serde(
+        default,
+        deserialize_with = "super::windows::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub polygon: Option<SpawnPolygon>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SpawnPolygon {
+    pub boundary: Vec<Point>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub holes: Vec<Vec<Point>>,
 }
 
 /// Walkable architectural metadata. It is not collision geometry or a floor connection.
@@ -164,10 +178,6 @@ where
 
 fn positive(value: f64, maximum: f64) -> bool {
     value.is_finite() && value > 0.0 && value <= maximum
-}
-
-fn rectangles_overlap(a: (f64, f64, f64, f64), b: (f64, f64, f64, f64)) -> bool {
-    a.0 < b.0 + b.2 && b.0 < a.0 + a.2 && a.1 < b.1 + b.3 && b.1 < a.1 + a.3
 }
 
 impl BuildingScenario {
@@ -415,10 +425,9 @@ impl BuildingScenario {
                 return Err("obstructions must be positive, in-bounds rectangles".into());
             }
         }
-        let mut rectangles = Vec::new();
+        let mut zones: Vec<&SpawnZone> = Vec::new();
         let mut population = 0_u64;
         for zone in &self.spawn_zones {
-            let rectangle = (zone.x, zone.y, zone.width, zone.height);
             if !self.contains_rectangle(zone.x, zone.y, zone.width, zone.height)
                 || zone.count == 0
                 || zone.width < 2.0 * self.agent_radius
@@ -428,13 +437,11 @@ impl BuildingScenario {
             {
                 return Err("spawn zones need in-bounds area, positive count, and sufficient area for occupant discs".into());
             }
-            if rectangles
-                .iter()
-                .any(|&other| rectangles_overlap(rectangle, other))
-            {
+            zone.validate_shape(self)?;
+            if zones.iter().any(|other| zone.overlaps(other)) {
                 return Err("spawn zones must not overlap each other".into());
             }
-            rectangles.push(rectangle);
+            zones.push(zone);
             population += u64::from(zone.count);
         }
         if population > 10_000 {

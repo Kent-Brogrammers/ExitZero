@@ -7,7 +7,6 @@ export type EditorTool =
   | "wall-rectangle"
   | "wall-circle"
   | "door"
-  | "exit"
   | "window"
   | "spawn"
   | "spawn-room"

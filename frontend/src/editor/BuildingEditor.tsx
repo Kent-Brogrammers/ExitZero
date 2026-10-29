@@ -16,6 +16,8 @@ import {
 import { configureWindowEscape, hitOpening } from "./openings";
 import { openingStartsBlocked, setOpeningBlocked } from "./openingState";
 import { mergeEditedOpenings, snapOpeningToNeighbor } from "./doorEditing";
+import { reclassifyDoors } from "./exteriorDoors";
+import { zoneContainsPoint } from "./spawnGeometry";
 import {
   addFreehandWalls,
   curvePolyline,
@@ -258,6 +260,7 @@ export function BuildingEditor({
     mergeOpenings = false,
     afterSelection?: Selection[],
   ) {
+    next = reclassifyDoors(next);
     const edit = mergeOpenings
       ? mergeEditedOpenings(
           building,
@@ -285,16 +288,20 @@ export function BuildingEditor({
         ? "Openings merged · Undo restores the originals."
         : "",
     );
-    if (afterSelection || edit?.replacements.size) {
-      const mapped = (afterSelection ?? selections).map((item) =>
-        item.kind === "doors" || item.kind === "exits"
-          ? { ...item, id: edit?.replacements.get(item.id) ?? item.id }
-          : item,
-      );
-      setSelections(
-        mapped.filter((v, i) => mapped.findIndex((m) => m.id === v.id) === i),
-      );
-    }
+    const mapped = (afterSelection ?? selections).map((item): Selection => {
+      if (item.kind !== "doors" && item.kind !== "exits") return item;
+      const id = edit?.replacements.get(item.id) ?? item.id;
+      return {
+        kind: next.exits.some((opening) => opening.id === id) ? "exits" : "doors",
+        id,
+      };
+    });
+    setSelections(
+      mapped.filter((v, i) =>
+        (next[v.kind] ?? []).some((element) => element.id === v.id) &&
+        mapped.findIndex((m) => m.id === v.id) === i,
+      ),
+    );
     onChange(next);
     return true;
   }
@@ -477,7 +484,8 @@ export function BuildingEditor({
           point.x >= rectangle.x &&
           point.x <= rectangle.x + rectangle.width &&
           point.y >= rectangle.y &&
-          point.y <= rectangle.y + rectangle.height
+          point.y <= rectangle.y + rectangle.height &&
+          (!("count" in rectangle) || zoneContainsPoint(rectangle, point))
         )
           return { kind, id: rectangle.id };
       }
@@ -641,11 +649,11 @@ export function BuildingEditor({
       : null;
   const placement =
     !gesture &&
-    (tool === "door" || tool === "exit" || tool === "window") &&
+    (tool === "door" || tool === "window") &&
     cursor
       ? openingAt(
           cursor,
-          tool === "window" ? "windows" : tool === "door" ? "doors" : "exits",
+          tool === "window" ? "windows" : "doors",
           openingId.current,
         )
       : null;
@@ -659,9 +667,11 @@ export function BuildingEditor({
           : undefined,
       )
     : null;
-  const editedPreview = openingPreview?.error
-    ? (draftEdit?.building ?? building)
-    : (openingPreview?.building ?? building);
+  const editedPreview = reclassifyDoors(
+    openingPreview?.error
+      ? (draftEdit?.building ?? building)
+      : (openingPreview?.building ?? building),
+  );
   const preview =
     gesture && !gesture.marquee
       ? extendForPoints(editedPreview, gesture.start, gesture.current)
@@ -713,7 +723,7 @@ export function BuildingEditor({
                   kind:
                     tool === "window"
                       ? "windows"
-                      : tool === "exit"
+                      : preview.exits.some((opening) => opening.id === placement.opening.id)
                         ? "exits"
                         : "doors",
                   id:
@@ -837,9 +847,9 @@ export function BuildingEditor({
       }
       return;
     }
-    if (tool === "door" || tool === "exit" || tool === "window") {
+    if (tool === "door" || tool === "window") {
       const kind =
-        tool === "window" ? "windows" : tool === "door" ? "doors" : "exits";
+        tool === "window" ? "windows" : "doors";
       const candidate = openingAt(point, kind, openingId.current);
       if (!candidate) {
         setError("Click near a wall to place an opening.");
@@ -1120,6 +1130,22 @@ export function BuildingEditor({
   }
   function changeSelected(field: string, value: number) {
     if (!selected || !selectedElement) return;
+    if ("polygon" in selectedElement && selectedElement.polygon) {
+      if (field === "x" || field === "y") {
+        commit(moveSelection(building, [selected], {
+          x: field === "x" ? value - selectedElement.x : 0,
+          y: field === "y" ? value - selectedElement.y : 0,
+        }));
+        return;
+      }
+      if (field === "width" || field === "height") {
+        commit(resizeSelection(building, [selected],
+          field === "width" ? value : selectedElement.width,
+          field === "height" ? value : selectedElement.height,
+        ));
+        return;
+      }
+    }
     if (field === "count" && selectedRoomZones.length) {
       try {
         const edit = resizeRoomPopulation(building, selected.id, value);
@@ -1175,6 +1201,7 @@ export function BuildingEditor({
     restore(next);
   }
   function replaceLayout(next: BuildingScenario, label: string) {
+    next = reclassifyDoors(next);
     if (
       JSON.stringify(building) !== (savedLayoutJson ?? savedLayout.current) &&
       !window.confirm(
@@ -1310,7 +1337,7 @@ export function BuildingEditor({
               );
             setRoomCount(count);
             setNotice(
-              `Room filled · ${count} occupants across ${edit.ids.length} spawn areas · Edit the total in Properties`,
+              `Room filled · ${count} occupants in one spawn polygon · Edit the total in Properties`,
             );
           }}
         />
@@ -1478,9 +1505,10 @@ export function BuildingEditor({
                             : tool === "wall-circle"
                               ? "Drag an ellipse · Shift for circle · Saves 32 connected wall segments"
                               : tool === "door" ||
-                                  tool === "exit" ||
                                   tool === "window"
-                                ? `Click a wall to place ${tool === "exit" ? "an exit" : tool === "window" ? "a window" : "a door"}. Adjust its width in Properties.`
+                                ? tool === "window"
+                                  ? "Click a wall to place a window. Adjust its width in Properties."
+                                  : "Click a wall to place a door. Exterior doors become exits automatically."
                                 : tool === "stairs"
                                   ? "Drag a walkable stair-area marker. It does not connect floors or block occupants."
                                   : tool === "spawn-room"
@@ -1756,13 +1784,18 @@ export function BuildingEditor({
                 />
                 {selectedRoomZones.length > 0 && (
                   <p className="note">
-                    Room fill · {selectedRoomZones.length} clear areas. Room
-                    occupants updates the whole fill; positions and sizes below
-                    apply to this area.
+                    Room fill · one continuous polygon beneath objects.
+                    Occupants are placed only where their bodies fit, clear of
+                    walls and obstacles.
                   </p>
                 )}
                 {(selected.kind === "doors" || selected.kind === "exits") && (
                   <>
+                    <p className="note">
+                      {selected.kind === "exits"
+                        ? "Exit · this door leads to the exterior."
+                        : "Interior door · enclose a building before exterior exits can be detected."}
+                    </p>
                     <label className="block-toggle">
                       <input
                         type="checkbox"

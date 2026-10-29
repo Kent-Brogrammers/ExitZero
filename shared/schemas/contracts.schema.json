@@ -9,38 +9,71 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["kind", "stress_job_id", "scenario_id"],
+          "required": [
+            "kind",
+            "stress_job_id",
+            "scenario_id"
+          ],
           "properties": {
-            "kind": { "const": "replay" },
-            "stress_job_id": { "type": "string", "maxLength": 80 },
-            "scenario_id": { "type": "string", "maxLength": 128 }
+            "kind": {
+              "const": "replay"
+            },
+            "stress_job_id": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "scenario_id": {
+              "type": "string",
+              "maxLength": 128
+            }
           }
         },
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["kind", "building"],
+          "required": [
+            "kind",
+            "building"
+          ],
           "properties": {
-            "kind": { "const": "simulate" },
-            "building": { "$ref": "#/$defs/BuildingScenario" }
+            "kind": {
+              "const": "simulate"
+            },
+            "building": {
+              "$ref": "#/$defs/BuildingScenario"
+            }
           }
         },
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["kind", "request"],
+          "required": [
+            "kind",
+            "request"
+          ],
           "properties": {
-            "kind": { "const": "stress" },
-            "request": { "$ref": "#/$defs/StressTestRequest" }
+            "kind": {
+              "const": "stress"
+            },
+            "request": {
+              "$ref": "#/$defs/StressTestRequest"
+            }
           }
         },
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["kind", "request"],
+          "required": [
+            "kind",
+            "request"
+          ],
           "properties": {
-            "kind": { "const": "optimize" },
-            "request": { "$ref": "#/$defs/OptimizeRequest" }
+            "kind": {
+              "const": "optimize"
+            },
+            "request": {
+              "$ref": "#/$defs/OptimizeRequest"
+            }
           }
         }
       ]
@@ -58,10 +91,23 @@
         "error"
       ],
       "properties": {
-        "context": { "type": "string" },
-        "id": { "type": "string" },
-        "server_id": { "type": "string" },
-        "kind": { "enum": ["simulate", "stress", "optimize", "replay"] },
+        "context": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "server_id": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "simulate",
+            "stress",
+            "optimize",
+            "replay"
+          ]
+        },
         "status": {
           "enum": [
             "queued",
@@ -72,8 +118,15 @@
             "cancelled"
           ]
         },
-        "cached": { "type": "boolean" },
-        "error": { "type": ["string", "null"] },
+        "cached": {
+          "type": "boolean"
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "progress": {
           "type": "object",
           "additionalProperties": false,
@@ -84,10 +137,22 @@
             "step_limit"
           ],
           "properties": {
-            "evaluations_completed": { "type": "integer", "minimum": 0 },
-            "evaluations_total": { "type": "integer", "minimum": 0 },
-            "step": { "type": "integer", "minimum": 0 },
-            "step_limit": { "type": "integer", "minimum": 0 }
+            "evaluations_completed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "evaluations_total": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "step": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "step_limit": {
+              "type": "integer",
+              "minimum": 0
+            }
           }
         }
       }
@@ -95,33 +160,69 @@
     "JobList": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["server_id", "jobs"],
+      "required": [
+        "server_id",
+        "jobs"
+      ],
       "properties": {
-        "server_id": { "type": "string" },
-        "jobs": { "type": "array", "items": { "$ref": "#/$defs/JobSnapshot" } }
+        "server_id": {
+          "type": "string"
+        },
+        "jobs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/JobSnapshot"
+          }
+        }
       }
     },
     "ScenarioReplay": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["building", "result", "stress_job_id", "scenario_id"],
+      "required": [
+        "building",
+        "result",
+        "stress_job_id",
+        "scenario_id"
+      ],
       "properties": {
-        "building": { "$ref": "#/$defs/BuildingScenario" },
-        "result": { "$ref": "#/$defs/SimulationResult" },
-        "stress_job_id": { "type": "string" },
-        "scenario_id": { "type": "string" }
+        "building": {
+          "$ref": "#/$defs/BuildingScenario"
+        },
+        "result": {
+          "$ref": "#/$defs/SimulationResult"
+        },
+        "stress_job_id": {
+          "type": "string"
+        },
+        "scenario_id": {
+          "type": "string"
+        }
       }
     },
     "ComputationCancellationResponse": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["status"],
-      "properties": { "status": { "const": "cancelling" } }
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "const": "cancelling"
+        }
+      }
     },
     "SpawnZone": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "x", "y", "width", "height", "count"],
+      "required": [
+        "id",
+        "x",
+        "y",
+        "width",
+        "height",
+        "count"
+      ],
       "properties": {
         "id": {
           "type": "string",
@@ -160,6 +261,35 @@
           "maxLength": 80,
           "pattern": "[^\\s\\u0085]",
           "description": "Optional user-facing display name. Stable object references continue to use id; names do not affect simulation."
+        },
+        "polygon": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "boundary"
+          ],
+          "properties": {
+            "boundary": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 2000,
+              "items": {
+                "$ref": "#/$defs/Point"
+              }
+            },
+            "holes": {
+              "type": "array",
+              "maxItems": 100,
+              "items": {
+                "type": "array",
+                "minItems": 3,
+                "maxItems": 2000,
+                "items": {
+                  "$ref": "#/$defs/Point"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -287,7 +417,9 @@
         "disaster": {
           "$ref": "#/$defs/Disaster"
         },
-        "pursuit": { "$ref": "#/$defs/PursuitConfig" },
+        "pursuit": {
+          "$ref": "#/$defs/PursuitConfig"
+        },
         "tornado_zones": {
           "type": "array",
           "maxItems": 100,
@@ -310,7 +442,11 @@
       ],
       "properties": {
         "status": {
-          "enum": ["completed", "incomplete", "timeout"]
+          "enum": [
+            "completed",
+            "incomplete",
+            "timeout"
+          ]
         },
         "total_population": {
           "type": "integer",
@@ -333,7 +469,10 @@
           "maximum": 10000
         },
         "clearance_steps": {
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0,
           "maximum": 100000
         },
@@ -354,7 +493,9 @@
                 "const": "completed"
               }
             },
-            "required": ["status"]
+            "required": [
+              "status"
+            ]
           },
           "then": {
             "properties": {
@@ -389,7 +530,11 @@
     "AgentPosition": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "x", "y"],
+      "required": [
+        "id",
+        "x",
+        "y"
+      ],
       "properties": {
         "id": {
           "type": "integer",
@@ -430,7 +575,10 @@
           "maximum": 100000
         },
         "event_type": {
-          "enum": ["discovery", "shared"]
+          "enum": [
+            "discovery",
+            "shared"
+          ]
         },
         "sender_id": {
           "type": "integer",
@@ -458,7 +606,9 @@
         }
       },
       "if": {
-        "required": ["event_type"],
+        "required": [
+          "event_type"
+        ],
         "properties": {
           "event_type": {
             "const": "discovery"
@@ -485,7 +635,10 @@
     "AnimationFrame": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["step", "agents"],
+      "required": [
+        "step",
+        "agents"
+      ],
       "properties": {
         "step": {
           "type": "integer",
@@ -525,7 +678,9 @@
         "disaster_state": {
           "$ref": "#/$defs/DisasterState"
         },
-        "pursuit": { "$ref": "#/$defs/PursuitFrame" }
+        "pursuit": {
+          "$ref": "#/$defs/PursuitFrame"
+        }
       }
     },
     "PursuitConfig": {
@@ -539,9 +694,19 @@
         "avoidance_radius"
       ],
       "properties": {
-        "stalker_start": { "$ref": "#/$defs/Point" },
-        "stalker_speed": { "type": "number", "minimum": 0.1, "maximum": 3 },
-        "survivor_speed": { "type": "number", "minimum": 0.1, "maximum": 3 },
+        "stalker_start": {
+          "$ref": "#/$defs/Point"
+        },
+        "stalker_speed": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 3
+        },
+        "survivor_speed": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 3
+        },
         "capture_radius": {
           "type": "number",
           "exclusiveMinimum": 0,
@@ -557,28 +722,53 @@
     "PursuitFrame": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["stalker", "escaped", "caught"],
+      "required": [
+        "stalker",
+        "escaped",
+        "caught"
+      ],
       "properties": {
-        "stalker": { "$ref": "#/$defs/Point" },
-        "escaped": { "type": "integer", "minimum": 0, "maximum": 64 },
+        "stalker": {
+          "$ref": "#/$defs/Point"
+        },
+        "escaped": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 64
+        },
         "caught": {
           "type": "array",
           "maxItems": 64,
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["agent_id", "step"],
+            "required": [
+              "agent_id",
+              "step"
+            ],
             "properties": {
-              "agent_id": { "type": "integer", "minimum": 0, "maximum": 63 },
-              "step": { "type": "integer", "minimum": 0, "maximum": 100000 },
-              "position": { "$ref": "#/$defs/Point" }
+              "agent_id": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 63
+              },
+              "step": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100000
+              },
+              "position": {
+                "$ref": "#/$defs/Point"
+              }
             }
           }
         },
         "events": {
           "type": "array",
           "maxItems": 128,
-          "items": { "$ref": "#/$defs/PursuitEvent" }
+          "items": {
+            "$ref": "#/$defs/PursuitEvent"
+          }
         }
       }
     },
@@ -593,20 +783,57 @@
         "position"
       ],
       "properties": {
-        "step": { "type": "integer", "minimum": 0, "maximum": 100000 },
-        "event_type": { "enum": ["sighting", "warning"] },
-        "sender_id": { "type": "integer", "minimum": 0, "maximum": 63 },
+        "step": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100000
+        },
+        "event_type": {
+          "enum": [
+            "sighting",
+            "warning"
+          ]
+        },
+        "sender_id": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 63
+        },
         "recipient_ids": {
           "type": "array",
           "maxItems": 63,
           "uniqueItems": true,
-          "items": { "type": "integer", "minimum": 0, "maximum": 63 }
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 63
+          }
         },
-        "position": { "$ref": "#/$defs/Point" }
+        "position": {
+          "$ref": "#/$defs/Point"
+        }
       },
-      "if": { "properties": { "event_type": { "const": "sighting" } } },
-      "then": { "properties": { "recipient_ids": { "maxItems": 0 } } },
-      "else": { "properties": { "recipient_ids": { "minItems": 1 } } }
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "sighting"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "recipient_ids": {
+            "maxItems": 0
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "recipient_ids": {
+            "minItems": 1
+          }
+        }
+      }
     },
     "SimulationResult": {
       "type": "object",
@@ -634,7 +861,11 @@
           ]
         },
         "status": {
-          "enum": ["completed", "incomplete", "timeout"]
+          "enum": [
+            "completed",
+            "incomplete",
+            "timeout"
+          ]
         },
         "total_population": {
           "type": "integer",
@@ -657,7 +888,10 @@
           "maximum": 10000
         },
         "clearance_steps": {
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0,
           "maximum": 100000
         },
@@ -721,7 +955,9 @@
                 "const": "completed"
               }
             },
-            "required": ["status"]
+            "required": [
+              "status"
+            ]
           },
           "then": {
             "properties": {
@@ -782,7 +1018,10 @@
     "StressTestRequest": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["building", "config"],
+      "required": [
+        "building",
+        "config"
+      ],
       "properties": {
         "building": {
           "$ref": "#/$defs/BuildingScenario"
@@ -795,7 +1034,10 @@
     "ScenarioModifications": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["blocked_exit_ids", "added_obstructions"],
+      "required": [
+        "blocked_exit_ids",
+        "added_obstructions"
+      ],
       "properties": {
         "blocked_exit_ids": {
           "type": "array",
@@ -847,14 +1089,22 @@
           "maximum": 100
         },
         "severity": {
-          "enum": ["low", "moderate", "high", "critical"]
+          "enum": [
+            "low",
+            "moderate",
+            "high",
+            "critical"
+          ]
         }
       }
     },
     "StressTestResult": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["baseline", "scenarios"],
+      "required": [
+        "baseline",
+        "scenarios"
+      ],
       "properties": {
         "baseline": {
           "$ref": "#/$defs/SimulationMetrics"
@@ -871,7 +1121,10 @@
     "OptimizeRequest": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["building", "max_candidates"],
+      "required": [
+        "building",
+        "max_candidates"
+      ],
       "properties": {
         "building": {
           "$ref": "#/$defs/BuildingScenario"
@@ -886,7 +1139,11 @@
     "OptimizationCandidate": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["building", "metrics", "rank"],
+      "required": [
+        "building",
+        "metrics",
+        "rank"
+      ],
       "properties": {
         "building": {
           "$ref": "#/$defs/BuildingScenario"
@@ -904,7 +1161,10 @@
     "OptimizationResult": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["baseline", "candidates"],
+      "required": [
+        "baseline",
+        "candidates"
+      ],
       "properties": {
         "baseline": {
           "$ref": "#/$defs/SimulationMetrics"
@@ -921,7 +1181,10 @@
     "HealthResponse": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["status", "service"],
+      "required": [
+        "status",
+        "service"
+      ],
       "properties": {
         "status": {
           "const": "ok"
@@ -934,12 +1197,17 @@
     "ApiErrorResponse": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["error"],
+      "required": [
+        "error"
+      ],
       "properties": {
         "error": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["code", "message"],
+          "required": [
+            "code",
+            "message"
+          ],
           "properties": {
             "code": {
               "type": "string"
@@ -954,7 +1222,10 @@
     "Point": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["x", "y"],
+      "required": [
+        "x",
+        "y"
+      ],
       "properties": {
         "x": {
           "type": "number",
@@ -971,7 +1242,12 @@
     "Wall": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "start", "end", "thickness"],
+      "required": [
+        "id",
+        "start",
+        "end",
+        "thickness"
+      ],
       "properties": {
         "id": {
           "type": "string",
@@ -1002,7 +1278,12 @@
     "Opening": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "wall_id", "offset", "width"],
+      "required": [
+        "id",
+        "wall_id",
+        "offset",
+        "width"
+      ],
       "properties": {
         "id": {
           "type": "string",
@@ -1038,7 +1319,13 @@
     "Obstruction": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "x", "y", "width", "height"],
+      "required": [
+        "id",
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
       "properties": {
         "id": {
           "type": "string",
@@ -1078,7 +1365,11 @@
     "TrafficSample": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["x", "y", "visits"],
+      "required": [
+        "x",
+        "y",
+        "visits"
+      ],
       "properties": {
         "x": {
           "type": "number",
@@ -1138,17 +1429,26 @@
           "maximum": 100000
         },
         "evacuation_step": {
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0,
           "maximum": 100000
         },
         "evacuation_seconds": {
-          "type": ["number", "null"],
+          "type": [
+            "number",
+            "null"
+          ],
           "minimum": 0,
           "maximum": 100000
         },
         "exit_id": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "minLength": 1,
           "maxLength": 64
         },
@@ -1187,7 +1487,9 @@
                 "type": "null"
               }
             },
-            "required": ["evacuation_step"]
+            "required": [
+              "evacuation_step"
+            ]
           },
           "then": {
             "properties": {
@@ -1220,7 +1522,9 @@
                 }
               },
               {
-                "required": ["escape_route"],
+                "required": [
+                  "escape_route"
+                ],
                 "properties": {
                   "exit_id": {
                     "type": "null"
@@ -1272,7 +1576,10 @@
           "maximum": 100000
         },
         "median_evacuation_seconds": {
-          "type": ["number", "null"],
+          "type": [
+            "number",
+            "null"
+          ],
           "minimum": 0,
           "maximum": 100000,
           "description": "Median among evacuated occupants only, even on incomplete runs. Null if nobody evacuated."
@@ -1290,7 +1597,13 @@
     "StairArea": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "x", "y", "width", "height"],
+      "required": [
+        "id",
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
       "properties": {
         "id": {
           "type": "string",
@@ -1327,7 +1640,12 @@
         },
         "orientation_degrees": {
           "type": "integer",
-          "enum": [0, 90, 180, 270]
+          "enum": [
+            0,
+            90,
+            180,
+            270
+          ]
         }
       }
     },
@@ -1336,7 +1654,10 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["type", "frame"],
+          "required": [
+            "type",
+            "frame"
+          ],
           "properties": {
             "type": {
               "const": "frame"
@@ -1349,7 +1670,11 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["type", "communication_events", "agent_events"],
+          "required": [
+            "type",
+            "communication_events",
+            "agent_events"
+          ],
           "properties": {
             "type": {
               "const": "chat"
@@ -1371,7 +1696,10 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["type", "result"],
+          "required": [
+            "type",
+            "result"
+          ],
           "properties": {
             "type": {
               "const": "complete"
@@ -1384,7 +1712,10 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["type", "error"],
+          "required": [
+            "type",
+            "error"
+          ],
           "properties": {
             "type": {
               "const": "error"
@@ -1392,7 +1723,10 @@
             "error": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["code", "message"],
+              "required": [
+                "code",
+                "message"
+              ],
               "properties": {
                 "code": {
                   "type": "string"
@@ -1409,7 +1743,10 @@
     "AgentAwareness": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["sight_range_metres", "communication_range_metres"],
+      "required": [
+        "sight_range_metres",
+        "communication_range_metres"
+      ],
       "properties": {
         "sight_range_metres": {
           "type": "number",
@@ -1426,7 +1763,11 @@
     "OpeningStateChange": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["step", "opening_id", "blocked"],
+      "required": [
+        "step",
+        "opening_id",
+        "blocked"
+      ],
       "properties": {
         "step": {
           "type": "integer",
@@ -1462,7 +1803,10 @@
           "type": "boolean"
         },
         "preparation": {
-          "enum": ["open", "break"]
+          "enum": [
+            "open",
+            "break"
+          ]
         },
         "clear_width_metres": {
           "type": "number",
@@ -1485,7 +1829,10 @@
           "maximum": 100000
         },
         "exterior_side": {
-          "enum": [-1, 1]
+          "enum": [
+            -1,
+            1
+          ]
         },
         "exterior_available": {
           "type": "boolean"
@@ -1495,7 +1842,12 @@
     "WindowOpening": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "wall_id", "offset", "width"],
+      "required": [
+        "id",
+        "wall_id",
+        "offset",
+        "width"
+      ],
       "properties": {
         "id": {
           "type": "string",
@@ -1574,10 +1926,19 @@
           "pattern": "\\S"
         },
         "state": {
-          "enum": ["intact", "opening", "breaking", "open", "broken"]
+          "enum": [
+            "intact",
+            "opening",
+            "breaking",
+            "open",
+            "broken"
+          ]
         },
         "preparation_ready_step": {
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0,
           "maximum": 4294967295
         },
@@ -1592,12 +1953,18 @@
           }
         },
         "traversing_agent_id": {
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0,
           "maximum": 4294967295
         },
         "traversal_earliest_finish_step": {
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0,
           "maximum": 4294967295
         },
@@ -1622,10 +1989,16 @@
     "EscapeRoute": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "opening_id"],
+      "required": [
+        "kind",
+        "opening_id"
+      ],
       "properties": {
         "kind": {
-          "enum": ["normal_exit", "emergency_window"]
+          "enum": [
+            "normal_exit",
+            "emergency_window"
+          ]
         },
         "opening_id": {
           "type": "string",
@@ -1638,7 +2011,10 @@
     "EvacuatedByRoute": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["normal_exit", "emergency_window"],
+      "required": [
+        "normal_exit",
+        "emergency_window"
+      ],
       "properties": {
         "normal_exit": {
           "type": "integer",
@@ -1655,11 +2031,19 @@
     "Disaster": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "center", "radius"],
+      "required": [
+        "kind",
+        "center",
+        "radius"
+      ],
       "properties": {
         "kind": {
           "type": "string",
-          "enum": ["fire", "gas_leak", "tornado"]
+          "enum": [
+            "fire",
+            "gas_leak",
+            "tornado"
+          ]
         },
         "center": {
           "$ref": "#/$defs/Point"
@@ -1677,7 +2061,11 @@
     "ShelterArrival": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "step", "seconds"],
+      "required": [
+        "id",
+        "step",
+        "seconds"
+      ],
       "properties": {
         "id": {
           "type": "string",
@@ -1759,7 +2147,12 @@
     "HazardArea": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "revision", "center", "radius"],
+      "required": [
+        "id",
+        "revision",
+        "center",
+        "radius"
+      ],
       "properties": {
         "id": {
           "type": "integer",
@@ -1784,11 +2177,18 @@
     "DisasterState": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "areas"],
+      "required": [
+        "kind",
+        "areas"
+      ],
       "properties": {
         "kind": {
           "type": "string",
-          "enum": ["fire", "gas_leak", "tornado"]
+          "enum": [
+            "fire",
+            "gas_leak",
+            "tornado"
+          ]
         },
         "areas": {
           "type": "array",
@@ -1803,7 +2203,11 @@
     "AgentEvent": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["step", "agent_id", "kind"],
+      "required": [
+        "step",
+        "agent_id",
+        "kind"
+      ],
       "properties": {
         "step": {
           "type": "integer",
@@ -1843,7 +2247,11 @@
           "$ref": "#/$defs/Point"
         },
         "hazard_kind": {
-          "enum": ["fire", "gas_leak", "tornado"]
+          "enum": [
+            "fire",
+            "gas_leak",
+            "tornado"
+          ]
         }
       },
       "allOf": [
@@ -1864,23 +2272,34 @@
                 ]
               }
             },
-            "required": ["kind"]
+            "required": [
+              "kind"
+            ]
           },
           "then": {
-            "required": ["subject_id"]
+            "required": [
+              "subject_id"
+            ]
           }
         },
         {
           "if": {
             "properties": {
               "kind": {
-                "enum": ["hazard_discovered", "hazard_spreading"]
+                "enum": [
+                  "hazard_discovered",
+                  "hazard_spreading"
+                ]
               }
             },
-            "required": ["kind"]
+            "required": [
+              "kind"
+            ]
           },
           "then": {
-            "required": ["position"]
+            "required": [
+              "position"
+            ]
           }
         }
       ]
@@ -1898,11 +2317,18 @@
     "LiveSpeedControl": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["speed"],
+      "required": [
+        "speed"
+      ],
       "properties": {
         "speed": {
           "type": "integer",
-          "enum": [1, 2, 4, 8]
+          "enum": [
+            1,
+            2,
+            4,
+            8
+          ]
         }
       }
     }

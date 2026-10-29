@@ -62,6 +62,8 @@ export interface Obstruction {
   height: number;
 }
 export interface SpawnZone extends Obstruction {
+  /** Optional continuous region; x/y/width/height retain its bounding box. */
+  polygon?: { boundary: Point[]; holes?: Point[][] };
   count: number;
 }
 /** Walkable, nonblocking architectural annotation; no inter-floor transport. */
