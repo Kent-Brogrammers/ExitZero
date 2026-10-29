@@ -2,6 +2,7 @@ mod analysis;
 mod awareness;
 mod building;
 mod live;
+mod polygons;
 mod pursuit;
 mod simulation;
 mod windows;

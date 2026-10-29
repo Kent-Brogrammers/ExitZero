@@ -513,6 +513,7 @@ pub(super) struct BeliefMaps<'a> {
     estimated_bytes: usize,
     max_bytes: usize,
     max_inactive: usize,
+    full_shelters: BTreeSet<String>,
 }
 
 impl<'a> BeliefMaps<'a> {
@@ -527,6 +528,21 @@ impl<'a> BeliefMaps<'a> {
             estimated_bytes: 0,
             max_bytes: 32 * 1024 * 1024,
             max_inactive: 64,
+            full_shelters: BTreeSet::new(),
+        }
+    }
+
+    /// Announce a full shelter without changing anyone's remembered geometry or hazards.
+    pub fn close_shelter(&mut self, id: &str) {
+        if !self.full_shelters.insert(id.to_owned()) {
+            return;
+        }
+        for entry in self.maps.values_mut() {
+            let before = entry.geometry.estimated_size_bytes();
+            entry.geometry.full_shelters.insert(id.to_owned());
+            let added = entry.geometry.estimated_size_bytes() - before;
+            entry.estimated_bytes += added;
+            self.estimated_bytes += added;
         }
     }
 
@@ -574,6 +590,7 @@ impl<'a> BeliefMaps<'a> {
                 geometry.disaster = self.scenario.disaster;
                 geometry.hazard_areas = agent.known_hazards.values().copied().collect();
             }
+            geometry.full_shelters.clone_from(&self.full_shelters);
             let estimated_bytes = key.estimated_size_bytes()
                 + geometry.estimated_size_bytes()
                 + std::mem::size_of::<CachedBeliefMap<'_>>()

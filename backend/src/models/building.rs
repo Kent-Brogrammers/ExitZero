@@ -64,6 +64,36 @@ pub struct Obstruction {
     pub height: f64,
 }
 
+/// Walkable refuge with a finite admission limit, independent of its drawn area.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TornadoZone {
+    pub id: String,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_name",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub name: Option<String>,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    /// Older layouts without a limit admit at most 50 occupants per shelter.
+    #[serde(
+        default,
+        deserialize_with = "super::windows::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub max_occupants: Option<u32>,
+}
+
+impl TornadoZone {
+    pub fn capacity(&self) -> u32 {
+        self.max_occupants.unwrap_or(50)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SpawnZone {
@@ -80,6 +110,14 @@ pub struct SpawnZone {
     pub width: f64,
     pub height: f64,
     pub count: u32,
+    #[serde(
+        default,
+        deserialize_with = "super::windows::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub polygon: Option<Vec<Point>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub holes: Vec<Vec<Point>>,
 }
 
 /// Exact occupant centre. IDs are editor references; array order supplies recorded numeric IDs.
@@ -157,7 +195,7 @@ pub struct BuildingScenario {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stair_areas: Vec<StairArea>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub tornado_zones: Vec<Obstruction>,
+    pub tornado_zones: Vec<TornadoZone>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub disaster: Option<super::Disaster>,
     #[serde(
@@ -182,10 +220,6 @@ where
 
 fn positive(value: f64, maximum: f64) -> bool {
     value.is_finite() && value > 0.0 && value <= maximum
-}
-
-fn rectangles_overlap(a: (f64, f64, f64, f64), b: (f64, f64, f64, f64)) -> bool {
-    a.0 < b.0 + b.2 && b.0 < a.0 + a.2 && a.1 < b.1 + b.3 && b.1 < a.1 + a.3
 }
 
 impl BuildingScenario {
@@ -411,6 +445,9 @@ impl BuildingScenario {
             disaster.validate(self)?;
         }
         for zone in &self.tornado_zones {
+            if !(1..=10_000).contains(&zone.capacity()) {
+                return Err("tornado shelter maximum occupants must be between 1 and 10000".into());
+            }
             if !self.contains_rectangle(zone.x, zone.y, zone.width, zone.height)
                 || zone.width <= 2.0 * self.agent_radius
                 || zone.height <= 2.0 * self.agent_radius
@@ -444,7 +481,6 @@ impl BuildingScenario {
                 return Err("obstructions must be positive, in-bounds rectangles".into());
             }
         }
-        let mut rectangles = Vec::new();
         for occupant in &self.placed_occupants {
             if !self.contains(Point {
                 x: occupant.x,
@@ -460,24 +496,33 @@ impl BuildingScenario {
                 ));
             }
         }
-        for zone in &self.spawn_zones {
-            let rectangle = (zone.x, zone.y, zone.width, zone.height);
+
+        for (index, zone) in self.spawn_zones.iter().enumerate() {
+            zone.validate_polygon()?;
+            if zone
+                .polygon
+                .iter()
+                .flatten()
+                .chain(zone.holes.iter().flatten())
+                .any(|&p| !self.contains(p))
+            {
+                return Err("spawn polygon vertices must fit the workspace".into());
+            }
             if !self.contains_rectangle(zone.x, zone.y, zone.width, zone.height)
                 || zone.count == 0
                 || zone.width < 2.0 * self.agent_radius
                 || zone.height < 2.0 * self.agent_radius
                 || f64::from(zone.count) * std::f64::consts::PI * self.agent_radius.powi(2)
-                    > zone.width * zone.height
+                    > zone.area()
             {
                 return Err("spawn zones need in-bounds area, positive count, and sufficient area for occupant discs".into());
             }
-            if rectangles
+            if self.spawn_zones[..index]
                 .iter()
-                .any(|&other| rectangles_overlap(rectangle, other))
+                .any(|other| zone.overlaps(other))
             {
                 return Err("spawn zones must not overlap each other".into());
             }
-            rectangles.push(rectangle);
         }
         if self.population() > 10_000 {
             return Err("total population must not exceed 10000".into());

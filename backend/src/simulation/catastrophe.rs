@@ -1,5 +1,6 @@
 use super::{agent::Agent, math};
-use crate::models::{BuildingScenario, DisasterKind, Opening, Point};
+use crate::models::{BuildingScenario, DisasterKind, Opening, Point, TornadoZone};
+use std::collections::BTreeMap;
 
 pub(super) fn blocks_opening(scenario: &BuildingScenario, opening: &Opening) -> bool {
     scenario.disaster.is_some_and(|d| {
@@ -104,7 +105,11 @@ pub(super) fn expose_between(
     agent.injury = (agent.injury + dose).min(1.0);
 }
 
-pub(super) fn shelter_at(scenario: &BuildingScenario, point: Point) -> Option<&str> {
+pub(super) fn shelter_at<'a>(
+    scenario: &'a BuildingScenario,
+    point: Point,
+    admissions: &BTreeMap<String, u32>,
+) -> Option<&'a TornadoZone> {
     if scenario
         .disaster
         .is_none_or(|d| d.kind != DisasterKind::Tornado)
@@ -117,14 +122,11 @@ pub(super) fn shelter_at(scenario: &BuildingScenario, point: Point) -> Option<&s
         return None;
     }
     let r = scenario.agent_radius;
-    scenario
-        .tornado_zones
-        .iter()
-        .find(|zone| {
-            point.x >= zone.x + r
-                && point.x <= zone.x + zone.width - r
-                && point.y >= zone.y + r
-                && point.y <= zone.y + zone.height - r
-        })
-        .map(|zone| zone.id.as_str())
+    scenario.tornado_zones.iter().find(|zone| {
+        admissions.get(&zone.id).copied().unwrap_or(0) < zone.capacity()
+            && point.x >= zone.x + r
+            && point.x <= zone.x + zone.width - r
+            && point.y >= zone.y + r
+            && point.y <= zone.y + zone.height - r
+    })
 }

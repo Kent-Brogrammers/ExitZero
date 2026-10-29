@@ -833,7 +833,7 @@
   "disaster": {
     "kind": "fire",
     "center": {
-      "x": 33,
+      "x": 34.5,
       "y": 14
     },
     "radius": 0.65,

@@ -104,10 +104,10 @@ export function classifyOpenings(
         };
       else if (window)
         guess = {
-          role: "closed",
+          role: "window",
           confidence: "high",
           reason:
-            "Nearby window/glazing layer geometry; keep solid for evacuation.",
+            "Matching window/glazing layer geometry; solid glazing with emergency escape disabled until configured.",
         };
       else if (exit)
         guess = {
@@ -149,7 +149,7 @@ export function classifyOpenings(
   );
 }
 export function blankManualLayout(base: BuildingScenario): BuildingScenario {
-  return {
+  const blank: BuildingScenario = {
     ...base,
     width: 30,
     height: 20,
@@ -157,9 +157,16 @@ export function blankManualLayout(base: BuildingScenario): BuildingScenario {
     doors: [],
     exits: [],
     spawn_zones: [],
+    placed_occupants: [],
     blocked_exit_ids: [],
     opening_events: [],
     obstructions: [],
     stair_areas: [],
+    windows: [],
+    tornado_zones: [],
   };
+  delete blank.disaster;
+  delete blank.pursuit;
+  delete blank.window_escape_context;
+  return blank;
 }

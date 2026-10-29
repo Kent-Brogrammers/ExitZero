@@ -120,7 +120,7 @@ export function EditorDrawingRail({
         label="Openings"
         className="editor-shapes"
         disabled={disabled}
-        triggerClassName={`editor-tool-button${["door", "exit", "window"].includes(tool) ? " is-selected" : ""}`}
+        triggerClassName={`editor-tool-button${["door", "window"].includes(tool) ? " is-selected" : ""}`}
         triggerContent={content("door", "Openings")}
         onOpen={onOpenPanel}
       >
@@ -132,15 +132,8 @@ export function EditorDrawingRail({
             {choice(
               "door",
               "Door",
-              "Click a wall · Edit width and blocking in Properties",
+              "Exterior doors become exits · Edit width and blocking in Properties",
               "door",
-              close,
-            )}
-            {choice(
-              "exit",
-              "Exit",
-              "Click a wall to place an evacuation exit",
-              "exit",
               close,
             )}
             {choice(
@@ -157,7 +150,7 @@ export function EditorDrawingRail({
         label="People"
         className="editor-shapes"
         disabled={disabled}
-        triggerClassName={`editor-tool-button${["spawn", "spawn-room", "occupant"].includes(tool) ? " is-selected" : ""}`}
+        triggerClassName={`editor-tool-button${["spawn", "spawn-polygon", "spawn-room", "occupant"].includes(tool) ? " is-selected" : ""}`}
         triggerContent={content("spawn", "People")}
         onOpen={onOpenPanel}
       >
@@ -171,6 +164,13 @@ export function EditorDrawingRail({
               "Draw Zone",
               "Drag a rectangular spawn area",
               "rectangle",
+              close,
+            )}
+            {choice(
+              "spawn-polygon",
+              "Draw Polygon",
+              "Click vertices, then close the polygon",
+              "spawn",
               close,
             )}
             {choice(

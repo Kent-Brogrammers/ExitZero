@@ -149,6 +149,22 @@
           "maximum": 1000,
           "exclusiveMinimum": 0
         },
+        "polygon": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 512,
+          "items": { "$ref": "#/$defs/Point" }
+        },
+        "holes": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 512,
+            "items": { "$ref": "#/$defs/Point" }
+          }
+        },
         "count": {
           "type": "integer",
           "minimum": 1,
@@ -298,7 +314,7 @@
           "type": "array",
           "maxItems": 100,
           "items": {
-            "$ref": "#/$defs/Obstruction"
+            "$ref": "#/$defs/TornadoZone"
           }
         }
       }
@@ -1099,6 +1115,52 @@
           "maxLength": 80,
           "pattern": "[^\\s\\u0085]",
           "description": "Optional user-facing display name. Stable object references continue to use id; names do not affect simulation."
+        }
+      }
+    },
+    "TornadoZone": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "x", "y", "width", "height"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "\\S"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "[^\\s\\u0085]"
+        },
+        "x": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "y": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "width": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1000
+        },
+        "height": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1000
+        },
+        "max_occupants": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "default": 50,
+          "description": "Maximum occupants admitted to this shelter. Omitted limits use 50."
         }
       }
     },

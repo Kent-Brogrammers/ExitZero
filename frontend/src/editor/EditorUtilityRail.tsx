@@ -235,6 +235,16 @@ export function EditorUtilityRail(props: EditorUtilityRailProps) {
       </StudioPopover>
       {props.scenarioControls}
       <button
+        type="button"
+        className="studio-control editor-tool-button"
+        disabled={props.disabled}
+        onClick={props.onNew}
+        title="Clear the plan (Undo restores it)"
+      >
+        <ToolIcon name="clear" />
+        <span>Clear Plan</span>
+      </button>
+      <button
         ref={props.propertiesButton}
         type="button"
         className="studio-control editor-properties-button"

@@ -1,14 +1,22 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import DxfParser from "dxf-parser";
 import {
   parseDxf,
   buildDxf,
   applyOpenings,
   dxfScale,
   suggestedWallLayers,
+  suggestedSolidWalls,
   type DxfDrawing,
 } from "./convert";
 import example from "../../../../shared/examples/building.json";
 import { buildingError } from "../geometry";
+import { classifyOpenings } from "./classify";
+const classroomDxf = readFileSync(
+  new URL("./fixtures/classroom-and-resource-store-70-m2.dxf", import.meta.url),
+  "utf8",
+);
 const stroke = (
   id: string,
   x1: number,
@@ -140,6 +148,19 @@ describe("assisted DXF import", () => {
       ...structuredClone(example),
       disaster: { kind: "fire" as const, center: { x: 25, y: 15 }, radius: 1 },
       tornado_zones: [{ id: "old-shelter", x: 20, y: 12, width: 3, height: 3 }],
+      placed_occupants: [{ id: "old-person", x: 25, y: 15 }],
+      pursuit: {
+        stalker_start: { x: 20, y: 12 },
+        stalker_speed: 1,
+        survivor_speed: 1,
+        capture_radius: 0.4,
+        avoidance_radius: 2,
+      },
+      window_escape_context: {
+        floor_elevation_metres: 4,
+        all_agents_can_traverse: false,
+        required_clear_height_metres: 1,
+      },
     };
     const before = structuredClone(base);
     const { building } = buildDxf(
@@ -149,6 +170,9 @@ describe("assisted DXF import", () => {
     );
     expect(building.disaster).toBeUndefined();
     expect(building.tornado_zones).toEqual([]);
+    expect(building.placed_occupants).toEqual([]);
+    expect(building.pursuit).toBeUndefined();
+    expect(building.window_escape_context).toBeUndefined();
     expect(building.seed).toBe(base.seed);
     expect(building.time_step_seconds).toBe(base.time_step_seconds);
     expect(buildingError(building, false)).toBeNull();
@@ -355,5 +379,131 @@ describe("assisted DXF import", () => {
       ],
     };
     expect(suggestedWallLayers(source)).toEqual(["A-WALL · STORE_MAIN"]);
+  });
+
+  it("imports the classroom wall footprints, short end and all actual openings at millimetre scale", () => {
+    const parsed = parseDxf(classroomDxf);
+    const layers = suggestedWallLayers(parsed);
+    expect(layers).toEqual(["WALLS"]);
+    expect(dxfScale(parsed.units)).toBe(0.001);
+    expect(suggestedSolidWalls(parsed, layers, dxfScale(parsed.units))).toBe(
+      true,
+    );
+    const settings = {
+      ...options,
+      layers,
+      closedRectanglesAreWalls: true,
+    };
+    const { building, openings } = buildDxf(parsed, settings, example);
+    const guesses = classifyOpenings(parsed, settings, building, openings);
+    const reviewed = applyOpenings(
+      building,
+      openings,
+      Object.fromEntries(
+        Object.entries(guesses).map(([id, g]) => [id, g.role]),
+      ),
+    );
+    expect([reviewed.width, reviewed.height]).toEqual([12, 9]);
+    expect(reviewed.walls).toHaveLength(7);
+    expect(
+      reviewed.walls.filter((w) => Math.abs(w.thickness - 0.2) < 1e-8),
+    ).toHaveLength(4);
+    expect(
+      reviewed.walls.filter((w) => Math.abs(w.thickness - 0.12) < 1e-8),
+    ).toHaveLength(3);
+    expect(openings).toHaveLength(9);
+    expect(reviewed.doors).toHaveLength(3);
+    for (const door of reviewed.doors) expect(door.width).toBeCloseTo(0.9);
+    expect(reviewed.exits).toHaveLength(1);
+    expect(reviewed.exits[0]!.width).toBeCloseTo(1);
+    expect(reviewed.windows).toHaveLength(5);
+    expect(
+      reviewed.windows!.map((w) => Number(w.width.toFixed(3))).sort(),
+    ).toEqual([1.3, 1.5, 1.5, 1.5, 1.5]);
+    for (const window of reviewed.windows!) {
+      expect(window.emergency_escape?.enabled).toBe(false);
+      expect(window.emergency_escape?.exterior_available).toBe(false);
+    }
+    expect(buildingError(reviewed, false)).toBeNull();
+  });
+
+  it.each([0, 90, 37])(
+    "keeps square wall ends aligned at %s degrees regardless of vertex order",
+    (degrees) => {
+      const doc = new DxfParser().parseSync(classroomDxf)!;
+      for (const shift of [0, 1, 2, 3]) {
+        const angle = (degrees * Math.PI) / 180;
+        const entities = doc.entities
+          .filter((e) => e.layer === "WALLS")
+          .flatMap((entity) => {
+            const vertices = (
+              entity as typeof entity & { vertices: { x: number; y: number }[] }
+            ).vertices;
+            const reordered = [
+              ...vertices.slice(shift),
+              ...vertices.slice(0, shift),
+            ];
+            return [
+              0,
+              "LWPOLYLINE",
+              8,
+              "WALLS",
+              90,
+              4,
+              70,
+              1,
+              ...reordered.flatMap(({ x, y }) => [
+                10,
+                x * Math.cos(angle) - y * Math.sin(angle),
+                20,
+                x * Math.sin(angle) + y * Math.cos(angle),
+              ]),
+            ];
+          });
+        const text = [
+          0,
+          "SECTION",
+          2,
+          "ENTITIES",
+          ...entities,
+          0,
+          "ENDSEC",
+          0,
+          "EOF",
+        ].join("\n");
+        const { building, openings } = buildDxf(
+          parseDxf(text),
+          { ...options, closedRectanglesAreWalls: true },
+          example,
+        );
+        expect(building.walls, `vertex shift ${shift}`).toHaveLength(7);
+        expect(openings, `vertex shift ${shift}`).toHaveLength(9);
+        expect(buildingError(building, false)).toBeNull();
+      }
+    },
+  );
+
+  it("leaves room outlines and unknown units for explicit review, and respects the solid-wall override", () => {
+    for (const [width, height] of [
+      [10, 6],
+      [10, 0.5],
+      [0.2, 0.2],
+    ] as const) {
+      const parsed = parseDxf(rectangleDxf(width, height));
+      expect(suggestedSolidWalls(parsed, ["WALLS"], 1)).toBe(false);
+    }
+    const parsed = parseDxf(classroomDxf);
+    expect(suggestedSolidWalls(parsed, ["WALLS"], null)).toBe(false);
+    expect(suggestedSolidWalls(parsed, ["FIXTURES"], 0.001)).toBe(false);
+    expect(
+      buildDxf(parsed, { ...options, closedRectanglesAreWalls: false }, example)
+        .building.walls.length,
+    ).toBeGreaterThan(7);
+    const square = buildDxf(
+      parseDxf(rectangleDxf(0.2, 0.2)),
+      { ...options, scale: 1, closedRectanglesAreWalls: true },
+      example,
+    );
+    expect(square.building.walls).toHaveLength(4);
   });
 });

@@ -760,8 +760,9 @@ fn tornado_response_uses_shelter_instead_of_breaking_windows() {
         radius: 0.5,
         dynamics: None,
     });
-    b.tornado_zones = vec![exitzero::models::Obstruction {
+    b.tornado_zones = vec![exitzero::models::TornadoZone {
         id: "shelter".into(),
+        max_occupants: None,
         name: None,
         x: 11.0,
         y: 3.0,

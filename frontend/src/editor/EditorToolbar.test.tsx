@@ -4,11 +4,13 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { EditorDrawingRail } from "./EditorDrawingRail";
 import { EditorUtilityRail } from "./EditorUtilityRail";
+import type { EditorTool } from "./tools";
 
 let root: Root, host: HTMLDivElement;
 const onTool = vi.fn();
 const onUndo = vi.fn();
 const onDelete = vi.fn();
+const onClear = vi.fn();
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal(
@@ -21,6 +23,7 @@ beforeEach(() => {
   onTool.mockReset();
   onUndo.mockReset();
   onDelete.mockReset();
+  onClear.mockReset();
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -40,11 +43,11 @@ function button(name: string) {
 async function click(name: string) {
   await act(async () => button(name).click());
 }
-async function drawing() {
+async function drawing(tool: EditorTool = "select") {
   await act(async () =>
     root.render(
       <EditorDrawingRail
-        tool="select"
+        tool={tool}
         disabled={false}
         onTool={onTool}
         onOpenPanel={() => {}}
@@ -73,7 +76,7 @@ async function menus(
         onDuplicate={() => {}}
         onDelete={onDelete}
         onTool={onTool}
-        onNew={() => {}}
+        onNew={onClear}
         onImport={() => {}}
         onImportDxf={() => {}}
         onExport={() => {}}
@@ -105,10 +108,10 @@ it("keeps freehand in Advanced and routes wall and opening choices to the existi
   expect(host.querySelector(".studio-popover-panel")).toBeNull();
   for (const [name, tool] of [
     ["Door", "door"],
-    ["Exit", "exit"],
     ["Window", "window"],
   ]) {
     await click("Openings");
+    expect(host.querySelector('button[aria-label="Exit"]')).toBeNull();
     await click(name!);
     expect(onTool).toHaveBeenLastCalledWith(tool);
   }
@@ -125,6 +128,7 @@ it("preserves furniture and people choices while removing unsupported object pla
   expect(onTool).toHaveBeenLastCalledWith("furniture-chair");
   for (const [name, tool] of [
     ["Draw Zone", "spawn"],
+    ["Draw Polygon", "spawn-polygon"],
     ["Fill Room", "spawn-room"],
     ["Place occupant", "occupant"],
   ]) {
@@ -132,6 +136,8 @@ it("preserves furniture and people choices while removing unsupported object pla
     await click(name!);
     expect(onTool).toHaveBeenLastCalledWith(tool);
   }
+  await drawing("spawn-polygon");
+  expect(button("People").className).toContain("is-selected");
 });
 
 it("restores stair insertion, gates shelter insertion, and guards unavailable edit actions", async () => {
@@ -163,4 +169,6 @@ it("restores stair insertion, gates shelter insertion, and guards unavailable ed
   await click("Edit");
   await click("Delete selection");
   expect(onDelete).toHaveBeenCalledOnce();
+  await click("Clear Plan");
+  expect(onClear).toHaveBeenCalledOnce();
 });

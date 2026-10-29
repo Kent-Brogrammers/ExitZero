@@ -102,6 +102,49 @@ afterEach(async () => {
 });
 
 describe("optimization editor history", () => {
+  it("clears the visible blueprint in Edit and restores the whole layout with Undo", async () => {
+    await mount();
+    await click("Settings");
+    await click("Hackathon Origins");
+    await click("Edit house");
+    const original = structuredClone(workspace().building);
+    expect(original.walls.length).toBeGreaterThan(0);
+    expect(original.pursuit).toBeDefined();
+    vi.stubGlobal(
+      "confirm",
+      vi.fn(() => true),
+    );
+
+    await click("Clear Plan");
+    const cleared = workspace().building;
+    for (const field of [
+      "walls",
+      "doors",
+      "exits",
+      "windows",
+      "spawn_zones",
+      "placed_occupants",
+      "obstructions",
+      "stair_areas",
+      "tornado_zones",
+      "blocked_exit_ids",
+      "opening_events",
+    ] as const)
+      expect(cleared[field]).toEqual([]);
+    expect(cleared.pursuit).toBeUndefined();
+    expect(cleared.disaster).toBeUndefined();
+    expect(cleared.window_escape_context).toBeUndefined();
+    expect([cleared.width, cleared.height]).toEqual([
+      original.width,
+      original.height,
+    ]);
+    expect(window.location.hash).toBe("#building");
+    await click("Undo");
+    expect(workspace().building).toEqual(original);
+    await click("Redo");
+    expect(workspace().building).toEqual(cleared);
+  });
+
   it("keeps a saved layout intact when opening another layout's computation", async () => {
     window.localStorage.removeItem(TEMPLATE_STORAGE_KEY);
     const saved = storeLayout(

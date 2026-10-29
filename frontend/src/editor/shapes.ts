@@ -1,6 +1,7 @@
 import type { BuildingScenario, Point, Wall } from "../types/simulation";
 import { totalPopulation } from "../utils/population";
 import { nextObjectName } from "./names";
+import { polygonBounds, signedArea } from "./spawnGeometry";
 import { constrainWallEnd } from "./wallAngles";
 
 export const CIRCLE_WALL_SEGMENTS = 32;
@@ -135,6 +136,36 @@ export function addSpawnZone(
         id,
         name: nextObjectName(building, "spawn_zones"),
         ...rectangle,
+        count,
+      },
+    ],
+  };
+}
+
+export function addPolygonSpawn(
+  building: BuildingScenario,
+  polygon: Point[],
+  id = `spawn_${crypto.randomUUID()}`,
+): BuildingScenario {
+  const area = Math.abs(signedArea(polygon));
+  const remaining = 10000 - totalPopulation(building);
+  const count = Math.max(
+    1,
+    Math.min(
+      remaining,
+      Math.floor(area / 1.5),
+      Math.floor(area / (Math.PI * building.agent_radius ** 2)),
+    ),
+  );
+  return {
+    ...building,
+    spawn_zones: [
+      ...building.spawn_zones,
+      {
+        id,
+        name: nextObjectName(building, "spawn_zones"),
+        ...polygonBounds(polygon),
+        polygon,
         count,
       },
     ],
