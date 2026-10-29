@@ -28,7 +28,7 @@ export function DisasterControls(props: ScenarioProps) {
     <>
       <button
         type="button"
-        className="studio-control rail-button"
+        className="studio-control editor-tool-button"
         title={`Edit scenario · ${label}`}
         aria-haspopup="dialog"
         aria-expanded={open}

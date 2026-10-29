@@ -52,7 +52,7 @@ import {
 } from "./roomFill";
 import { WindowProperties } from "./WindowProperties";
 import { objectName, nextObjectName, renameObject } from "./names";
-import { EditorUtilityRail } from "./EditorUtilityRail";
+import { EditorHistoryControls, EditorUtilityRail } from "./EditorUtilityRail";
 import { EditorDrawingRail } from "./EditorDrawingRail";
 import { addObject, addWallShape, addSpawnZone, dragRectangle } from "./shapes";
 import { useStudioTheme } from "../styles/appearance";
@@ -252,6 +252,12 @@ export function BuildingEditor({
 
   function restore(previous: EditorSnapshot) {
     setFurnitureSymbols(new Map(previous.furniture));
+    if (
+      tool === "tornado-zone" &&
+      previous.building.disaster?.kind !== "tornado"
+    ) {
+      changeTool("select");
+    }
     onChange(previous.building);
   }
 
@@ -1618,19 +1624,18 @@ export function BuildingEditor({
       <fieldset className="editor-controls" disabled={disabled}>
         <div className="editor-workspace">
           <div className="editor-commandbar">
-            <EditorDrawingRail
-              tool={tool}
-              disabled={disabled}
-              onTool={changeTool}
-              onOpenPanel={() => setPropertiesOpen(false)}
-            />
             <EditorUtilityRail
               scenarioControls={
                 <DisasterControls
                   building={building}
                   onChange={(next) => {
                     const applied = commit(next);
-                    if (applied && !next.disaster && tool === "hazard")
+                    if (
+                      applied &&
+                      ((!next.disaster && tool === "hazard") ||
+                        (next.disaster?.kind !== "tornado" &&
+                          tool === "tornado-zone"))
+                    )
                       changeTool("select");
                     return applied;
                   }}
@@ -1641,10 +1646,18 @@ export function BuildingEditor({
               disabled={disabled}
               canUndo={history.length > 0}
               canRedo={redo.length > 0}
+              hasSelection={selections.length > 0 && !gesture}
+              tool={tool}
+              showShelter={
+                !building.pursuit && building.disaster?.kind === "tornado"
+              }
               propertiesOpen={propertiesOpen}
               propertiesButton={propertiesButton}
               onUndo={undo}
               onRedo={redoChange}
+              onDuplicate={duplicateSelectedElements}
+              onDelete={deleteSelected}
+              onTool={changeTool}
               onNew={clearPlan}
               onImport={() => importInput.current?.click()}
               onImportDxf={() => dxfDialog.current?.showModal()}
@@ -1703,6 +1716,21 @@ export function BuildingEditor({
               }
               drafting={drafting}
               onDrafting={setDrafting}
+            />
+            <EditorDrawingRail
+              tool={tool}
+              disabled={disabled}
+              onTool={changeTool}
+              onOpenPanel={() => setPropertiesOpen(false)}
+              historyControls={
+                <EditorHistoryControls
+                  disabled={disabled}
+                  canUndo={history.length > 0}
+                  canRedo={redo.length > 0}
+                  onUndo={undo}
+                  onRedo={redoChange}
+                />
+              }
             />
             <input
               ref={importInput}

@@ -99,7 +99,7 @@ For production builds, provide that variable to `npm run build` instead; Vite em
 
 ## Exact occupant placement
 
-Use **Spawn zone → Place occupant** to set exact starting centres. Select a marker
+Use **People → Place occupant** to set exact starting centres. Select a marker
 to move, rename, delete, duplicate, or edit its coordinates in feet. Draw Zone and
 Fill Room remain available. All placements participate in undo/redo, local saving,
 templates, and JSON export/import.
@@ -237,13 +237,17 @@ The house starts with the west bedroom door and garage access blocked, plus a bl
 
 The example is a 30×20 m workspace with angled and straight walls, two exits, two doorways, and two spawn zones containing 34 occupants.
 
-- Choose **Wall** and drag to draw at any angle. Endpoints snap to nearby endpoints, corners, and wall segments so custom room dividers join exactly. Room fill also recognizes existing wall joins whose thicknesses overlap; an actual gap still leaves rooms connected. Grid snapping is optional.
-- Choose **Door** and click near a wall. A door with an enclosed room on one side and exterior space on the other automatically becomes an exit. Close the wall perimeter first; the workspace edge does not define the exterior. Interior doors remain doors, and wall/opening edits refresh classifications while preserving IDs and blocked states. Adjust width and offset in Properties.
-- Under **Spawn zone**, choose **Draw Polygon** and click corners, then click the first corner or press Enter to finish. Escape cancels. **Draw Zone** still draws rectangles. **Fill Room** creates one polygon matching the room boundary, with holes for enclosed inner rooms. Select a region to edit its count, move it, or scale its bounds. Furniture and walls remain excluded by Rust placement checks. **Obstruction** draws a rectangle.
+- Use the top menu row for **File**, **Edit**, **Insert**, **View**, and **Scenario**. The drawing row groups **Walls**, **Openings**, **People**, and **Objects**; **Properties** opens the contextual inspector.
+- Choose **Walls → Straight wall** and drag at any angle. Rectangle and ellipse perimeters are alongside it; freehand is under **Advanced**. Configure independent endpoint and grid snapping in **View**.
+- Choose **Openings → Door** or **Window** and click near a wall. A door with an enclosed room on one side and exterior space on the other automatically becomes an exit. Close the wall perimeter first; the workspace edge does not define the exterior. Interior doors remain doors, and wall/opening edits refresh classifications while preserving IDs and blocked states. Adjust width and offset in Properties.
+- Under **People**, choose **Draw Polygon** and click corners, then click the first corner or press Enter to finish. Escape cancels. **Draw Zone** draws rectangles; **Fill Room** creates one polygon matching the room boundary, with holes for enclosed inner rooms. **Place occupant** sets an exact position. Select a region to edit its count, move it, or scale its bounds. Furniture and walls remain excluded by Rust placement checks.
+- **Objects** contains rectangular blockers and furniture styles. All furniture, including chairs, blocks its full rectangle; symbol styles last this session.
+- **Insert → Stair area** draws a walkable single-floor marker. **Tornado shelter zone** is available there when the selected scenario is Tornado; existing zones remain editable in other modes.
+- **View** groups grid visibility/spacing, snapping, measurement labels, drawing-area size, and fullscreen.
 - Use **Select / move** to drag elements. Drag a selected wall's endpoint to reshape it. Moving a wall carries its openings with it; deleting a wall removes its openings and stale blocked-exit references.
 - Use the element dropdown and numeric inspector for precise coordinates and dimensions. Select an exit to toggle whether it is blocked. Invalid edits are rejected with an explanation.
 - **Undo/Redo** restores up to 50 edits. Canvas keyboard shortcuts: Delete/Backspace removes the selection, Escape cancels a gesture/selection, and Ctrl/Cmd+Z undoes (Shift redoes).
-- **New layout** creates an empty draft; **Load example** restores the sample. **Export JSON** saves the current layout locally; **Import JSON** loads a continuous-geometry layout under 2 MB. Draft layouts can be saved before exits and occupants are added. Layouts live in memory until exported.
+- **File → New Layout** creates an empty draft. File also provides named browser saves, saved layouts, template saving, JSON import/export, and DXF import. **Load example building** remains on the welcome screen. JSON imports must be under 2 MB; export keeps a portable backup. Draft layouts can be saved before exits and occupants are added.
 
 API requests use the current edited layout. Computation buttons remain disabled until it has exits, occupants, and valid geometry. Run Simulation records actual movement; Analytics shows its metrics and a world-coordinate heatmap weighted by accumulated visits. Stress Test compares independently modified layouts against its own baseline.
 
