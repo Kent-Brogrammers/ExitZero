@@ -27,6 +27,39 @@ describe("shared continuous geometry schemas", () => {
       typedBuilding.exits.length,
     ]).toEqual([30, 20, 2]);
   });
+  it.each(["exact-only", "mixed"])(
+    "accepts %s occupant sources with decimal centres and stable editor IDs",
+    (source) => {
+      const scenario: BuildingScenario = {
+        ...structuredClone(building),
+        spawn_zones: source === "exact-only" ? [] : building.spawn_zones,
+        placed_occupants: [
+          { id: "reception", name: "Front desk", x: 3.125, y: 4.625 },
+        ],
+      };
+      const restored = JSON.parse(JSON.stringify(scenario));
+      expect(
+        validateBuilding(restored),
+        ajv.errorsText(validateBuilding.errors),
+      ).toBe(true);
+      expect(restored).toEqual(scenario);
+    },
+  );
+  it.each(
+    [
+      null,
+      [{ x: 3, y: 4 }],
+      [{ id: "person", x: 3 }],
+      [{ id: " ", x: 3, y: 4 }],
+      [{ id: "person", name: " ", x: 3, y: 4 }],
+      [{ id: "person", x: NaN, y: 4 }],
+      [{ id: "person", x: 3, y: Infinity }],
+      [{ id: "person", x: -1, y: 4 }],
+      [{ id: "person", x: 3, y: 4, width: 1 }],
+    ].map((placed_occupants) => ({ placed_occupants })),
+  )("rejects malformed exact occupant data %#", ({ placed_occupants }) => {
+    expect(validateBuilding({ ...building, placed_occupants })).toBe(false);
+  });
   it("accepts decimal positions and world-space traffic samples", () => {
     expect(
       validateSimulation(mock),
