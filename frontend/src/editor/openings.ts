@@ -216,63 +216,84 @@ export function openingLabels(
   px: number,
   measure: (text: string) => number,
   windowStates: readonly WindowFrameState[] = [],
-  options?: { measurements: MeasurementVisibility; showNames: boolean },
+  options?: {
+    measurements: MeasurementVisibility;
+    showNames: boolean;
+    declutter?: boolean;
+    focusIds?: ReadonlySet<string>;
+  },
 ): OpeningLabel[] {
   const placed: OpeningLabel[] = [];
-  for (const [key, kind, items] of [
-    ["doors", "Door", building.doors],
-    ["exits", "Exit", building.exits],
-    ["windows", "Window", building.windows ?? []],
-  ] as const)
-    for (const o of items) {
-      const showName = options?.showNames !== false;
-      const showWidth = options?.measurements[key] !== false;
-      if (!showName && !showWidth) continue;
-      const wall = building.walls.find((w) => w.id === o.wall_id);
-      if (!wall) continue;
-      const [a, b] = openingSegment(o, wall),
-        anchor = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-      const state =
-        kind === "Window"
-          ? windowStates.find((s) => s.window_id === o.id)?.state
-          : undefined;
-      const label = building.closedDoorIds?.includes(o.id)
-        ? "Closed door"
-        : openingStartsBlocked(building, o.id)
-          ? `Blocked ${kind.toLowerCase()}`
-          : kind;
-      const text = [
-        showName ? label : null,
-        showWidth ? formatLength(o.width) : null,
-        showName && state ? state : null,
-      ]
-        .filter(Boolean)
-        .join(" · ");
-      const width = Math.min(measure(text), building.width),
-        height = 13 * px;
-      const x = Math.max(
-        0,
-        Math.min(building.width - width, anchor.x + 7 * px),
+  const candidates = (
+    [
+      ["doors", "Door", building.doors],
+      ["exits", "Exit", building.exits],
+      ["windows", "Window", building.windows ?? []],
+    ] as const
+  ).flatMap(([key, kind, items]) =>
+    items.map((opening) => ({ key, kind, opening })),
+  );
+  const priority = (id: string, kind: string) =>
+    options?.focusIds?.has(id)
+      ? 3
+      : openingStartsBlocked(building, id) ||
+          building.closedDoorIds?.includes(id)
+        ? 2
+        : kind === "Exit"
+          ? 1
+          : 0;
+  // Reserve label space for the selection and important states before ordinary openings.
+  if (options?.declutter)
+    candidates.sort(
+      (a, b) => priority(b.opening.id, b.kind) - priority(a.opening.id, a.kind),
+    );
+  for (const { key, kind, opening: o } of candidates) {
+    const showName = options?.showNames !== false;
+    const showWidth = options?.measurements[key] !== false;
+    if (!showName && !showWidth) continue;
+    const focused = options?.focusIds?.has(o.id);
+    if (options?.declutter && !priority(o.id, kind) && o.width / px < 44)
+      continue;
+    const wall = building.walls.find((w) => w.id === o.wall_id);
+    if (!wall) continue;
+    const [a, b] = openingSegment(o, wall),
+      anchor = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const state =
+      kind === "Window"
+        ? windowStates.find((s) => s.window_id === o.id)?.state
+        : undefined;
+    const label = building.closedDoorIds?.includes(o.id)
+      ? "Closed door"
+      : openingStartsBlocked(building, o.id)
+        ? `Blocked ${kind.toLowerCase()}`
+        : kind;
+    const text = [
+      showName ? label : null,
+      showWidth ? formatLength(o.width) : null,
+      showName && state ? state : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    const width = Math.min(measure(text), building.width),
+      height = 13 * px;
+    const x = Math.max(0, Math.min(building.width - width, anchor.x + 7 * px));
+    let candidate: OpeningLabel | undefined;
+    for (let row = 0; row < (options?.declutter && !focused ? 4 : 40); row++) {
+      const dy = (Math.floor(row / 2) + 1) * 17 * px * (row % 2 ? 1 : -1);
+      const y = Math.max(height, Math.min(building.height, anchor.y + dy));
+      const next = { id: o.id, text, x, y, width, height, anchor };
+      const clear = !placed.some(
+        (p) =>
+          x < p.x + p.width + 3 * px &&
+          p.x < x + width + 3 * px &&
+          y - height < p.y + 3 * px &&
+          p.y - p.height < y + 3 * px,
       );
-      let candidate: OpeningLabel | undefined;
-      for (let row = 0; row < 40; row++) {
-        const dy = (Math.floor(row / 2) + 1) * 17 * px * (row % 2 ? 1 : -1);
-        const y = Math.max(height, Math.min(building.height, anchor.y + dy));
-        const next = { id: o.id, text, x, y, width, height, anchor };
-        candidate = next;
-        if (
-          !placed.some(
-            (p) =>
-              x < p.x + p.width + 3 * px &&
-              p.x < x + width + 3 * px &&
-              y - height < p.y + 3 * px &&
-              p.y - p.height < y + 3 * px,
-          )
-        )
-          break;
-      }
-      placed.push(candidate!);
+      if (clear || !options?.declutter || focused) candidate = next;
+      if (clear) break;
     }
+    if (candidate) placed.push(candidate);
+  }
   return placed;
 }
 

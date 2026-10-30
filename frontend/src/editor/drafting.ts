@@ -19,6 +19,8 @@ export interface DraftingPreferences {
   /** Older preferences retain the editor's previously always-on wall snapping. */
   snapEndpoints?: boolean;
   measurements?: MeasurementVisibility;
+  /** Display only: keep small/dense annotations quiet until hovered or selected. */
+  declutterLabels?: boolean;
   spacing: keyof typeof gridSpacings;
   doorMergeTolerance: number;
 }
@@ -41,6 +43,7 @@ export function useDraftingPreferences() {
           snapEndpoints:
             typeof p.snapEndpoints === "boolean" ? p.snapEndpoints : true,
           measurements: measurementVisibility(p.measurements),
+          declutterLabels: p.declutterLabels !== false,
           spacing: p.spacing,
           doorMergeTolerance: [0.02, 0.05, 0.1, 0.2].includes(
             p.doorMergeTolerance,
@@ -56,6 +59,7 @@ export function useDraftingPreferences() {
       snap: false,
       snapEndpoints: true,
       measurements: measurementVisibility(),
+      declutterLabels: true,
       spacing: "2ft",
       doorMergeTolerance: 0.1,
     };

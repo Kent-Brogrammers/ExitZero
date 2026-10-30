@@ -76,6 +76,20 @@ export function DraftingControls({
           measurements stay on.
         </p>
       </fieldset>
+      <label>
+        <input
+          type="checkbox"
+          checked={preferences.declutterLabels !== false}
+          onChange={(event) =>
+            onChange({ ...preferences, declutterLabels: event.target.checked })
+          }
+        />
+        Reduce label clutter
+      </label>
+      <p className="note">
+        Small labels appear on hover or selection. Zoom in for more detail; turn
+        this off to show all enabled measurements.
+      </p>
       <h3>Wall snapping</h3>
       <label>
         <input

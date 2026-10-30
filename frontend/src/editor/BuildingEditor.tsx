@@ -854,6 +854,15 @@ export function BuildingEditor({
     if (selections.length && commit(removeSelection(building, selections)))
       selectElement(null);
   }
+  const hoveredId =
+    cursor &&
+    tool === "select" &&
+    !gesture &&
+    !panMode &&
+    !spaceDown &&
+    !panning
+      ? hit(cursor)?.id
+      : undefined;
   useEffect(() => {
     const element = canvas.current;
     if (!element) return;
@@ -914,6 +923,8 @@ export function BuildingEditor({
           showDimensions: tool === "select" && !gesture,
           snapTarget: activeSnap,
           measurements: measurementVisibility(drafting.measurements),
+          declutterLabels: drafting.declutterLabels !== false,
+          hoveredId,
         },
       );
     redraw();
@@ -942,6 +953,7 @@ export function BuildingEditor({
     camera,
     activeSnap,
     cursor,
+    hoveredId,
   ]);
 
   function pointerDown(event: PointerEvent<HTMLCanvasElement>) {
@@ -1903,61 +1915,74 @@ export function BuildingEditor({
                   }
                 }}
               />
-              <div
-                className="canvas-navigation"
-                role="group"
-                aria-label="Canvas navigation"
-              >
-                <button
-                  type="button"
-                  aria-label="Pan canvas"
-                  aria-pressed={panMode}
-                  onClick={() => {
-                    setPanMode((value) => !value);
-                    setGesture(null);
-                  }}
+              <div className="canvas-footer">
+                <div
+                  className="canvas-navigation"
+                  role="group"
+                  aria-label="Canvas navigation"
                 >
-                  Pan
-                </button>
-                <button
-                  type="button"
-                  aria-label="Zoom out"
-                  onClick={() => zoomAt(1 / 1.25)}
-                >
-                  −
-                </button>
-                <output aria-label="Canvas zoom">
-                  {Math.round(camera.zoom * 100)}%
-                </output>
-                <button
-                  type="button"
-                  aria-label="Zoom in"
-                  onClick={() => zoomAt(1.25)}
-                >
-                  +
-                </button>
-                <button type="button" onClick={() => fitPlan()}>
-                  Fit plan
-                </button>
-                <span>Scroll to zoom · Space + drag to pan</span>
-              </div>
-              <div className="canvas-caption">
-                <span>
-                  {building.walls.length} walls · {building.doors.length} doors
-                  · {building.exits.length} exits ·{" "}
-                  {building.windows?.length ?? 0} windows ·{" "}
-                  {building.spawn_zones.length} spawn zones
-                  {building.placed_occupants?.length
-                    ? ` · ${building.placed_occupants.length} placed occupants`
-                    : ""}
-                </span>
-                <span>
-                  {cursor
-                    ? `${lengthInputValue(cursor.x, 2)}, ${lengthInputValue(cursor.y, 2)} ft`
-                    : drafting.snap
-                      ? `Snap ${gridSpacings[drafting.spacing].label} · feet`
-                      : "Continuous coordinates"}
-                </span>
+                  <button
+                    type="button"
+                    aria-label="Pan canvas"
+                    aria-pressed={panMode}
+                    onClick={() => {
+                      setPanMode((value) => !value);
+                      setGesture(null);
+                    }}
+                  >
+                    Pan
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Zoom out"
+                    onClick={() => zoomAt(1 / 1.25)}
+                  >
+                    −
+                  </button>
+                  <output aria-label="Canvas zoom">
+                    {Math.round(camera.zoom * 100)}%
+                  </output>
+                  <button
+                    type="button"
+                    aria-label="Zoom in"
+                    onClick={() => zoomAt(1.25)}
+                  >
+                    +
+                  </button>
+                  <button type="button" onClick={() => fitPlan()}>
+                    Fit plan
+                  </button>
+                  <div className="canvas-navigation-help">
+                    <button
+                      type="button"
+                      aria-label="Canvas navigation help"
+                      aria-describedby="canvas-navigation-tip"
+                    >
+                      ?
+                    </button>
+                    <span id="canvas-navigation-tip" role="tooltip">
+                      Scroll to zoom · Space + drag to pan
+                    </span>
+                  </div>
+                </div>
+                <div className="canvas-caption">
+                  <span>
+                    {building.walls.length} walls · {building.doors.length}{" "}
+                    doors · {building.exits.length} exits ·{" "}
+                    {building.windows?.length ?? 0} windows ·{" "}
+                    {building.spawn_zones.length} spawn zones
+                    {building.placed_occupants?.length
+                      ? ` · ${building.placed_occupants.length} placed occupants`
+                      : ""}
+                  </span>
+                  <span>
+                    {cursor
+                      ? `${lengthInputValue(cursor.x, 2)}, ${lengthInputValue(cursor.y, 2)} ft`
+                      : drafting.snap
+                        ? `Snap ${gridSpacings[drafting.spacing].label} · feet`
+                        : "Continuous coordinates"}
+                  </span>
+                </div>
               </div>
             </div>
           </div>

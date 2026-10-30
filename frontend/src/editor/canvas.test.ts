@@ -59,6 +59,62 @@ function canvasFixture(width: number, height = (width * 2) / 3) {
 }
 
 describe("freeform Canvas drawing", () => {
+  it("reveals small labels on selection/hover without changing geometry or overriding measurement switches", () => {
+    const building = {
+      ...example,
+      spawn_zones: [
+        { id: "tiny-zone", x: 3, y: 3, width: 1, height: 1, count: 1 },
+      ],
+    };
+    const before = JSON.stringify(building);
+    const { context, element } = canvasFixture(600);
+    const options = {
+      declutterLabels: true,
+      showDimensions: false,
+      measurements: measurementVisibility(),
+    };
+    const texts = () => context.fillText.mock.calls.map(([text]) => text);
+    drawLayout(element, building, null, undefined, 1, undefined, options);
+    expect(texts()).not.toContain("1 occupant");
+    context.fillText.mockClear();
+    drawLayout(element, building, null, undefined, 1, undefined, {
+      ...options,
+      hoveredId: "tiny-zone",
+    });
+    expect(texts()).toContain("1 occupant");
+    context.fillText.mockClear();
+    drawLayout(
+      element,
+      building,
+      { kind: "spawn_zones", id: "tiny-zone" },
+      undefined,
+      1,
+      undefined,
+      options,
+    );
+    expect(texts()).toContain("1 occupant");
+    context.fillText.mockClear();
+    drawLayout(
+      element,
+      building,
+      { kind: "doors", id: building.doors[0]!.id },
+      undefined,
+      1,
+      undefined,
+      {
+        ...options,
+        showLabels: false,
+        measurements: {
+          walls: false,
+          doors: false,
+          exits: false,
+          windows: false,
+        },
+      },
+    );
+    expect(texts()).toEqual([]);
+    expect(JSON.stringify(building)).toBe(before);
+  });
   it("draws polygon outlines and holes instead of their bounding rectangles", () => {
     const { context, element } = canvasFixture(600);
     const polygon = [

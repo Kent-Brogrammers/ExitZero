@@ -205,16 +205,21 @@
   user-select: none;
 }
 .editor-panel .canvas-caption {
-  position: absolute;
-  left: 24px;
-  right: 24px;
-  bottom: 19px;
-  z-index: 4;
+  grid-area: 1 / 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
   border: 0;
   padding: 0;
   pointer-events: none;
   color: var(--cad-subtle);
   font-size: 9px;
+}
+.editor-panel .canvas-caption span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .editor-panel .editor-inspector {
   position: absolute;
@@ -367,8 +372,6 @@
     font-size: 9px;
   }
   .editor-panel .canvas-caption {
-    left: 16px;
-    right: 16px;
     font-size: 8px;
   }
   .editor-panel > .editor-error {
@@ -519,37 +522,72 @@
   margin: 0;
 }
 
-.canvas-navigation {
+.canvas-footer {
   position: absolute;
-  left: 50%;
-  bottom: 42px;
-  transform: translateX(-50%);
+  right: 16px;
+  bottom: 12px;
+  left: 24px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  z-index: 5;
+  pointer-events: none;
+}
+.canvas-navigation {
+  grid-area: 1 / 2;
+  pointer-events: auto;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px;
+  gap: 2px;
+  padding: 3px;
   border: 1px solid var(--cad-rail-border);
-  border-radius: 7px;
+  border-radius: var(--radius-control);
   background: var(--cad-rail);
   color: var(--cad-text);
-  z-index: 5;
   white-space: nowrap;
 }
 .canvas-navigation button {
-  padding: 5px 9px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 7px;
+  font-size: var(--text-small);
 }
 .canvas-navigation output {
   min-width: 44px;
   text-align: center;
   font-size: 11px;
 }
-.canvas-navigation span {
-  font-size: 10px;
+.canvas-navigation-help {
+  position: relative;
+}
+.canvas-navigation-help button {
   color: var(--cad-muted);
-  padding: 0 6px;
+}
+.canvas-navigation-help [role="tooltip"] {
+  position: absolute;
+  bottom: calc(100% + 12px);
+  right: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--cad-border);
+  border-radius: var(--radius-control);
+  background: var(--cad-panel);
+  font-size: 10px;
+  color: var(--cad-text);
+  visibility: hidden;
+  pointer-events: none;
+}
+.canvas-navigation-help:hover [role="tooltip"],
+.canvas-navigation-help:focus-within [role="tooltip"] {
+  visibility: visible;
 }
 @media (max-width: 760px) {
-  .canvas-navigation span {
+  .canvas-footer {
+    left: 16px;
+    right: 8px;
+    bottom: 8px;
+  }
+  .canvas-caption span + span {
     display: none;
   }
 }
