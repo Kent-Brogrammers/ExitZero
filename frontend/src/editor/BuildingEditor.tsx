@@ -54,6 +54,11 @@ import { WindowProperties } from "./WindowProperties";
 import { objectName, nextObjectName, renameObject } from "./names";
 import { EditorHistoryControls, EditorUtilityRail } from "./EditorUtilityRail";
 import { EditorDrawingRail } from "./EditorDrawingRail";
+import {
+  FloorPlanImageDialog,
+  type FloorPlanImageSource,
+} from "./FloorPlanImageDialog";
+import { canvasPalette } from "../styles/canvasPalette";
 import { addObject, addWallShape, addSpawnZone, dragRectangle } from "./shapes";
 import { useStudioTheme } from "../styles/appearance";
 import { isWallTool, type EditorTool } from "./tools";
@@ -192,6 +197,9 @@ export function BuildingEditor({
   } | null>(null);
   const importInput = useRef<HTMLInputElement>(null);
   const dxfDialog = useRef<HTMLDialogElement>(null);
+  const [imageExport, setImageExport] = useState<FloorPlanImageSource | null>(
+    null,
+  );
   const propertiesButton = useRef<HTMLButtonElement>(null);
   const savedLayout = useRef(JSON.stringify(building));
   const [furnitureSymbols, setFurnitureSymbols] = useState(
@@ -1633,6 +1641,12 @@ export function BuildingEditor({
         dialogRef={dxfDialog}
         onApply={(next) => replaceLayout(next, "the reviewed DXF layout")}
       />
+      {imageExport && imageExport.building === building && !disabled && (
+        <FloorPlanImageDialog
+          source={imageExport}
+          onClose={() => setImageExport(null)}
+        />
+      )}
       <fieldset className="editor-controls" disabled={disabled}>
         <div className="editor-workspace">
           <div className="editor-commandbar">
@@ -1674,6 +1688,15 @@ export function BuildingEditor({
               onImport={() => importInput.current?.click()}
               onImportDxf={() => dxfDialog.current?.showModal()}
               onExport={exportLayout}
+              onExportImage={() => {
+                if (!canvas.current) return;
+                setImageExport({
+                  building,
+                  drafting,
+                  furniture: new Map(furnitureSymbols),
+                  palette: canvasPalette(canvas.current),
+                });
+              }}
               onProperties={() => setPropertiesOpen(!propertiesOpen)}
               canvasControls={
                 <div className="canvas-size-controls">

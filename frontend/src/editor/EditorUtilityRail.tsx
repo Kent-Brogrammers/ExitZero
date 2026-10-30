@@ -26,6 +26,7 @@ interface EditorUtilityRailProps {
   onImport: () => void;
   onImportDxf: () => void;
   onExport: () => void;
+  onExportImage?: () => void;
   onProperties: () => void;
   canvasControls: ReactNode;
   drafting: DraftingPreferences;
@@ -118,6 +119,18 @@ export function EditorUtilityRail(props: EditorUtilityRailProps) {
                 {label}
               </button>
             ))}
+            {props.onExportImage && (
+              <button
+                type="button"
+                className="studio-control"
+                onClick={() => {
+                  close();
+                  props.onExportImage?.();
+                }}
+              >
+                Export Image
+              </button>
+            )}
           </div>
         )}
       </StudioPopover>

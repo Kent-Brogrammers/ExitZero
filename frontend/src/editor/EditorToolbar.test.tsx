@@ -11,6 +11,7 @@ const onTool = vi.fn();
 const onUndo = vi.fn();
 const onDelete = vi.fn();
 const onClear = vi.fn();
+const onExportImage = vi.fn();
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal(
@@ -24,6 +25,7 @@ beforeEach(() => {
   onUndo.mockReset();
   onDelete.mockReset();
   onClear.mockReset();
+  onExportImage.mockReset();
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -80,6 +82,7 @@ async function menus(
         onImport={() => {}}
         onImportDxf={() => {}}
         onExport={() => {}}
+        onExportImage={onExportImage}
         onProperties={() => {}}
         canvasControls={<p>Drawing area controls</p>}
         drafting={{
@@ -115,6 +118,15 @@ it("keeps freehand in Advanced and routes wall and opening choices to the existi
     await click(name!);
     expect(onTool).toHaveBeenLastCalledWith(tool);
   }
+});
+
+it("opens image export from File and dismisses the menu", async () => {
+  await menus();
+  await click("File");
+  expect(button("Export JSON")).toBeDefined();
+  await click("Export Image");
+  expect(onExportImage).toHaveBeenCalledOnce();
+  expect(host.querySelector(".studio-popover-panel")).toBeNull();
 });
 
 it("preserves furniture and people choices while removing unsupported object placeholders", async () => {
