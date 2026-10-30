@@ -55,6 +55,7 @@ it("migrates legacy preferences and persists wall snapping independently of the 
     snap: true,
     snapEndpoints: false,
     measurements: { walls: false, doors: true, windows: true, exits: true },
+    declutterLabels: true,
     spacing: "5ft",
     doorMergeTolerance: 0.05,
   });
@@ -88,7 +89,10 @@ it("saves any measurement combination independently of grid and snapping setting
   expect(saved.visible).toBe(false);
   expect(saved.snap).toBe(false);
   expect(saved.snapEndpoints).toBe(true);
+  expect(checkbox("Reduce label clutter").checked).toBe(true);
+  await act(async () => checkbox("Reduce label clutter").click());
   await act(async () => root.render(<Harness key="refresh-measurements" />));
+  expect(checkbox("Reduce label clutter").checked).toBe(false);
   for (const label of ["Walls", "Doors"])
     expect(checkbox(label).checked).toBe(true);
   for (const label of ["Windows", "Exits"])

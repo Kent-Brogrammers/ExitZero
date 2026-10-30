@@ -66,6 +66,8 @@ export function drawLayout(
     showBlockedLabels?: boolean;
     snapTarget?: WallSnapTarget | null;
     measurements?: MeasurementVisibility;
+    declutterLabels?: boolean;
+    hoveredId?: string;
     showPlacedOccupants?: boolean;
   },
 ) {
@@ -136,6 +138,8 @@ export function drawLayout(
       : [selected as Selection]
     : [];
   const selectedIds = new Set(selections.map((s) => s.id));
+  const labelFocus = new Set(selectedIds);
+  if (options?.hoveredId) labelFocus.add(options.hoveredId);
   const single = selections.length === 1 ? selections[0] : null;
   for (const rectangle of [
     ...building.spawn_zones,
@@ -237,7 +241,12 @@ export function drawLayout(
       ctx.stroke();
       continue;
     }
-    if (options?.showLabels !== false) {
+    if (
+      options?.showLabels !== false &&
+      (!options?.declutterLabels ||
+        labelFocus.has(rectangle.id) ||
+        (rectangle.width / px >= 96 && rectangle.height / px >= 30))
+    ) {
       ctx.fillStyle = spawn ? palette.wall : palette.obstacleText;
       ctx.font = `${12 * px}px system-ui`;
       ctx.fillText(
@@ -513,10 +522,17 @@ export function drawLayout(
           px,
           (text) => ctx.measureText?.(text).width ?? text.length * 6 * px,
           options?.windowStates,
-          options?.measurements
+          options?.measurements || options?.declutterLabels
             ? {
-                measurements: options.measurements,
+                measurements: options.measurements ?? {
+                  walls: false,
+                  doors: true,
+                  windows: true,
+                  exits: true,
+                },
                 showNames: options.showLabels !== false,
+                declutter: options.declutterLabels,
+                focusIds: labelFocus,
               }
             : undefined,
         );
@@ -540,7 +556,21 @@ export function drawLayout(
   if (options?.measurements?.walls) {
     ctx.fillStyle = palette.wall;
     for (const label of wallLengthLabels(
-      building,
+      options.declutterLabels
+        ? {
+            ...building,
+            walls: building.walls.filter(
+              (wall) =>
+                labelFocus.has(wall.id) ||
+                Math.hypot(
+                  wall.end.x - wall.start.x,
+                  wall.end.y - wall.start.y,
+                ) /
+                  px >=
+                  96,
+            ),
+          }
+        : building,
       px,
       (text) => ctx.measureText(text).width,
       openingAnnotations,

@@ -85,3 +85,59 @@ it("retains blocked/window-state labels when their dimensions are switched off",
   expect(labels.some((label) => label.text === "Blocked exit")).toBe(true);
   expect(labels.some((label) => label.text.includes(" ft"))).toBe(false);
 });
+
+it("keeps small openings quiet until focused or zoomed in, retaining exits and blocked states", () => {
+  const building = {
+    ...example,
+    doors: [
+      { id: "small-door", wall_id: example.walls[0]!.id, offset: 2, width: 1 },
+      {
+        id: "blocked-door",
+        wall_id: example.walls[0]!.id,
+        offset: 6,
+        width: 1,
+      },
+    ],
+    windows: [
+      {
+        id: "small-window",
+        wall_id: example.walls[0]!.id,
+        offset: 10,
+        width: 1,
+      },
+    ],
+    opening_events: [{ step: 0, opening_id: "blocked-door", blocked: true }],
+  };
+  const before = JSON.stringify(building);
+  const options = {
+    measurements: measurementVisibility(),
+    showNames: true,
+    declutter: true,
+  };
+  const labelsAt = (px: number, focusIds?: Set<string>) =>
+    openingLabels(building, px, (text) => text.length * 6 * px, [], {
+      ...options,
+      focusIds,
+    });
+  const quiet = labelsAt(0.08);
+  expect(quiet.some((label) => label.id === "small-door")).toBe(false);
+  expect(quiet.some((label) => label.id === "small-window")).toBe(false);
+  expect(quiet.some((label) => label.text.startsWith("Blocked door"))).toBe(
+    true,
+  );
+  expect(quiet.some((label) => label.id === example.exits[0]!.id)).toBe(true);
+  expect(
+    labelsAt(0.08, new Set(["small-door", "small-window"])).filter((label) =>
+      label.id.startsWith("small-"),
+    ),
+  ).toHaveLength(2);
+  expect(labelsAt(0.015).some((label) => label.id === "small-door")).toBe(true);
+  const all = openingLabels(building, 0.08, (text) => text.length * 0.48, [], {
+    ...options,
+    declutter: false,
+  });
+  expect(all).toHaveLength(
+    building.doors.length + building.exits.length + building.windows.length,
+  );
+  expect(JSON.stringify(building)).toBe(before);
+});
