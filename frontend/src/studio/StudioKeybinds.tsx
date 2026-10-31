@@ -25,8 +25,10 @@ const groups = [
       ["Zoom in", "+ or ="],
       ["Zoom out", "−"],
       ["Fit plan", "0"],
+      ["Focus selection", "F"],
+      ["Previous view", "Shift+F"],
     ],
-    note: "Shift locks straight walls to horizontal, vertical or 45°; rectangle/ellipse tools constrain to a square/circle. Scroll also zooms; middle/right-drag also pans.",
+    note: "Shift locks straight walls to horizontal, vertical or 45°; rectangle/ellipse tools constrain to a square/circle. Scroll also zooms; middle/right-drag also pans. F frames the selection while Select / move is active and no drawing or panning gesture is in progress. Shift+F returns to the view saved by the last focus.",
   },
   {
     title: "Recorded playback",

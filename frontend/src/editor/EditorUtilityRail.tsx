@@ -27,6 +27,10 @@ interface EditorUtilityRailProps {
   onImportDxf: () => void;
   onExport: () => void;
   onExportImage?: () => void;
+  canFocusSelection?: boolean;
+  onFocusSelection?: () => void;
+  canRestorePreviousView?: boolean;
+  onPreviousView?: () => void;
   onProperties: () => void;
   canvasControls: ReactNode;
   drafting: DraftingPreferences;
@@ -233,8 +237,38 @@ export function EditorUtilityRail(props: EditorUtilityRailProps) {
         className="editor-view"
         disabled={props.disabled}
       >
-        {() => (
+        {(close) => (
           <>
+            {props.onFocusSelection && (
+              <div className="file-actions">
+                <button
+                  type="button"
+                  className="studio-control"
+                  disabled={!props.canFocusSelection}
+                  title="Focus Selection (F) · Select / move tool"
+                  onClick={() => {
+                    close();
+                    props.onFocusSelection?.();
+                  }}
+                >
+                  Focus Selection
+                </button>
+                {props.onPreviousView && (
+                  <button
+                    type="button"
+                    className="studio-control"
+                    disabled={!props.canRestorePreviousView}
+                    title="Previous View (Shift+F) · Return to the view before focusing"
+                    onClick={() => {
+                      close();
+                      props.onPreviousView?.();
+                    }}
+                  >
+                    Previous View
+                  </button>
+                )}
+              </div>
+            )}
             <details className="view-canvas-section">
               <summary>Drawing area & fullscreen</summary>
               {props.canvasControls}

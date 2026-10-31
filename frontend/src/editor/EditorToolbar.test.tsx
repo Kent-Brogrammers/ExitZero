@@ -12,6 +12,8 @@ const onUndo = vi.fn();
 const onDelete = vi.fn();
 const onClear = vi.fn();
 const onExportImage = vi.fn();
+const onFocusSelection = vi.fn();
+const onPreviousView = vi.fn();
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal(
@@ -26,6 +28,8 @@ beforeEach(() => {
   onDelete.mockReset();
   onClear.mockReset();
   onExportImage.mockReset();
+  onFocusSelection.mockReset();
+  onPreviousView.mockReset();
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -61,6 +65,7 @@ async function menus(
   showShelter = false,
   hasSelection = false,
   disabled = false,
+  canReturn = false,
 ) {
   await act(async () =>
     root.render(
@@ -83,6 +88,10 @@ async function menus(
         onImportDxf={() => {}}
         onExport={() => {}}
         onExportImage={onExportImage}
+        canFocusSelection={hasSelection}
+        onFocusSelection={onFocusSelection}
+        canRestorePreviousView={canReturn}
+        onPreviousView={onPreviousView}
         onProperties={() => {}}
         canvasControls={<p>Drawing area controls</p>}
         drafting={{
@@ -126,6 +135,32 @@ it("opens image export from File and dismisses the menu", async () => {
   expect(button("Export JSON")).toBeDefined();
   await click("Export Image");
   expect(onExportImage).toHaveBeenCalledOnce();
+  expect(host.querySelector(".studio-popover-panel")).toBeNull();
+});
+
+it("offers Focus Selection under View only when the editor can frame the selection", async () => {
+  await menus();
+  await click("View");
+  expect(button("Focus Selection").disabled).toBe(true);
+  await click("Focus Selection");
+  expect(onFocusSelection).not.toHaveBeenCalled();
+  await click("View");
+  await menus(false, true);
+  await click("View");
+  await click("Focus Selection");
+  expect(onFocusSelection).toHaveBeenCalledOnce();
+  expect(host.querySelector(".studio-popover-panel")).toBeNull();
+});
+
+it("offers a one-step Previous View only when a return target is available", async () => {
+  await menus();
+  await click("View");
+  expect(button("Previous View").disabled).toBe(true);
+  await click("View");
+  await menus(false, false, false, true);
+  await click("View");
+  await click("Previous View");
+  expect(onPreviousView).toHaveBeenCalledOnce();
   expect(host.querySelector(".studio-popover-panel")).toBeNull();
 });
 
