@@ -3,6 +3,7 @@ import example from "../../../shared/examples/building.json";
 import {
   buildingError,
   canvasView,
+  focusSelectionCamera,
   openingSegment,
   project,
   removeElement,
@@ -97,5 +98,37 @@ describe("freeform layout editing", () => {
     expect(view.scale).toBe(0.8);
     expect(view.x).toBeCloseTo(599.6);
     expect(view.y).toBe(0);
+  });
+  it.each([1, 2])(
+    "centres a group in the usable Canvas with padding at DPI %s",
+    (ratio) => {
+      const bounds = { x: 20, y: 6, width: 5, height: 3 };
+      const camera = focusSelectionCamera(900, 600, example, bounds, 280)!;
+      const view = canvasView(900 * ratio, 600 * ratio, example, camera, ratio);
+      const x = (world: number) => (view.x + world * view.scale) / ratio;
+      const y = (world: number) => (view.y + world * view.scale) / ratio;
+      expect(x(bounds.x + bounds.width / 2)).toBeCloseTo(310);
+      expect(y(bounds.y + bounds.height / 2)).toBeCloseTo(300);
+      expect(x(bounds.x)).toBeGreaterThanOrEqual(47.99);
+      expect(x(bounds.x + bounds.width)).toBeLessThanOrEqual(620 - 47.99);
+      expect(y(bounds.y)).toBeGreaterThanOrEqual(47.99);
+      expect(y(bounds.y + bounds.height)).toBeLessThanOrEqual(600 - 47.99);
+      expect(camera.extent).toEqual({
+        width: example.width,
+        height: example.height,
+      });
+    },
+  );
+  it("bounds zoom for tiny/flat selections and ignores hidden or invalid viewports", () => {
+    const bounds = { x: 10, y: 10, width: 0, height: 0 };
+    expect(
+      focusSelectionCamera(900, 600, { width: 1000, height: 1000 }, bounds)
+        ?.zoom,
+    ).toBe(20);
+    expect(focusSelectionCamera(0, 600, example, bounds)).toBeNull();
+    expect(focusSelectionCamera(900, 600, example, bounds, 900)).toBeNull();
+    expect(
+      focusSelectionCamera(900, 600, example, { ...bounds, x: NaN }),
+    ).toBeNull();
   });
 });

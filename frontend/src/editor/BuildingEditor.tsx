@@ -66,6 +66,7 @@ import type { BuildingScenario, Point } from "../types/simulation";
 import {
   buildingError,
   canvasView,
+  focusSelectionCamera,
   clamp,
   distance,
   project,
@@ -186,6 +187,11 @@ export function BuildingEditor({
     pan: { x: 0, y: 0 },
     extent: { width: building.width, height: building.height },
   });
+  const [previousView, setPreviousView] = useState<{
+    camera: CanvasCamera;
+    viewport: { width: number; height: number };
+    world: { width: number; height: number };
+  } | null>(null);
   const [panMode, setPanMode] = useState(false);
   const [spaceDown, setSpaceDown] = useState(false);
   const [panning, setPanning] = useState(false);
@@ -391,7 +397,9 @@ export function BuildingEditor({
   useImperativeHandle(editorRef, () => ({
     applyBuilding(next) {
       setGesture(null);
-      return commit(next, false, []);
+      const applied = commit(next, false, []);
+      if (applied) setPreviousView(null);
+      return applied;
     },
   }));
 
@@ -519,6 +527,92 @@ export function BuildingEditor({
       pan: { x: 0, y: 0 },
       extent: { width: building.width, height: building.height },
     });
+  }
+  const canNavigateView =
+    !disabled &&
+    tool === "select" &&
+    !gesture &&
+    !spawnPolygon.length &&
+    !panMode &&
+    !spaceDown &&
+    !panning;
+  const canFocusSelection = canNavigateView && selections.length > 0;
+  const canRestorePreviousView =
+    canNavigateView &&
+    previousView !== null &&
+    previousView.world.width === building.width &&
+    previousView.world.height === building.height;
+  function focusSelection() {
+    const element = canvas.current;
+    if (!canFocusSelection || !element || panGesture.current) return;
+    const bounds = selectionBounds(building, selections, true);
+    if (!bounds) return;
+    const rect = element.getBoundingClientRect();
+    const inspector = propertiesOpen
+      ? editor.current
+          ?.querySelector<HTMLElement>("#editor-properties")
+          ?.getBoundingClientRect()
+      : null;
+    const next = focusSelectionCamera(
+      rect.width,
+      rect.height,
+      building,
+      bounds,
+      inspector ? Math.max(0, rect.right - inspector.left + 16) : 0,
+    );
+    if (!next) return;
+    const current = canvasView(rect.width, rect.height, building, camera);
+    const focused = canvasView(rect.width, rect.height, building, next);
+    // Repeated F on the same view must not replace the useful return target.
+    if (
+      Math.abs(current.scale - focused.scale) > 1e-8 ||
+      Math.abs(current.x - focused.x) > 1e-8 ||
+      Math.abs(current.y - focused.y) > 1e-8
+    ) {
+      setPreviousView({
+        camera: structuredClone(camera),
+        viewport: { width: rect.width, height: rect.height },
+        world: { width: building.width, height: building.height },
+      });
+    }
+    setCamera(next);
+    setCursor(null);
+    element.focus({ preventScroll: true });
+  }
+  function restorePreviousView() {
+    const element = canvas.current;
+    if (
+      !canRestorePreviousView ||
+      !previousView ||
+      !element ||
+      panGesture.current
+    )
+      return;
+    const rect = element.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    const oldScale = canvasView(
+      previousView.viewport.width,
+      previousView.viewport.height,
+      building,
+      previousView.camera,
+    ).scale;
+    const newScale = canvasView(
+      rect.width,
+      rect.height,
+      building,
+      previousView.camera,
+    ).scale;
+    const relative = newScale / oldScale;
+    setCamera({
+      ...previousView.camera,
+      pan: {
+        x: previousView.camera.pan.x * relative,
+        y: previousView.camera.pan.y * relative,
+      },
+    });
+    setPreviousView(null);
+    setCursor(null);
+    element.focus({ preventScroll: true });
   }
   function extendForPoints(
     base: BuildingScenario,
@@ -1463,6 +1557,7 @@ export function BuildingEditor({
     )
       return false;
     if (commit(next)) {
+      setPreviousView(null);
       curveGroups.current.clear();
       setFurnitureSymbols(new Map());
       savedLayout.current = JSON.stringify(next);
@@ -1688,6 +1783,10 @@ export function BuildingEditor({
               onImport={() => importInput.current?.click()}
               onImportDxf={() => dxfDialog.current?.showModal()}
               onExport={exportLayout}
+              canFocusSelection={canFocusSelection}
+              onFocusSelection={focusSelection}
+              canRestorePreviousView={canRestorePreviousView}
+              onPreviousView={restorePreviousView}
               onExportImage={() => {
                 if (!canvas.current) return;
                 setImageExport({
@@ -1891,6 +1990,25 @@ export function BuildingEditor({
                   if (event.key === "Shift") setWallAngleLock(false);
                 }}
                 onKeyDown={(event) => {
+                  if (
+                    event.key.toLowerCase() === "f" &&
+                    !event.ctrlKey &&
+                    !event.metaKey &&
+                    !event.altKey &&
+                    !event.repeat &&
+                    !event.nativeEvent.isComposing
+                  ) {
+                    if (
+                      event.shiftKey
+                        ? canRestorePreviousView
+                        : canFocusSelection
+                    ) {
+                      event.preventDefault();
+                      if (event.shiftKey) restorePreviousView();
+                      else focusSelection();
+                    }
+                    return;
+                  }
                   if (event.key === "Shift") setWallAngleLock(true);
                   if (event.code === "Space") {
                     event.preventDefault();
