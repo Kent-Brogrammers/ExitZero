@@ -1,4 +1,5 @@
 import { formatDimensions, formatLength } from "../utils/units";
+import { useDisplayUnits } from "../utils/useDisplayUnits";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { BuildingScenario } from "../types/simulation";
 import { drawLayout } from "../editor/draw";
@@ -27,6 +28,7 @@ export function WelcomePreview({
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const theme = useStudioTheme();
+  const units = useDisplayUnits();
   const id = useId();
   const [loaded, setLoaded] = useState<{
     building: BuildingScenario;
@@ -117,7 +119,7 @@ export function WelcomePreview({
       observer.disconnect();
       window.removeEventListener("resize", redraw);
     };
-  }, [building, theme, showTraffic, field]);
+  }, [building, theme, units, showTraffic, field]);
 
   return (
     <>

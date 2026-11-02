@@ -126,6 +126,7 @@
 }
 .settings-values > div {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
   padding: 7px 0;

@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import example from "../../../shared/examples/building.json";
 import { LengthInput } from "../ui/LengthInput";
 import { buildingError } from "../editor/geometry";
@@ -11,7 +11,57 @@ import {
   lengthFromInput,
   formatLength,
   formatDimensions,
+  getDisplayUnits,
+  setDisplayUnits,
+  subscribeDisplayUnits,
+  UNITS_STORAGE_KEY,
 } from "./units";
+
+afterEach(() => setDisplayUnits("imperial"));
+
+describe("measurement preference", () => {
+  it("converts metric fields and labels together and preserves untouched precision in either mode", () => {
+    for (const units of ["metric", "imperial"] as const) {
+      setDisplayUnits(units);
+      for (const original of [0, 0.1, 1 / 3, 1.234567891234, 1000])
+        expect(lengthFromInput(lengthInputValue(original), original)).toBe(
+          original,
+        );
+    }
+    setDisplayUnits("metric");
+    expect(formatLength(2)).toBe("2 m");
+    expect(formatDimensions(30, 20)).toBe("30 × 20 m");
+    expect(lengthFromInput(3.048, 1)).toBe(3.048);
+    const html = renderToStaticMarkup(
+      <LengthInput value={8} min={0} max={1000} onValue={() => {}} />,
+    );
+    expect(html).toContain('value="8"');
+    expect(html).toContain('max="1000"');
+    setDisplayUnits("imperial");
+    expect(lengthFromInput(10, 1)).toBe(3.048);
+  });
+
+  it("notifies displays and saves only the preference, while unavailable storage stays usable", () => {
+    const setItem = vi.fn();
+    vi.stubGlobal("window", { localStorage: { setItem } });
+    const listener = vi.fn();
+    const unsubscribe = subscribeDisplayUnits(listener);
+    try {
+      setDisplayUnits("metric");
+      expect(getDisplayUnits()).toBe("metric");
+      expect(setItem).toHaveBeenCalledWith(UNITS_STORAGE_KEY, "metric");
+      expect(listener).toHaveBeenCalledTimes(1);
+      setItem.mockImplementation(() => {
+        throw new Error("Storage unavailable");
+      });
+      expect(() => setDisplayUnits("imperial")).not.toThrow();
+      expect(getDisplayUnits()).toBe("imperial");
+    } finally {
+      unsubscribe();
+      vi.unstubAllGlobals();
+    }
+  });
+});
 
 describe("feet display over unchanged metre contracts", () => {
   it("converts distances and rates with the exact international foot", () => {
@@ -55,6 +105,8 @@ describe("feet display over unchanged metre contracts", () => {
     const building = structuredClone(example),
       json = JSON.stringify(building);
     formatDimensions(building.width, building.height);
+    setDisplayUnits("metric");
+    expect(formatDimensions(building.width, building.height)).toBe("30 × 20 m");
     for (const wall of building.walls) formatLength(wall.thickness);
     expect(JSON.stringify(building)).toBe(json);
     expect(buildingError(building)).toBeNull();

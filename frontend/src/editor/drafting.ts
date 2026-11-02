@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Point } from "../types/simulation";
-import { FOOT_METRES, formatLength } from "../utils/units";
+import { FOOT_METRES, formatLength, getDisplayUnits } from "../utils/units";
 import {
   measurementVisibility,
   type MeasurementVisibility,
@@ -10,9 +10,16 @@ export const gridSpacings = {
   "1ft": { label: "1 foot", metres: FOOT_METRES },
   "2ft": { label: "2 feet", metres: 2 * FOOT_METRES },
   "5ft": { label: "5 feet", metres: 5 * FOOT_METRES },
-  "0.5m": { label: `${formatLength(0.5, 2)} (metric spacing)`, metres: 0.5 },
-  "1m": { label: `${formatLength(1, 2)} (metric spacing)`, metres: 1 },
+  "0.5m": { label: "0.5 m", metres: 0.5 },
+  "1m": { label: "1 m", metres: 1 },
 } as const;
+export function gridSpacingLabel(key: keyof typeof gridSpacings) {
+  const spacing = gridSpacings[key];
+  if (getDisplayUnits() === "metric") return formatLength(spacing.metres, 4);
+  return key.endsWith("ft")
+    ? spacing.label
+    : `${formatLength(spacing.metres, 2)} (metric spacing)`;
+}
 export interface DraftingPreferences {
   visible: boolean;
   snap: boolean;
@@ -21,6 +28,7 @@ export interface DraftingPreferences {
   measurements?: MeasurementVisibility;
   /** Display only: keep small/dense annotations quiet until hovered or selected. */
   declutterLabels?: boolean;
+  showScale?: boolean;
   spacing: keyof typeof gridSpacings;
   doorMergeTolerance: number;
 }
@@ -44,6 +52,7 @@ export function useDraftingPreferences() {
             typeof p.snapEndpoints === "boolean" ? p.snapEndpoints : true,
           measurements: measurementVisibility(p.measurements),
           declutterLabels: p.declutterLabels !== false,
+          showScale: p.showScale !== false,
           spacing: p.spacing,
           doorMergeTolerance: [0.02, 0.05, 0.1, 0.2].includes(
             p.doorMergeTolerance,
@@ -60,6 +69,7 @@ export function useDraftingPreferences() {
       snapEndpoints: true,
       measurements: measurementVisibility(),
       declutterLabels: true,
+      showScale: true,
       spacing: "2ft",
       doorMergeTolerance: 0.1,
     };

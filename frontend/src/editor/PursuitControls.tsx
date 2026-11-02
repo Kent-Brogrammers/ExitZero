@@ -1,5 +1,6 @@
 import type { BuildingScenario } from "../types/simulation";
 import { LengthInput } from "../ui/LengthInput";
+import { lengthUnit } from "../utils/units";
 
 export function PursuitControls({
   building,
@@ -23,7 +24,7 @@ export function PursuitControls({
         </p>
         {(["x", "y"] as const).map((axis) => (
           <label key={axis}>
-            Stalker start {axis.toUpperCase()} (ft)
+            Stalker start {axis.toUpperCase()} ({lengthUnit()})
             <LengthInput
               aria-label={`Stalker start ${axis.toUpperCase()}`}
               value={pursuit.stalker_start[axis]}
@@ -47,7 +48,8 @@ export function PursuitControls({
         ))}
         {(["stalker_speed", "survivor_speed"] as const).map((key) => (
           <label key={key}>
-            {key === "stalker_speed" ? "Stalker" : "Survivor"} speed (ft/s)
+            {key === "stalker_speed" ? "Stalker" : "Survivor"} speed (
+            {lengthUnit()}/s)
             <LengthInput
               aria-label={
                 key === "stalker_speed" ? "Stalker speed" : "Survivor speed"

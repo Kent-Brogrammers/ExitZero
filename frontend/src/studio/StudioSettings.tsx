@@ -1,7 +1,8 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { BuildingScenario } from "../types/simulation";
 import { LengthInput } from "../ui/LengthInput";
-import { formatDimensions } from "../utils/units";
+import { formatDimensions, lengthUnit, setDisplayUnits } from "../utils/units";
+import { useDisplayUnits } from "../utils/useDisplayUnits";
 import { totalPopulation } from "../utils/population";
 import { AppearanceSelector } from "../styles/StudioAppearance";
 import { halloweenPreset } from "../editor/presets";
@@ -36,6 +37,7 @@ export function StudioSettings({
   onHalloween: (action: "edit" | "simulate") => void;
   onClose: () => void;
 }) {
+  const units = useDisplayUnits();
   const dialog = useRef<HTMLDialogElement>(null);
   const outside = useRef(false);
   const id = useId();
@@ -182,8 +184,27 @@ export function StudioSettings({
                 <AppearanceSelector />
                 <dl className="settings-values">
                   <div>
-                    <dt>Display units</dt>
-                    <dd>Feet (ft)</dd>
+                    <dt>
+                      <label htmlFor={`${id}-units`}>Measurement units</label>
+                    </dt>
+                    <dd>
+                      <select
+                        id={`${id}-units`}
+                        className="studio-control"
+                        aria-label="Measurement units"
+                        value={units}
+                        onChange={(event) =>
+                          setDisplayUnits(
+                            event.target.value === "metric"
+                              ? "metric"
+                              : "imperial",
+                          )
+                        }
+                      >
+                        <option value="imperial">Imperial — feet (ft)</option>
+                        <option value="metric">Metric — meters (m)</option>
+                      </select>
+                    </dd>
                   </div>
                 </dl>
                 <p className="note">
@@ -196,10 +217,14 @@ export function StudioSettings({
                   <legend>Agent awareness</legend>
                   {(
                     [
-                      ["sight_range_metres", "Sight range (ft)", 8],
+                      [
+                        "sight_range_metres",
+                        `Sight range (${lengthUnit()})`,
+                        8,
+                      ],
                       [
                         "communication_range_metres",
-                        "Communication range (ft)",
+                        `Communication range (${lengthUnit()})`,
                         3,
                       ],
                     ] as const

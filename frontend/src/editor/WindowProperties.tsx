@@ -1,4 +1,4 @@
-import { lengthInputValue, lengthFromInput } from "../utils/units";
+import { lengthInputValue, lengthFromInput, lengthUnit } from "../utils/units";
 import type { BuildingScenario, WindowOpening } from "../types/simulation";
 import {
   configureWindowEscape,
@@ -66,8 +66,8 @@ export function WindowProperties({
           </label>
           {(
             [
-              ["clear_width_metres", "Usable width (ft)"],
-              ["clear_height_metres", "Usable height (ft)"],
+              ["clear_width_metres", `Usable width (${lengthUnit()})`],
+              ["clear_height_metres", `Usable height (${lengthUnit()})`],
               ["preparation_seconds", "Preparation delay (s)"],
               ["traversal_seconds", "Traversal delay (s)"],
             ] as const
@@ -140,7 +140,7 @@ export function WindowProperties({
           {context && (
             <WindowNumber
               distance
-              label="Required clear height (ft)"
+              label={`Required clear height (${lengthUnit()})`}
               value={context.required_clear_height_metres}
               onCommit={(value) =>
                 onChange({
@@ -184,7 +184,7 @@ function WindowNumber({
     <label className="number-field">
       {label}
       <input
-        key={value}
+        key={`${value}-${lengthUnit()}`}
         aria-label={label}
         type="number"
         step="any"

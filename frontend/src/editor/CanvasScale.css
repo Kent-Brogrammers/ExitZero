@@ -1,0 +1,32 @@
+.canvas-scale {
+  position: absolute;
+  bottom: 20px;
+  left: 24px;
+  z-index: 5;
+  pointer-events: none;
+  color: var(--cad-wall);
+  font: 10px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  filter: drop-shadow(0 1px 2px var(--cad-bg));
+}
+.canvas-scale-labels {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 4px;
+  line-height: 1;
+  white-space: nowrap;
+}
+.canvas-scale-line {
+  height: 6px;
+  border: 1px solid currentColor;
+  border-top: 0;
+}
+.editor-canvas-wrap .canvas-scale {
+  bottom: 72px;
+}
+@media (max-width: 760px) {
+  .canvas-scale {
+    left: 16px;
+  }
+}
