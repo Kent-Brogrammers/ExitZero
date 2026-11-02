@@ -1,4 +1,5 @@
 import { formatLength, formatDimensions } from "../utils/units";
+import { useDisplayUnits } from "../utils/useDisplayUnits";
 import { useEffect, useRef, useState } from "react";
 import type { BuildingScenario, SimulationResult } from "../types/simulation";
 import { drawLayout } from "../editor/draw";
@@ -16,6 +17,7 @@ export default function TrafficHeatmap({
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const theme = useStudioTheme();
+  const units = useDisplayUnits();
   const [visible, setVisible] = useState(true);
   const [smoothing, setSmoothing] = useState(0.6);
   const traffic = result
@@ -77,7 +79,7 @@ export default function TrafficHeatmap({
       observer.disconnect();
       window.removeEventListener("resize", redraw);
     };
-  }, [building, result, visible, matches, smoothing, theme]);
+  }, [building, result, visible, matches, smoothing, theme, units]);
   return (
     <section
       className="panel traffic-panel"

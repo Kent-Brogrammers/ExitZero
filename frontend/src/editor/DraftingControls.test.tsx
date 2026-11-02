@@ -56,6 +56,7 @@ it("migrates legacy preferences and persists wall snapping independently of the 
     snapEndpoints: false,
     measurements: { walls: false, doors: true, windows: true, exits: true },
     declutterLabels: true,
+    showScale: true,
     spacing: "5ft",
     doorMergeTolerance: 0.05,
   });
@@ -64,6 +65,18 @@ it("migrates legacy preferences and persists wall snapping independently of the 
     false,
   );
   await act(async () => checkbox("Snap to Grid").click());
+  expect(checkbox("Snap to wall endpoints, corners & segments").checked).toBe(
+    false,
+  );
+  expect(checkbox("Show scale bar").checked).toBe(true);
+  await act(async () => checkbox("Show scale bar").click());
+  await act(async () => root.render(<Harness key="reload-scale" />));
+  expect(checkbox("Show scale bar").checked).toBe(false);
+  expect(
+    JSON.parse(localStorage.getItem(DRAFTING_STORAGE_KEY)!).showScale,
+  ).toBe(false);
+  expect(checkbox("Snap to Grid").checked).toBe(false);
+  expect(checkbox("Show grid").checked).toBe(false);
   expect(checkbox("Snap to wall endpoints, corners & segments").checked).toBe(
     false,
   );

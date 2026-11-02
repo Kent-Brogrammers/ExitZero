@@ -4,7 +4,12 @@ import { useEffect, useId, useRef, useState } from "react";
 import { buildingError } from "./geometry";
 import { ToolIcon } from "./ToolIcon";
 import { LengthInput } from "../ui/LengthInput";
-import { lengthFromInput, lengthInputValue, toFeet } from "../utils/units";
+import {
+  lengthFromInput,
+  lengthInputValue,
+  toDisplayLength,
+  lengthUnit,
+} from "../utils/units";
 import type {
   BuildingScenario,
   DisasterKind,
@@ -314,7 +319,7 @@ export function ScenarioFields({
             <div className="scenario-field-grid">
               {(["x", "y"] as const).map((axis) => (
                 <label key={axis}>
-                  Hazard {axis.toUpperCase()} (ft)
+                  Hazard {axis.toUpperCase()} ({lengthUnit()})
                   <LengthInput
                     aria-label={`Hazard ${axis.toUpperCase()}`}
                     min={0}
@@ -345,7 +350,7 @@ export function ScenarioFields({
                 </label>
               ))}
               <label>
-                Hazard radius (ft)
+                Hazard radius ({lengthUnit()})
                 <LengthInput
                   aria-label="Hazard radius"
                   min={0.1}
@@ -413,7 +418,7 @@ export function ScenarioFields({
               <div className="disaster-parameters">
                 {(disaster.kind === "tornado"
                   ? [
-                      ["speed", "Speed (ft/s)", 0, 10, 0.1],
+                      ["speed", `Speed (${lengthUnit()}/s)`, 0, 10, 0.1],
                       ["turn_rate_degrees", "Turning speed (deg/s)", 1, 180, 1],
                       [
                         "wander_interval_seconds",
@@ -424,14 +429,20 @@ export function ScenarioFields({
                       ],
                       [
                         "shelter_clearance",
-                        "Extra shelter clearance (ft)",
+                        `Extra shelter clearance (${lengthUnit()})`,
                         0,
                         20,
                         0.1,
                       ],
                     ]
                   : [
-                      ["growth_rate", "Growth rate (ft/s)", 0, 2, 0.01],
+                      [
+                        "growth_rate",
+                        `Growth rate (${lengthUnit()}/s)`,
+                        0,
+                        2,
+                        0.01,
+                      ],
                       [
                         "spread_interval_seconds",
                         "New patch every (s)",
@@ -443,8 +454,8 @@ export function ScenarioFields({
                       [
                         "max_radius",
                         disaster.kind === "gas_leak"
-                          ? "Maximum cloud radius (ft)"
-                          : "Maximum patch radius (ft)",
+                          ? `Maximum cloud radius (${lengthUnit()})`
+                          : `Maximum patch radius (${lengthUnit()})`,
                         0.01,
                         1000,
                         0.1,
@@ -475,8 +486,8 @@ export function ScenarioFields({
                         <input
                           type="number"
                           aria-label={String(label)}
-                          min={distance ? toFeet(Number(min)) : min}
-                          max={distance ? toFeet(Number(max)) : max}
+                          min={distance ? toDisplayLength(Number(min)) : min}
+                          max={distance ? toDisplayLength(Number(max)) : max}
                           step={distance ? "any" : step}
                           disabled={!dynamics.enabled}
                           value={distance ? lengthInputValue(current) : current}

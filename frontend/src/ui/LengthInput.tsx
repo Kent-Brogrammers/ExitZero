@@ -1,7 +1,12 @@
 import type { ComponentProps } from "react";
-import { lengthFromInput, lengthInputValue, toFeet } from "../utils/units";
+import {
+  lengthFromInput,
+  lengthInputValue,
+  toDisplayLength,
+} from "../utils/units";
+import { useDisplayUnits } from "../utils/useDisplayUnits";
 
-/** Callers supply and receive metres; only the visible field is in feet. */
+/** Callers supply and receive metres; the visible field follows Settings. */
 export function LengthInput({
   value,
   onValue,
@@ -19,18 +24,19 @@ export function LengthInput({
   max?: number;
   precision?: number;
 }) {
+  useDisplayUnits();
   return (
     <input
       {...props}
       type="number"
       step="any"
-      min={min === undefined ? undefined : toFeet(min)}
-      max={max === undefined ? undefined : toFeet(max)}
+      min={min === undefined ? undefined : toDisplayLength(min)}
+      max={max === undefined ? undefined : toDisplayLength(max)}
       value={lengthInputValue(value, precision)}
       onChange={(event) => {
-        const feet = event.currentTarget.valueAsNumber;
-        if (Number.isFinite(feet))
-          onValue(lengthFromInput(feet, value, precision));
+        const displayed = event.currentTarget.valueAsNumber;
+        if (Number.isFinite(displayed))
+          onValue(lengthFromInput(displayed, value, precision));
       }}
     />
   );

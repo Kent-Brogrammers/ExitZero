@@ -3,7 +3,10 @@ import {
   formatDimensions,
   lengthInputValue,
   lengthFromInput,
+  lengthUnit,
+  toDisplayLength,
 } from "../utils/units";
+import { useDisplayUnits } from "../utils/useDisplayUnits";
 import DxfImport from "./dxf/DxfImport";
 import { classifyDoors, openingGeometryChanged } from "./exteriorDoors";
 import { isSpawnZone, spawnContains, transformSpawn } from "./spawnGeometry";
@@ -38,6 +41,7 @@ import {
 } from "react";
 import {
   gridSpacings,
+  gridSpacingLabel,
   snapGridPoint,
   useDraftingPreferences,
 } from "./drafting";
@@ -86,6 +90,7 @@ import {
 } from "./selection";
 import { duplicateSelection } from "./duplication";
 import { drawLayout } from "./draw";
+import { CanvasScale } from "./CanvasScale";
 import { nearestWallSnap, wallSnapTargets } from "./snapping";
 import { measurementVisibility } from "./measurements";
 import { constrainWallEnd, isOnLockedWallAngle } from "./wallAngles";
@@ -146,13 +151,13 @@ function NumberField({
   return (
     <label className="number-field">
       {label}
-      {integer ? "" : " (ft)"}
+      {integer ? "" : ` (${lengthUnit()})`}
       <input
-        key={value}
+        key={`${value}-${lengthUnit()}`}
         type="number"
         step={integer ? 1 : "any"}
-        min={min}
-        max={max}
+        min={min === undefined || integer ? min : toDisplayLength(min)}
+        max={max === undefined || integer ? max : toDisplayLength(max)}
         defaultValue={displayed}
         onBlur={(event) => {
           const input = event.currentTarget.valueAsNumber;
@@ -178,6 +183,7 @@ export function BuildingEditor({
   editorRef,
 }: BuildingEditorProps) {
   const theme = useStudioTheme();
+  const units = useDisplayUnits();
   const [drafting, setDrafting] = useDraftingPreferences();
   const editor = useRef<HTMLElement>(null);
   const [expandedView, setExpandedView] = useState(false);
@@ -1044,6 +1050,7 @@ export function BuildingEditor({
     gesture,
     tool,
     theme,
+    units,
     drafting,
     freehand,
     placement,
@@ -1696,7 +1703,7 @@ export function BuildingEditor({
           <p className="eyebrow">01 / Building</p>
           <h2 id="building-title">Build your floor plan</h2>
         </div>
-        <span className="badge">Freeform · feet</span>
+        <span className="badge">Freeform · {lengthUnit()}</span>
       </div>
       {roomDraft && (
         <RoomFillDialog
@@ -1887,7 +1894,7 @@ export function BuildingEditor({
                 title={selected ? objectName(building, selected) : ""}
               >
                 {activeSnap
-                  ? `Snap: wall ${activeSnap.kind} · ${lengthInputValue(activeSnap.point.x, 2)}, ${lengthInputValue(activeSnap.point.y, 2)} ft`
+                  ? `Snap: wall ${activeSnap.kind} · ${lengthInputValue(activeSnap.point.x, 2)}, ${lengthInputValue(activeSnap.point.y, 2)} ${lengthUnit()}`
                   : draftEdit?.snapped
                     ? "Snap preview · confirm placement to merge"
                     : notice
@@ -2056,6 +2063,13 @@ export function BuildingEditor({
                   }
                 }}
               />
+              {drafting.showScale !== false && (
+                <CanvasScale
+                  canvas={canvas}
+                  building={building}
+                  camera={camera}
+                />
+              )}
               <div className="canvas-footer">
                 <div
                   className="canvas-navigation"
@@ -2118,9 +2132,9 @@ export function BuildingEditor({
                   </span>
                   <span>
                     {cursor
-                      ? `${lengthInputValue(cursor.x, 2)}, ${lengthInputValue(cursor.y, 2)} ft`
+                      ? `${lengthInputValue(cursor.x, 2)}, ${lengthInputValue(cursor.y, 2)} ${lengthUnit()}`
                       : drafting.snap
-                        ? `Snap ${gridSpacings[drafting.spacing].label} · feet`
+                        ? `Snap ${gridSpacingLabel(drafting.spacing)}`
                         : "Continuous coordinates"}
                   </span>
                 </div>
@@ -2393,7 +2407,7 @@ export function BuildingEditor({
                 <p className="note">
                   {"wall_id" in selectedElement
                     ? `On ${objectName(building, { kind: "walls", id: selectedElement.wall_id })}. ${selected.kind === "windows" ? "Windows stay distinct and solid until serviced by the engine." : "Touching openings merge only with matching blocked states and compatible schedules. Blocked openings stay solid."}`
-                    : "Dimensions in feet"}
+                    : `Dimensions in ${lengthUnit()}`}
                 </p>
                 {"start" in selectedElement ? (
                   <>

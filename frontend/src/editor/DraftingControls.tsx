@@ -1,5 +1,9 @@
-import { formatLength } from "../utils/units";
-import { gridSpacings, type DraftingPreferences } from "./drafting";
+import { formatLength, lengthUnitName } from "../utils/units";
+import {
+  gridSpacings,
+  gridSpacingLabel,
+  type DraftingPreferences,
+} from "./drafting";
 import { measurementOptions, measurementVisibility } from "./measurements";
 export function DraftingControls({
   preferences,
@@ -34,9 +38,9 @@ export function DraftingControls({
             })
           }
         >
-          {Object.entries(gridSpacings).map(([key, p]) => (
+          {Object.entries(gridSpacings).map(([key]) => (
             <option key={key} value={key}>
-              {p.label}
+              {gridSpacingLabel(key as keyof typeof gridSpacings)}
             </option>
           ))}
         </select>
@@ -72,10 +76,20 @@ export function DraftingControls({
           ))}
         </div>
         <p className="note">
-          Feet · wall centreline lengths and opening widths. Live drawing
-          measurements stay on.
+          {lengthUnitName()} · wall centreline lengths and opening widths. Live
+          drawing measurements stay on.
         </p>
       </fieldset>
+      <label>
+        <input
+          type="checkbox"
+          checked={preferences.showScale !== false}
+          onChange={(event) =>
+            onChange({ ...preferences, showScale: event.target.checked })
+          }
+        />
+        Show scale bar
+      </label>
       <label>
         <input
           type="checkbox"
@@ -127,9 +141,9 @@ export function DraftingControls({
         </select>
       </label>
       <p className="note">
-        Distances are shown in feet. Snapping works with the grid hidden. With
-        Snap to Grid on, door/exit edges use this merge tolerance. Confirm the
-        preview to merge; gaps remain when snapping is off.
+        Distances use your selected units. Snapping works with the grid hidden.
+        With Snap to Grid on, door/exit edges use this merge tolerance. Confirm
+        the preview to merge; gaps remain when snapping is off.
       </p>
     </div>
   );

@@ -1,4 +1,5 @@
 import { halloweenPreset } from "./editor/presets";
+import { useDisplayUnits } from "./utils/useDisplayUnits";
 import type { ReplayTarget } from "./simulation/replayTarget";
 import { appendChat } from "./simulation/communication";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
@@ -62,6 +63,8 @@ function viewFromHash(): StudioView {
 }
 
 export default function App() {
+  // Refresh shared formatted labels without replacing the workspace or its state.
+  useDisplayUnits();
   const [view, setView] = useState<StudioView>(viewFromHash);
   const [settingsOpen, setSettingsOpen] = useState(false);
   function navigate(next: StudioView, focus = false) {
