@@ -4,6 +4,18 @@
   flex-direction: column;
   height: 100%;
 }
+.editor-arrange-help {
+  margin: 4px 0 0;
+  padding: 6px 10px;
+  color: var(--cad-muted);
+  font-size: 10px;
+  line-height: 1.5;
+  white-space: normal;
+}
+.editor-arrange-help span {
+  display: block;
+  margin-top: 6px;
+}
 .editor-panel:fullscreen {
   width: 100%;
   height: 100%;
