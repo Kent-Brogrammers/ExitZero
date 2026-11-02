@@ -91,6 +91,8 @@ import {
 import { duplicateSelection } from "./duplication";
 import { drawLayout } from "./draw";
 import { CanvasScale } from "./CanvasScale";
+import { ArrangeDialog, type ArrangeSource } from "./ArrangeDialog";
+import { arrangeProblem } from "./arrange";
 import { nearestWallSnap, wallSnapTargets } from "./snapping";
 import { measurementVisibility } from "./measurements";
 import { constrainWallEnd, isOnLockedWallAngle } from "./wallAngles";
@@ -210,6 +212,9 @@ export function BuildingEditor({
   const importInput = useRef<HTMLInputElement>(null);
   const dxfDialog = useRef<HTMLDialogElement>(null);
   const [imageExport, setImageExport] = useState<FloorPlanImageSource | null>(
+    null,
+  );
+  const [arrangeSource, setArrangeSource] = useState<ArrangeSource | null>(
     null,
   );
   const propertiesButton = useRef<HTMLButtonElement>(null);
@@ -1066,9 +1071,17 @@ export function BuildingEditor({
   ]);
 
   function pointerDown(event: PointerEvent<HTMLCanvasElement>) {
+    const additive = event.shiftKey || event.ctrlKey || event.metaKey;
+    // macOS may report Control-click as a secondary-button event.
+    const contextSelect =
+      tool === "select" &&
+      event.ctrlKey &&
+      event.button === 2 &&
+      !panMode &&
+      !spaceDown;
     if (
       event.button === 1 ||
-      event.button === 2 ||
+      (event.button === 2 && !contextSelect) ||
       (event.button === 0 && (panMode || spaceDown))
     ) {
       event.preventDefault();
@@ -1085,7 +1098,8 @@ export function BuildingEditor({
       event.currentTarget.setPointerCapture(event.pointerId);
       return;
     }
-    if (disabled || event.button !== 0) return;
+    if (disabled || (event.button !== 0 && !contextSelect)) return;
+    if (tool === "select" && additive) event.preventDefault();
     event.currentTarget.focus({ preventScroll: true });
     const point = world(event);
     setCursor(point);
@@ -1197,11 +1211,7 @@ export function BuildingEditor({
       }
       let item = hit(point);
       let endpoint: "start" | "end" | undefined;
-      if (
-        selections.length === 1 &&
-        selected?.kind === "walls" &&
-        !event.shiftKey
-      ) {
+      if (selections.length === 1 && selected?.kind === "walls" && !additive) {
         const wall = building.walls.find((w) => w.id === selected.id);
         if (wall) {
           if (distance(point, wall.start) < tolerance()) endpoint = "start";
@@ -1210,7 +1220,7 @@ export function BuildingEditor({
         }
       }
       if (item) {
-        if (event.shiftKey) {
+        if (additive) {
           const members = event.altKey ? [item] : curveMembers(item);
           setSelections(
             members.every((m) => selections.some((v) => v.id === m.id))
@@ -1241,7 +1251,7 @@ export function BuildingEditor({
           current: point,
           base: building,
           marquee: true,
-          initial: event.shiftKey ? selections : [],
+          initial: additive ? selections : [],
         });
       }
     } else {
@@ -1749,6 +1759,26 @@ export function BuildingEditor({
           onClose={() => setImageExport(null)}
         />
       )}
+      {arrangeSource && (
+        <ArrangeDialog
+          source={arrangeSource}
+          stale={disabled || arrangeSource.building !== building}
+          onClose={() => {
+            setArrangeSource(null);
+            canvas.current?.focus({ preventScroll: true });
+          }}
+          onApply={(next) => {
+            if (disabled || arrangeSource.building !== building) return false;
+            if (commit(next, false, arrangeSource.selections)) {
+              setNotice(
+                "Arrangement applied · Undo restores the previous positions.",
+              );
+              return true;
+            }
+            return false;
+          }}
+        />
+      )}
       <fieldset className="editor-controls" disabled={disabled}>
         <div className="editor-workspace">
           <div className="editor-commandbar">
@@ -1784,6 +1814,27 @@ export function BuildingEditor({
               onUndo={undo}
               onRedo={redoChange}
               onDuplicate={duplicateSelectedElements}
+              arrangeSelectionCount={selections.length}
+              arrangeProblem={
+                gesture || panning || spawnPolygon.length
+                  ? "Finish the current gesture before arranging."
+                  : arrangeProblem(building, selections)
+              }
+              onArrange={() => {
+                if (
+                  disabled ||
+                  gesture ||
+                  panning ||
+                  spawnPolygon.length ||
+                  arrangeProblem(building, selections)
+                )
+                  return;
+                setArrangeSource({
+                  building,
+                  selections: [...selections],
+                  furniture: new Map(furnitureSymbols),
+                });
+              }}
               onDelete={deleteSelected}
               onTool={changeTool}
               onNew={clearPlan}
@@ -1917,7 +1968,7 @@ export function BuildingEditor({
                         ? selected?.kind === "obstructions" &&
                           selections.length === 1
                           ? "R rotate · Ctrl/Cmd+D duplicate selection · Drag to move · Double-click for Properties"
-                          : "Drag or marquee select · Shift-click to add · Ctrl/Cmd+D duplicate · Double-click for Properties"
+                          : "Drag-box to select · Shift/Ctrl/Cmd-click to add/remove · Ctrl/Cmd+D duplicate · Double-click for Properties"
                         : tool === "wall-freehand"
                           ? freehand?.error &&
                             gesture?.curve &&
@@ -1969,7 +2020,14 @@ export function BuildingEditor({
                 }}
                 onContextMenu={(event) => event.preventDefault()}
                 onDoubleClick={(event) => {
-                  if (panMode || spaceDown) return;
+                  if (
+                    panMode ||
+                    spaceDown ||
+                    event.shiftKey ||
+                    event.ctrlKey ||
+                    event.metaKey
+                  )
+                    return;
                   const target = hit(world(event));
                   if (target && tool !== "wall-freehand") {
                     if (!selections.some((s) => s.id === target.id))

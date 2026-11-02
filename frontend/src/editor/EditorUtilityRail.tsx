@@ -1,4 +1,4 @@
-import type { ReactNode, Ref } from "react";
+import { useId, type ReactNode, type Ref } from "react";
 import { StudioPopover } from "../ui/StudioPopover";
 import { DraftingControls } from "./DraftingControls";
 import type { DraftingPreferences } from "./drafting";
@@ -20,6 +20,9 @@ interface EditorUtilityRailProps {
   onUndo: () => void;
   onRedo: () => void;
   onDuplicate: () => void;
+  onArrange?: () => void;
+  arrangeProblem?: string | null;
+  arrangeSelectionCount?: number;
   onDelete: () => void;
   onTool: (tool: EditorTool) => void;
   onNew: () => void;
@@ -69,6 +72,7 @@ export function EditorHistoryControls(props: HistoryProps) {
 }
 
 export function EditorUtilityRail(props: EditorUtilityRailProps) {
+  const arrangeHelp = useId();
   return (
     <div className="editor-menubar" role="toolbar" aria-label="Editor menus">
       <StudioPopover
@@ -177,6 +181,38 @@ export function EditorUtilityRail(props: EditorUtilityRailProps) {
                 {label}
               </button>
             ))}
+            {props.onArrange && (
+              <>
+                <button
+                  type="button"
+                  className="studio-control"
+                  disabled={!!props.arrangeProblem}
+                  aria-describedby={arrangeHelp}
+                  title={
+                    props.arrangeProblem ??
+                    "Align or evenly space the selected objects and zones"
+                  }
+                  onClick={() => {
+                    close();
+                    props.onArrange?.();
+                  }}
+                >
+                  Arrange…
+                </button>
+                <p id={arrangeHelp} className="editor-arrange-help">
+                  {props.arrangeSelectionCount ?? 0} selected ·{" "}
+                  {props.arrangeProblem ??
+                    "Ready to align or space the selection."}
+                  {props.arrangeProblem &&
+                    (props.arrangeSelectionCount ?? 0) < 2 && (
+                      <span>
+                        Select tool: Hold Shift, Ctrl or Cmd while clicking to
+                        add or remove items, or drag a box in empty space.
+                      </span>
+                    )}
+                </p>
+              </>
+            )}
           </div>
         )}
       </StudioPopover>
