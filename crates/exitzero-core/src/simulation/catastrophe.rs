@@ -52,7 +52,11 @@ pub(super) fn areas_block_opening(
         footprint.center = area.center;
         footprint.radius = area.radius;
         math::distance_to_segment(area.center, start, end)
-            <= footprint.exposure_radius() + scenario.agent_radius
+            <= (if disaster.kind == DisasterKind::Fire {
+                area.radius
+            } else {
+                footprint.exposure_radius()
+            }) + scenario.agent_radius
     })
 }
 
@@ -222,13 +226,14 @@ mod tests {
                     closed,
                     "known patches use the same core-contact rule"
                 );
-                assert!(
+                assert_eq!(
                     areas_block_opening(
                         &building,
                         opening,
                         &DisasterState::initial(building.disaster.unwrap()).areas
                     ),
-                    "exposure still marks the light-ring destination as hazardous"
+                    distance <= 1.0 + building.agent_radius,
+                    "routing excludes the burning core plus body clearance, not the exposure ring"
                 );
             }
         }

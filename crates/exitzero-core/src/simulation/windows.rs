@@ -7,11 +7,13 @@ use super::{
     math,
     navigation::{self, Navigation, Route},
 };
-use crate::models::{BuildingScenario, Point, WindowFrameState, WindowPreparation, WindowState};
+use crate::models::{
+    AgentPlannedPath, BuildingScenario, Point, WindowFrameState, WindowPreparation, WindowState,
+};
 use std::collections::BTreeSet;
 
-// Disaster footprints are soft routing costs for ordinary walking. Starting a
-// window crossing needs a clear landing and service lane, including that buffer.
+// Window crossings avoid burning cores and gas exposure footprints. Fire's
+// outer ring remains traversable, with exposure still recorded during service.
 fn safe_crossing(scenario: &BuildingScenario, geometry: &Geometry<'_>, a: Point, b: Point) -> bool {
     geometry.can_move(a, b)
         && geometry.disaster.is_none_or(|disaster| {
@@ -19,7 +21,11 @@ fn safe_crossing(scenario: &BuildingScenario, geometry: &Geometry<'_>, a: Point,
                 let mut footprint = disaster;
                 footprint.radius = area.radius;
                 math::distance_to_segment(area.center, a, b)
-                    > footprint.exposure_radius() + scenario.agent_radius
+                    > (if disaster.kind == crate::models::DisasterKind::Fire {
+                        area.radius
+                    } else {
+                        footprint.exposure_radius()
+                    }) + scenario.agent_radius
             })
         })
 }
@@ -54,6 +60,9 @@ pub(super) struct Windows<'a> {
     stations: Vec<Station<'a>>,
     approaches: Vec<Option<Approach>>,
     navigation: Option<Navigation>,
+    known_windows: Vec<BTreeSet<usize>>,
+    last_discovery_step: Option<u32>,
+    beliefs: super::awareness::BeliefMaps<'a>,
 }
 
 impl<'a> Windows<'a> {
@@ -190,6 +199,9 @@ impl<'a> Windows<'a> {
             stations,
             approaches: (0..population).map(|_| None).collect(),
             navigation: None,
+            known_windows: vec![BTreeSet::new(); population],
+            last_discovery_step: None,
+            beliefs: super::awareness::BeliefMaps::new(scenario, emergencies),
         }
     }
 
@@ -313,6 +325,184 @@ impl<'a> Windows<'a> {
         }
     }
 
+    fn prepare_navigation(&mut self, geometry: &Geometry<'_>) {
+        let navigation = self
+            .navigation
+            .get_or_insert_with(|| Navigation::new(self.scenario, geometry));
+        for s in self
+            .stations
+            .iter_mut()
+            .filter(|s| s.eligible && s.navigation.is_none())
+        {
+            s.navigation = Some(
+                navigation.with_point_target(self.scenario.windows[s.index].id.clone(), s.approach),
+            );
+        }
+    }
+
+    fn discover(&mut self, agents: &[Agent], evacuated: &[bool], geometry: &Geometry<'_>) {
+        for (i, agent) in agents.iter().enumerate() {
+            if evacuated[i] {
+                continue;
+            }
+            for (station, pane) in self.scenario.windows.iter().enumerate() {
+                if !self.known_windows[i].contains(&station)
+                    && geometry.can_see_window(
+                        agent.position,
+                        pane,
+                        self.scenario.awareness.sight_range_metres,
+                    )
+                {
+                    self.known_windows[i].insert(station);
+                }
+            }
+        }
+        // Match ordinary discovery reports: one hop per tick, through clear sight.
+        if self.scenario.awareness.communication_range_metres <= 0.0 {
+            return;
+        }
+        let snapshot = self.known_windows.clone();
+        for i in 0..agents.len() {
+            if evacuated[i] {
+                continue;
+            }
+            for j in i + 1..agents.len() {
+                if !evacuated[j]
+                    && snapshot[i] != snapshot[j]
+                    && super::awareness::can_communicate(
+                        agents[i].position,
+                        agents[j].position,
+                        self.scenario.awareness.communication_range_metres,
+                        geometry,
+                    )
+                {
+                    self.known_windows[i].extend(&snapshot[j]);
+                    self.known_windows[j].extend(&snapshot[i]);
+                }
+            }
+        }
+    }
+
+    fn approach_route(
+        &mut self,
+        station: usize,
+        agent: &Agent,
+        geometry: &Geometry<'_>,
+    ) -> Option<Route> {
+        if self.scenario.pursuit.is_some() {
+            return self.stations[station]
+                .navigation
+                .as_ref()
+                .unwrap()
+                .find_route_avoiding_danger(agent.position, geometry);
+        }
+        let (map, navigation) = self.beliefs.for_agent(agent);
+        navigation
+            .with_point_target(
+                self.scenario.windows[station].id.clone(),
+                self.stations[station].approach,
+            )
+            .find_route_avoiding_danger(agent.position, map)
+    }
+
+    fn travel_seconds(&self, agent: &Agent, waypoints: &[Point]) -> f64 {
+        navigation::route_cost(
+            agent.position,
+            waypoints,
+            &super::congestion::CrowdForecast::default(),
+            self.scenario.agent_radius,
+        ) / (super::motion::WALKING_SPEED * (1.0 - 0.75 * agent.injury))
+    }
+
+    /// Predict serial service, including people still approaching this window.
+    /// Reservations are made as agents choose, so later choices see earlier ones.
+    fn escape_seconds(
+        &self,
+        station: usize,
+        step: u32,
+        i: usize,
+        route: &Route,
+        agents: &[Agent],
+    ) -> f64 {
+        let s = &self.stations[station];
+        let escape = self.scenario.windows[s.index]
+            .emergency_escape
+            .as_ref()
+            .unwrap();
+        let dt = self.scenario.time_step_seconds;
+        let traversal = |member: usize| {
+            let speed = super::motion::WALKING_SPEED * (1.0 - 0.75 * agents[member].injury);
+            ((escape.traversal_seconds / dt).ceil().max(1.0) * dt)
+                .max(math::distance_to_point(s.approach, s.landing) / speed)
+        };
+        let mut arrivals: Vec<_> = self
+            .approaches
+            .iter()
+            .enumerate()
+            .filter_map(|(j, approach)| {
+                let approach = approach.as_ref()?;
+                if j == i || approach.station != station || s.traverser == Some(j) {
+                    return None;
+                }
+                let rank = s.queue.iter().position(|&member| member == j);
+                let eta = if rank.is_some() {
+                    0.0
+                } else {
+                    self.travel_seconds(&agents[j], &approach.route.waypoints[approach.cursor..])
+                };
+                Some((eta, rank.unwrap_or(usize::MAX), j))
+            })
+            .collect();
+        let rank = s.queue.iter().position(|&member| member == i);
+        arrivals.push((
+            if rank.is_some() {
+                0.0
+            } else {
+                self.travel_seconds(&agents[i], &route.waypoints)
+            },
+            rank.unwrap_or(usize::MAX),
+            i,
+        ));
+        arrivals.sort_by(|a, b| {
+            a.0.total_cmp(&b.0)
+                .then_with(|| a.1.cmp(&b.1))
+                .then_with(|| agents[a.2].id.cmp(&agents[b.2].id))
+        });
+        let mut available = match s.snapshot.state {
+            WindowState::Intact => arrivals[0].0 + (escape.preparation_seconds / dt).ceil() * dt,
+            WindowState::Opening | WindowState::Breaking => {
+                f64::from(
+                    s.snapshot
+                        .preparation_ready_step
+                        .unwrap()
+                        .saturating_sub(step),
+                ) * dt
+            }
+            _ => 0.0,
+        };
+        if let Some(member) = s.traverser {
+            let speed = super::motion::WALKING_SPEED * (1.0 - 0.75 * agents[member].injury);
+            let remaining = math::distance_to_point(agents[member].position, s.landing) / speed;
+            available = available.max(
+                remaining.max(
+                    f64::from(
+                        s.snapshot
+                            .traversal_earliest_finish_step
+                            .unwrap()
+                            .saturating_sub(step),
+                    ) * dt,
+                ),
+            );
+        }
+        for (arrival, _, member) in arrivals {
+            available = available.max(arrival) + traversal(member);
+            if member == i {
+                return available;
+            }
+        }
+        unreachable!("candidate is included in service estimate")
+    }
+
     pub(super) fn update(
         &mut self,
         step: u32,
@@ -321,6 +511,13 @@ impl<'a> Windows<'a> {
         fallback: &[bool],
         geometry: &Geometry<'_>,
     ) {
+        if self.stations.is_empty() {
+            return;
+        }
+        if self.last_discovery_step != Some(step) {
+            self.discover(agents, evacuated, geometry);
+            self.last_discovery_step = Some(step);
+        }
         let mut reachable = vec![false; self.stations.len()];
         for s in &mut self.stations {
             if s.eligible {
@@ -353,22 +550,32 @@ impl<'a> Windows<'a> {
         }
         // Window eligibility and service do not need route graphs. Construct
         // one shared topology only when somebody actually needs a fallback.
-        // Preserve the existing physical-map policy for window approaches.
-        if self.stations.iter().any(|s| s.eligible)
+        // Pursuit keeps its existing physical-map navigation. Evacuation
+        // approaches below use only each person's learned obstruction map.
+        if self.scenario.pursuit.is_some()
+            && self.stations.iter().any(|s| s.eligible)
             && (0..agents.len()).any(|i| !evacuated[i] && fallback[i] && !self.controls(i))
         {
-            let navigation = self
-                .navigation
-                .get_or_insert_with(|| Navigation::new(self.scenario, geometry));
-            for s in self
-                .stations
-                .iter_mut()
-                .filter(|s| s.eligible && s.navigation.is_none())
-            {
-                s.navigation = Some(
-                    navigation
-                        .with_point_target(self.scenario.windows[s.index].id.clone(), s.approach),
-                );
+            self.prepare_navigation(geometry);
+        }
+        // Replan only when learned geometry invalidates an approach. Physical
+        // collision checks remain authoritative even before an object is seen.
+        for (i, agent) in agents.iter().enumerate() {
+            if self.traversing(i) || self.scenario.pursuit.is_some() {
+                continue;
+            }
+            let Some(a) = &self.approaches[i] else {
+                continue;
+            };
+            let map = self.beliefs.geometry_for_agent(agent);
+            let mut from = agent.position;
+            let valid = a.route.waypoints[a.cursor..].iter().all(|&to| {
+                let clear = map.can_move(from, to) && map.avoids_known_danger(from, to);
+                from = to;
+                clear
+            });
+            if !valid {
+                self.cancel(i);
             }
         }
         let mut attempted = false;
@@ -378,25 +585,17 @@ impl<'a> Windows<'a> {
             }
             attempted = true;
             let mut best: Option<(f64, usize, Route)> = None;
-            for (station, s) in self.stations.iter().enumerate().filter(|(_, s)| s.eligible) {
-                if let Some(route) = s
-                    .navigation
-                    .as_ref()
-                    .unwrap()
-                    .find_route_avoiding_danger(agents[i].position, geometry)
-                {
+            let candidates: Vec<_> = self.known_windows[i]
+                .iter()
+                .copied()
+                .filter(|&station| self.stations[station].eligible)
+                .collect();
+            for station in candidates {
+                if let Some(route) = self.approach_route(station, &agents[i], geometry) {
                     reachable[station] = true;
-                    let cost = navigation::route_cost(
-                        agents[i].position,
-                        &route.waypoints,
-                        &super::congestion::CrowdForecast::for_geometry(geometry),
-                        self.scenario.agent_radius,
-                    );
-                    if best
-                        .as_ref()
-                        .is_none_or(|(distance, _, _)| cost < *distance)
-                    {
-                        best = Some((cost, station, route));
+                    let seconds = self.escape_seconds(station, step, i, &route, agents);
+                    if best.as_ref().is_none_or(|(cost, _, _)| seconds < *cost) {
+                        best = Some((seconds, station, route));
                     }
                 }
             }
@@ -409,21 +608,33 @@ impl<'a> Windows<'a> {
             }
         }
         for (station, s) in self.stations.iter_mut().enumerate() {
-            if attempted && s.eligible && !reachable[station] {
+            if attempted
+                && s.eligible
+                && !reachable[station]
+                && self
+                    .known_windows
+                    .iter()
+                    .any(|known| known.contains(&station))
+            {
                 s.snapshot.unavailable_reason = Some("No route to the configured indoor approach. Check the exterior direction and intervening barriers.".into());
             }
         }
-        // Stable agent order breaks ties for arrivals on the same tick; existing
-        // queue members retain FIFO priority. Disc collisions enforce spacing.
+        // Stable agent order breaks ties for arrivals on the same tick.
+        // Disc collisions enforce spacing in the physical holding lane.
         let mut arrivals: Vec<_> = (0..agents.len())
             .filter(|&i| self.controls(i) && !self.traversing(i))
             .collect();
         arrivals.sort_by_key(|&i| agents[i].id);
         for i in arrivals {
+            let map = if self.scenario.pursuit.is_some() {
+                geometry
+            } else {
+                self.beliefs.geometry_for_agent(&agents[i])
+            };
             let a = self.approaches[i].as_mut().unwrap();
             for future in (a.cursor + 1..a.route.waypoints.len()).rev() {
-                if geometry.can_move(agents[i].position, a.route.waypoints[future])
-                    && geometry.avoids_known_danger(agents[i].position, a.route.waypoints[future])
+                if map.can_move(agents[i].position, a.route.waypoints[future])
+                    && map.avoids_known_danger(agents[i].position, a.route.waypoints[future])
                 {
                     a.cursor = future;
                     break;
@@ -452,6 +663,14 @@ impl<'a> Windows<'a> {
             if s.traverser.is_some() || !s.eligible {
                 continue;
             }
+            // Earlier route decisions can bring a group to the lane together.
+            // Serve the person physically at its front so a queued person
+            // farther back cannot wait forever behind the rest of the line.
+            s.queue.sort_by(|&a, &b| {
+                math::distance_to_point(agents[a].position, s.approach)
+                    .total_cmp(&math::distance_to_point(agents[b].position, s.approach))
+                    .then_with(|| agents[a].id.cmp(&agents[b].id))
+            });
             let Some(&head) = s.queue.first() else {
                 continue;
             };
@@ -511,6 +730,32 @@ impl<'a> Windows<'a> {
         let target = a.route.waypoints[a.cursor];
         (math::distance_to_point(position, target) > 1e-6).then_some(target)
     }
+    /// Read-only snapshot of the same approach, queue or traversal guidance used by movement.
+    pub(super) fn planned_path(
+        &self,
+        i: usize,
+        position: Point,
+        geometry: &Geometry<'_>,
+    ) -> Option<AgentPlannedPath> {
+        let approach = self.approaches[i].as_ref()?;
+        let station = &self.stations[approach.station];
+        if station.traverser == Some(i) {
+            return Some(AgentPlannedPath::snapshot([station.landing]));
+        }
+        let remaining = &approach.route.waypoints[approach.cursor..];
+        if let Some(target) = self.target(i, position, geometry)
+            && remaining
+                .first()
+                .is_none_or(|point| math::distance_to_point(*point, target) > 1e-8)
+        {
+            // The controller currently aims at a queue position, not through its neighbors.
+            return Some(AgentPlannedPath::snapshot([target]));
+        }
+        Some(AgentPlannedPath::snapshot(
+            remaining.iter().copied().chain([station.landing]),
+        ))
+    }
+
     pub(super) fn approach_limits(
         &self,
         i: usize,
@@ -568,5 +813,177 @@ impl<'a> Windows<'a> {
             }
         }
         leaving
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn layout() -> BuildingScenario {
+        serde_json::from_value(json!({
+            "width":20,"height":20,
+            "walls":[{"id":"wall","start":{"x":10,"y":0},"end":{"x":10,"y":20},"thickness":0.2}],
+            "doors":[],"exits":[{"id":"exit","wall_id":"wall","offset":16,"width":2}],
+            "blocked_exit_ids":["exit"],"spawn_zones":[],"obstructions":[],
+            "windows":[
+                {"id":"near","wall_id":"wall","offset":5,"width":2,
+                 "emergency_escape":{"enabled":true,"preparation":"open","clear_width_metres":2,"clear_height_metres":1.2,"preparation_seconds":0,"traversal_seconds":10,"exterior_side":-1,"exterior_available":true}},
+                {"id":"other","wall_id":"wall","offset":9,"width":2,
+                 "emergency_escape":{"enabled":true,"preparation":"open","clear_width_metres":2,"clear_height_metres":1.2,"preparation_seconds":0,"traversal_seconds":10,"exterior_side":-1,"exterior_available":true}}
+            ],
+            "window_escape_context":{"floor_elevation_metres":0,"all_agents_can_traverse":true,"required_clear_height_metres":1},
+            "agent_radius":0.2,"time_step_seconds":0.1,"max_steps":1000,"seed":42,
+            "awareness":{"sight_range_metres":1.1,"communication_range_metres":1.1}
+        })).unwrap()
+    }
+
+    fn informed(id: u32, x: f64, y: f64) -> Agent {
+        let mut agent = Agent::new(id, Point { x, y });
+        agent.known_walls.insert(
+            "wall".into(),
+            vec![super::super::perception::WallSpan {
+                start: 0.0,
+                end: 20.0,
+            }],
+        );
+        agent
+    }
+
+    #[test]
+    fn windows_require_sight_or_a_local_one_hop_report() {
+        let b = layout();
+        let geometry = Geometry::new(&b);
+        let people = [
+            informed(0, 9.0, 6.0),
+            informed(1, 8.0, 6.0),
+            informed(2, 7.0, 6.0),
+        ];
+        let mut windows = Windows::new(&b, &[], BTreeSet::from(["exit".into()]), 3, &geometry);
+        assert!(windows.known_windows.iter().all(BTreeSet::is_empty));
+        windows.update(0, &people, &[false; 3], &[false; 3], &geometry);
+        assert!(windows.known_windows[0].contains(&0));
+        assert!(windows.known_windows[1].contains(&0));
+        assert!(windows.known_windows[2].is_empty());
+        // A second service update at the same timestamp must not relay again.
+        windows.update(0, &people, &[false; 3], &[false; 3], &geometry);
+        assert!(windows.known_windows[2].is_empty());
+        windows.update(1, &people, &[false; 3], &[false; 3], &geometry);
+        assert!(windows.known_windows[2].contains(&0));
+    }
+
+    #[test]
+    fn furniture_occludes_window_discovery_and_zero_sight_does_not_assign_windows() {
+        let mut b = layout();
+        b.awareness.sight_range_metres = 10.0;
+        b.awareness.communication_range_metres = 0.0;
+        b.obstructions.push(crate::models::Obstruction {
+            id: "screen".into(),
+            name: None,
+            x: 8.0,
+            y: 4.0,
+            width: 0.5,
+            height: 8.0,
+        });
+        let people = [informed(0, 7.0, 6.0)];
+        let geometry = Geometry::new(&b);
+        let mut windows = Windows::new(&b, &[], BTreeSet::from(["exit".into()]), 1, &geometry);
+        windows.update(0, &people, &[false], &[true], &geometry);
+        assert!(windows.known_windows[0].is_empty());
+        assert!(!windows.controls(0));
+        b.obstructions.clear();
+        b.awareness.sight_range_metres = 0.0;
+        let geometry = Geometry::new(&b);
+        let mut windows = Windows::new(&b, &[], BTreeSet::from(["exit".into()]), 1, &geometry);
+        windows.update(0, &people, &[false], &[true], &geometry);
+        assert!(!windows.controls(0));
+    }
+
+    #[test]
+    fn approaching_people_reserve_service_and_make_another_window_preferable() {
+        let mut b = layout();
+        b.awareness.sight_range_metres = 100.0;
+        let geometry = Geometry::new(&b);
+        let people = [informed(0, 7.0, 8.0), informed(1, 6.0, 8.0)];
+        let mut windows = Windows::new(&b, &[], BTreeSet::from(["exit".into()]), 2, &geometry);
+        let route = windows.approach_route(0, &people[1], &geometry).unwrap();
+        let empty = windows.escape_seconds(0, 0, 1, &route, &people);
+        windows.update(0, &people, &[false; 2], &[true; 2], &geometry);
+        assert_eq!(windows.approaches[0].as_ref().unwrap().station, 0);
+        assert_eq!(windows.approaches[1].as_ref().unwrap().station, 1);
+        assert!(
+            windows.stations[0].queue.is_empty(),
+            "the first reservation is still approaching"
+        );
+        let busy = windows.escape_seconds(0, 0, 1, &route, &people);
+        assert!(
+            busy > empty + 8.0,
+            "count the earlier person's ten-second traversal"
+        );
+    }
+
+    #[test]
+    fn queue_estimates_include_injured_people_and_remaining_active_service() {
+        let mut b = layout();
+        b.windows[0]
+            .emergency_escape
+            .as_mut()
+            .unwrap()
+            .traversal_seconds = 1.0;
+        let geometry = Geometry::new(&b);
+        let mut people = [informed(0, 9.6999, 6.55), informed(1, 9.6999, 6.0)];
+        let mut windows = Windows::new(&b, &[], BTreeSet::from(["exit".into()]), 2, &geometry);
+        let route = windows.approach_route(0, &people[1], &geometry).unwrap();
+        let ahead = windows.approach_route(0, &people[0], &geometry).unwrap();
+        windows.approaches[0] = Some(Approach {
+            station: 0,
+            route: ahead,
+            cursor: 0,
+        });
+        windows.stations[0].snapshot.state = WindowState::Open;
+        windows.stations[0].queue.push(0);
+        let healthy = windows.escape_seconds(0, 0, 1, &route, &people);
+        assert!((healthy - 2.0).abs() < 1e-6);
+        people[0].injury = 1.0;
+        let injured = windows.escape_seconds(0, 0, 1, &route, &people);
+        assert!(injured > healthy + 0.8);
+        windows.stations[0].queue.clear();
+        windows.stations[0].traverser = Some(0);
+        windows.stations[0].snapshot.traversal_earliest_finish_step = Some(40);
+        // Four seconds of active service remain, then our own one-second crossing.
+        let active = windows.escape_seconds(0, 0, 1, &route, &people);
+        assert!((active - 5.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn window_approach_routes_only_detour_around_discovered_furniture() {
+        let mut b = layout();
+        b.obstructions.push(crate::models::Obstruction {
+            id: "cabinet".into(),
+            name: None,
+            x: 7.0,
+            y: 5.0,
+            width: 1.0,
+            height: 2.0,
+        });
+        let geometry = Geometry::new(&b);
+        let mut person = informed(0, 5.0, 6.0);
+        let mut windows = Windows::new(&b, &[], BTreeSet::from(["exit".into()]), 1, &geometry);
+        let optimistic = windows.approach_route(0, &person, &geometry).unwrap();
+        assert!(
+            optimistic
+                .waypoints
+                .iter()
+                .all(|point| (point.y - 6.0).abs() < 1e-6)
+        );
+        assert!(!geometry.can_move(person.position, *optimistic.waypoints.last().unwrap()));
+        person.known_obstructions.insert("cabinet".into());
+        let discovered = windows.approach_route(0, &person, &geometry).unwrap();
+        let mut from = person.position;
+        for to in discovered.waypoints {
+            assert!(geometry.can_move(from, to));
+            from = to;
+        }
     }
 }

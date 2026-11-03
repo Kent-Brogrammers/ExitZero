@@ -15,6 +15,31 @@ const validateSimulation = ajv.getSchema<SimulationResult>(
 )!;
 
 describe("shared continuous geometry schemas", () => {
+  it("accepts optional bounded planned routes and rejects malformed snapshots", () => {
+    const validate = ajv.getSchema(`${contracts.$id}#/$defs/AgentPosition`)!;
+    const agent = { id: 0, x: 1, y: 1 };
+    expect(validate(agent)).toBe(true);
+    expect(
+      validate({ ...agent, planned_path: { waypoints: [], continues: false } }),
+    ).toBe(true);
+    expect(
+      validate({
+        ...agent,
+        planned_path: { waypoints: [{ x: 2, y: 3 }], continues: false },
+      }),
+    ).toBe(true);
+    for (const planned_path of [
+      null,
+      { waypoints: [], continues: true },
+      { waypoints: [{ x: NaN, y: 3 }], continues: false },
+      { waypoints: [{ x: 2, y: 3 }] },
+      {
+        waypoints: Array.from({ length: 17 }, () => ({ x: 2, y: 3 })),
+        continues: true,
+      },
+    ])
+      expect(validate({ ...agent, planned_path })).toBe(false);
+  });
   it("validates the shared 30 × 20 metre example", () => {
     const typedBuilding: BuildingScenario = building;
     expect(

@@ -408,11 +408,30 @@
         }
       ]
     },
+    "AgentPlannedPath": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["waypoints", "continues"],
+      "properties": {
+        "waypoints": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Point" },
+          "maxItems": 16
+        },
+        "continues": { "type": "boolean" }
+      },
+      "if": {
+        "properties": { "continues": { "const": true } },
+        "required": ["continues"]
+      },
+      "then": { "properties": { "waypoints": { "minItems": 16 } } }
+    },
     "AgentPosition": {
       "type": "object",
       "additionalProperties": false,
       "required": ["id", "x", "y"],
       "properties": {
+        "planned_path": { "$ref": "#/$defs/AgentPlannedPath" },
         "id": {
           "type": "integer",
           "minimum": 0,

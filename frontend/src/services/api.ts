@@ -331,7 +331,12 @@ function checkSimulation(
             area.revision > frame.step,
         ) ||
         frame.agents.some(
-          (agent) => agent.x > result.width || agent.y > result.height,
+          (agent) =>
+            agent.x > result.width ||
+            agent.y > result.height ||
+            agent.planned_path?.waypoints.some(
+              (point) => point.x > result.width || point.y > result.height,
+            ),
         ),
       // Queue/service membership must reference occupants present at that timestamp.
     ) ||
@@ -730,6 +735,10 @@ export function createApiClient(
             (agent) =>
               agent.x > building.width ||
               agent.y > building.height ||
+              agent.planned_path?.waypoints.some(
+                (point) =>
+                  point.x > building.width || point.y > building.height,
+              ) ||
               (previousIds !== null && !previousIds.has(agent.id)),
           )
         ) {

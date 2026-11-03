@@ -1,13 +1,20 @@
 import { createAgentEffects } from "./agentEffects";
 import { CanvasScale } from "../editor/CanvasScale";
 import { totalPopulation } from "../utils/population";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { SimulationDetails } from "./SimulationDetails";
 import { AgentChat } from "./AgentChat";
 import { appendChat, chatSummaryMessage } from "./communication";
 import { formatDimensions } from "../utils/units";
 import { useDisplayUnits } from "../utils/useDisplayUnits";
 import { PursuitMetrics } from "./PursuitMetrics";
+import { AgentInspector, AgentPicker } from "./AgentInspector";
+import {
+  agentTrail,
+  drawAgentInspection,
+  pickAgent,
+  type AgentTrailPoint,
+} from "./agentInspection";
 import type {
   AnimationFrame,
   BuildingScenario,
@@ -57,6 +64,49 @@ export function LiveSimulationView({
   const canvas = useRef<HTMLCanvasElement>(null);
   const theme = useStudioTheme();
   const units = useDisplayUnits();
+  const population = totalPopulation(building);
+  const agentIds = useMemo(
+    () => Array.from({ length: population }, (_, id) => id),
+    [population],
+  );
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const shownFrame = useRef<AnimationFrame | null>(null);
+  const trail = useRef<{
+    building: BuildingScenario;
+    id: number | null;
+    previous: AnimationFrame | null;
+    points: AgentTrailPoint[];
+  }>({ building, id: null, previous: null, points: [] });
+  useEffect(() => {
+    const frame = live.frame;
+    if (
+      trail.current.building !== building ||
+      (frame &&
+        trail.current.previous &&
+        frame.step < trail.current.previous.step)
+    ) {
+      trail.current = { building, id: null, previous: null, points: [] };
+      setSelectedId(null);
+      return;
+    }
+    if (trail.current.id !== selectedId) {
+      trail.current = { building, id: selectedId, previous: null, points: [] };
+    }
+    if (
+      selectedId === null ||
+      !frame ||
+      frame.step === trail.current.previous?.step
+    )
+      return;
+    const frames = trail.current.previous
+      ? [trail.current.previous, frame]
+      : [frame];
+    const point = agentTrail(building, frames, selectedId).at(-1);
+    if (point?.step === frame.step) {
+      trail.current.points = [...trail.current.points, point].slice(-2000);
+    }
+    trail.current.previous = frame;
+  }, [building, live.frame, selectedId]);
   const cancelled = live.status === "cancelled";
   const speed = live.speed ?? 1;
   const nextSpeed = speed === 1 ? 2 : speed === 2 ? 4 : speed === 4 ? 8 : 1;
@@ -113,8 +163,11 @@ export function LiveSimulationView({
       }
       heatLayer.current = layer;
     } else heatLayer.current = null;
-    const previous = latest.current.frame;
     const frame = live.frame;
+    const previous =
+      latest.current.frame && frame && latest.current.frame.step < frame.step
+        ? latest.current.frame
+        : null;
     latest.current = {
       frame,
       sample: frame
@@ -151,6 +204,7 @@ export function LiveSimulationView({
       const frame = cancelled
         ? snapshot.frame
         : (snapshot.sample?.(seconds) ?? null);
+      shownFrame.current = frame;
       // Interpolate only between physics samples already received. The live
       // view never predicts future positions or needs the run's duration.
       drawLayout(
@@ -196,6 +250,15 @@ export function LiveSimulationView({
         seconds,
         window.devicePixelRatio || 1,
       );
+      drawAgentInspection(
+        target,
+        building,
+        frame,
+        selectedId,
+        trail.current.points,
+        seconds / building.time_step_seconds,
+        palette,
+      );
       animation = requestAnimationFrame(tick);
     }
     animation = requestAnimationFrame(tick);
@@ -209,20 +272,50 @@ export function LiveSimulationView({
     speed,
     cancelled,
     displayOptions,
+    selectedId,
   ]);
 
-  const population = totalPopulation(building);
   const frame = live.frame;
   return (
     <div className="playback-workspace">
       <div className="playback-stage">
         <div className="canvas-wrap playback-canvas-wrap">
+          {selectedId !== null && (
+            <AgentInspector
+              id={selectedId}
+              building={building}
+              frame={frame}
+              events={live.effect_events}
+              live
+              onClose={() => {
+                setSelectedId(null);
+                canvas.current?.focus({ preventScroll: true });
+              }}
+            />
+          )}
           <canvas
             data-world-canvas
             ref={canvas}
             width={1200}
             height={800}
             role="img"
+            tabIndex={0}
+            title="Click an occupant to inspect their statistics and sampled path"
+            onClick={(event) => {
+              if (!active) return;
+              setSelectedId(
+                pickAgent(
+                  event.currentTarget,
+                  building,
+                  shownFrame.current ?? frame,
+                  { x: event.clientX, y: event.clientY },
+                  showAgentNumbers,
+                ),
+              );
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setSelectedId(null);
+            }}
             aria-label={
               frame
                 ? `${cancelled ? "Cancelled" : "Live"} evacuation at step ${frame.step}, ${frame.agents.length} occupants remaining.`
@@ -251,6 +344,11 @@ export function LiveSimulationView({
         </div>
         <div className="playback-dock">
           <div className="live-run-controls">
+            <AgentPicker
+              ids={frame ? agentIds : []}
+              selected={selectedId}
+              onSelect={setSelectedId}
+            />
             <button
               type="button"
               className="studio-control"

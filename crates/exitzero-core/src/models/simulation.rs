@@ -77,6 +77,28 @@ impl SimulationMetrics {
     }
 }
 
+/// Bounded lookahead from the engine's actual route, not a predicted trajectory.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentPlannedPath {
+    pub waypoints: Vec<super::Point>,
+    pub continues: bool,
+}
+
+impl AgentPlannedPath {
+    pub const MAX_WAYPOINTS: usize = 16;
+
+    pub fn snapshot(points: impl IntoIterator<Item = super::Point>) -> Self {
+        let mut waypoints: Vec<_> = points.into_iter().take(Self::MAX_WAYPOINTS + 1).collect();
+        let continues = waypoints.len() > Self::MAX_WAYPOINTS;
+        waypoints.truncate(Self::MAX_WAYPOINTS);
+        Self {
+            waypoints,
+            continues,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AgentPosition {
@@ -85,6 +107,13 @@ pub struct AgentPosition {
     pub y: f64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub injury: Option<f64>,
+    /// Omitted in older recordings; an empty waypoint list means no current plan.
+    #[serde(
+        default,
+        deserialize_with = "super::windows::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub planned_path: Option<AgentPlannedPath>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -424,6 +453,15 @@ impl SimulationResult {
                         || !ids.insert(agent.id)
                         || agent.injury.is_some_and(|injury| {
                             !injury.is_finite() || !(0.0..=1.0).contains(&injury)
+                        })
+                        || agent.planned_path.as_ref().is_some_and(|path| {
+                            path.waypoints.len() > AgentPlannedPath::MAX_WAYPOINTS
+                                || path.continues
+                                    && path.waypoints.len() != AgentPlannedPath::MAX_WAYPOINTS
+                                || path
+                                    .waypoints
+                                    .iter()
+                                    .any(|point| !self.in_bounds(point.x, point.y))
                         })
                 })
             {

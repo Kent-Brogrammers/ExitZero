@@ -14,8 +14,8 @@ use super::{
     windows::Windows,
 };
 use crate::models::{
-    AgentPosition, AnimationFrame, BuildingScenario, CaughtAgent, Point, PursuitFrame,
-    SimulationMetrics, SimulationResult, SimulationStatus,
+    AgentPlannedPath, AgentPosition, AnimationFrame, BuildingScenario, CaughtAgent, Point,
+    PursuitFrame, SimulationMetrics, SimulationResult, SimulationStatus,
 };
 use std::collections::BTreeMap;
 
@@ -109,6 +109,7 @@ fn snapshot(
     gone: &[bool],
     pursuit: PursuitFrame,
     world: &OpeningStates,
+    planned_path: impl Fn(usize) -> AgentPlannedPath,
 ) -> AnimationFrame {
     AnimationFrame {
         congestion_samples: None,
@@ -116,12 +117,14 @@ fn snapshot(
         agents: people
             .iter()
             .zip(gone)
-            .filter(|(_, gone)| !**gone)
-            .map(|(a, _)| AgentPosition {
+            .enumerate()
+            .filter(|(_, (_, gone))| !**gone)
+            .map(|(i, (a, _))| AgentPosition {
                 id: a.id,
                 x: a.position.x,
                 y: a.position.y,
                 injury: None,
+                planned_path: Some(planned_path(i)),
             })
             .collect(),
         pursuit: Some(pursuit),
@@ -236,6 +239,18 @@ pub(super) fn run(
                 events: Some(awareness.events.clone()),
             },
             &world,
+            |i| {
+                windows
+                    .planned_path(i, people[i].position, &geometry)
+                    .unwrap_or_else(|| {
+                        AgentPlannedPath::snapshot(
+                            routes[i]
+                                .as_ref()
+                                .into_iter()
+                                .flat_map(|route| route.waypoints.iter().copied()),
+                        )
+                    })
+            },
         );
         frame.window_states = windows.snapshots(&people);
         if let Some(callback) = &mut emit {

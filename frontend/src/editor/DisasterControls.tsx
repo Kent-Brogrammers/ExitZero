@@ -4,12 +4,8 @@ import { useEffect, useId, useRef, useState } from "react";
 import { buildingError } from "./geometry";
 import { ToolIcon } from "./ToolIcon";
 import { LengthInput } from "../ui/LengthInput";
-import {
-  lengthFromInput,
-  lengthInputValue,
-  toDisplayLength,
-  lengthUnit,
-} from "../utils/units";
+import { NumberInput } from "../ui/NumberInput";
+import { lengthUnit } from "../utils/units";
 import type {
   BuildingScenario,
   DisasterKind,
@@ -516,31 +512,27 @@ export function ScenarioFields({
                       dynamics[
                         key as Exclude<keyof DisasterDynamics, "enabled">
                       ];
+                    const inputProps = {
+                      "aria-label": String(label),
+                      min: Number(min),
+                      max: Number(max),
+                      step: Number(step),
+                      disabled: !dynamics.enabled,
+                      value: current,
+                      onValue: (value: number) =>
+                        updateDynamics({ [String(key)]: value }),
+                    };
                     return (
                       <label key={key}>
                         {label}
-                        <input
-                          type="number"
-                          aria-label={String(label)}
-                          min={distance ? toDisplayLength(Number(min)) : min}
-                          max={distance ? toDisplayLength(Number(max)) : max}
-                          step={distance ? "any" : step}
-                          disabled={!dynamics.enabled}
-                          value={distance ? lengthInputValue(current) : current}
-                          onChange={(e) => {
-                            const input = e.target.valueAsNumber;
-                            const value = distance
-                              ? lengthFromInput(input, current)
-                              : input;
-                            if (
-                              Number.isFinite(value) &&
-                              value >= Number(min) &&
-                              value <= Number(max) &&
-                              (key !== "max_patches" || Number.isInteger(value))
-                            )
-                              updateDynamics({ [String(key)]: value });
-                          }}
-                        />
+                        {distance ? (
+                          <LengthInput {...inputProps} />
+                        ) : (
+                          <NumberInput
+                            {...inputProps}
+                            integer={key === "max_patches"}
+                          />
+                        )}
                       </label>
                     );
                   })}
@@ -566,18 +558,14 @@ export function ScenarioFields({
           <h3>Repeatability</h3>
           <label>
             Scenario random seed
-            <input
-              type="number"
+            <NumberInput
               aria-label="Scenario random seed"
               min={0}
               max={Number.MAX_SAFE_INTEGER}
               step={1}
+              integer
               value={building.seed}
-              onChange={(e) => {
-                const seed = e.currentTarget.valueAsNumber;
-                if (Number.isSafeInteger(seed) && seed >= 0)
-                  onChange({ ...building, seed });
-              }}
+              onValue={(seed) => onChange({ ...building, seed })}
             />
           </label>
         </section>

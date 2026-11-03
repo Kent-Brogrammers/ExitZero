@@ -149,3 +149,101 @@ it("keeps parameter editing available from the keyboard-accessible picker", asyn
   await click("Cancel");
   expect(change).not.toHaveBeenCalled();
 });
+
+async function editNumber(label: string, value: string) {
+  const input = host.querySelector<HTMLInputElement>(
+    `[aria-label="${label}"]`,
+  )!;
+  await act(async () => {
+    input.focus();
+    Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )!.set!.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  return input;
+}
+
+it("lets users replace hazard values and applies exact displayed-unit steps without a minimum snap", async () => {
+  await mount();
+  await click("Scenario");
+  await choose("Fire evacuation");
+  await click("Edit parameters");
+  const radius = await editNumber("Hazard radius", "");
+  expect(radius.value).toBe("");
+  await editNumber("Hazard radius", "12.5");
+  await act(async () =>
+    host
+      .querySelector<HTMLButtonElement>(
+        '[aria-label="Increase Hazard radius"]',
+      )!
+      .click(),
+  );
+  expect(Number(radius.value)).toBe(13.5);
+  await act(async () =>
+    host
+      .querySelector<HTMLButtonElement>(
+        '[aria-label="Decrease Hazard radius"]',
+      )!
+      .click(),
+  );
+  expect(Number(radius.value)).toBe(12.5);
+  const growth = host.querySelector<HTMLInputElement>(
+    '[aria-label="Growth rate (ft/s)"]',
+  )!;
+  const initialGrowth = Number(growth.value);
+  await act(async () =>
+    host
+      .querySelector<HTMLButtonElement>(
+        '[aria-label="Increase Growth rate (ft/s)"]',
+      )!
+      .click(),
+  );
+  expect(Number(growth.value)).toBeCloseTo(initialGrowth + 0.01, 8);
+  const patches = await editNumber("Maximum patches", "");
+  expect(patches.value).toBe("");
+  await editNumber("Maximum patches", "12");
+  await editNumber("Scenario random seed", "");
+  await editNumber("Scenario random seed", "123");
+  expect(change).not.toHaveBeenCalled();
+  await click("Apply");
+  const saved = change.mock.calls[0]![0];
+  expect(saved.disaster!.radius).toBeCloseTo(3.81, 12);
+  expect(saved.disaster!.dynamics!.growth_rate).toBeCloseTo(
+    0.036 + 0.003048,
+    12,
+  );
+  expect(saved.disaster!.dynamics!.max_patches).toBe(12);
+  expect(saved.seed).toBe(123);
+  expect(host.querySelector("dialog")).toBeNull();
+});
+
+it("uses fractional time steps and whole-degree steps in tornado controls", async () => {
+  await mount();
+  await click("Scenario");
+  await choose("Indoor shelter response");
+  await click("Edit parameters");
+  const interval = await editNumber("Change direction every (s)", "");
+  expect(interval.value).toBe("");
+  await editNumber("Change direction every (s)", "2.5");
+  await act(async () =>
+    host
+      .querySelector<HTMLButtonElement>(
+        '[aria-label="Increase Change direction every (s)"]',
+      )!
+      .click(),
+  );
+  expect(Number(interval.value)).toBe(2.75);
+  const turn = await editNumber("Turning speed (deg/s)", "90");
+  await act(async () =>
+    turn.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+    ),
+  );
+  expect(Number(turn.value)).toBe(89);
+  await click("Apply");
+  const dynamics = change.mock.calls[0]![0].disaster!.dynamics!;
+  expect(dynamics.wander_interval_seconds).toBe(2.75);
+  expect(dynamics.turn_rate_degrees).toBe(89);
+});

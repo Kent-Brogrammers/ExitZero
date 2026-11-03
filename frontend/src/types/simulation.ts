@@ -166,9 +166,17 @@ export interface SimulationMetrics {
   evacuated_by_route?: { normal_exit: number; emergency_window: number };
 }
 
+/** Actual remaining route at this sample; capped at 16 waypoints per occupant. */
+export interface AgentPlannedPath {
+  waypoints: Point[];
+  continues: boolean;
+}
+
 export interface AgentPosition extends Point {
   id: number;
   injury?: number;
+  /** Missing in older recordings; empty waypoints mean no current plan. */
+  planned_path?: AgentPlannedPath;
 }
 
 export interface AnimationFrame {

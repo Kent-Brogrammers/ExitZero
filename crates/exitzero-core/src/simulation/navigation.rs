@@ -42,6 +42,7 @@ pub(super) struct Route {
     pub waypoints: Vec<Point>,
 }
 
+#[derive(Clone)]
 struct ExitTarget {
     id: String,
     start: Point,
@@ -323,21 +324,21 @@ impl VisibilityGraph {
             for area in &geometry.hazard_areas {
                 let mut footprint = disaster;
                 footprint.radius = area.radius;
-                let radius = (footprint.exposure_radius() + scenario.agent_radius + 1e-4)
-                    / (std::f64::consts::PI / 16.0).cos();
-                for i in 0..16 {
-                    let angle = std::f64::consts::TAU * i as f64 / 16.0;
-                    let point = Point {
-                        x: area.center.x + radius * angle.cos(),
-                        y: area.center.y + radius * angle.sin(),
-                    };
-                    if !geometry.hazard_areas.iter().any(|other| {
-                        let mut footprint = disaster;
-                        footprint.radius = other.radius;
-                        math::distance_to_point(point, other.center)
-                            < footprint.exposure_radius() + scenario.agent_radius
-                    }) {
-                        frontier.push(point);
+                let mut radii = vec![geometry.routing_danger_radius(area)];
+                if disaster.kind == crate::models::DisasterKind::Fire {
+                    radii.push(footprint.exposure_radius() + scenario.agent_radius);
+                }
+                for clearance in radii {
+                    let radius = (clearance + 1e-4) / (std::f64::consts::PI / 16.0).cos();
+                    for i in 0..16 {
+                        let angle = std::f64::consts::TAU * i as f64 / 16.0;
+                        let point = Point {
+                            x: area.center.x + radius * angle.cos(),
+                            y: area.center.y + radius * angle.sin(),
+                        };
+                        if !geometry.is_in_known_danger(point) {
+                            frontier.push(point);
+                        }
                     }
                 }
             }
@@ -475,6 +476,12 @@ impl Navigation {
         occupants: &CrowdForecast,
         radius: f64,
     ) -> Option<Route> {
+        if geometry
+            .disaster
+            .is_some_and(|d| d.kind == crate::models::DisasterKind::Fire)
+        {
+            return self.search(from, geometry, occupants, radius, true);
+        }
         // Prefer a danger-free gas route before accepting exposure as a last
         // resort. Physically blocked exits remain absent from the graph.
         if geometry
@@ -485,6 +492,30 @@ impl Navigation {
             return Some(route);
         }
         self.search(from, geometry, occupants, radius, false)
+    }
+
+    /// A stalled occupant tries other known exits without declaring its old
+    /// destination blocked or borrowing the physical world's hidden states.
+    pub(super) fn find_alternative_route(
+        &self,
+        from: Point,
+        geometry: &Geometry<'_>,
+        occupants: &CrowdForecast,
+        excluded: &std::collections::BTreeSet<String>,
+    ) -> Option<Route> {
+        let goals = self
+            .goals
+            .exits
+            .iter()
+            .filter(|goal| !excluded.contains(&goal.id))
+            .cloned()
+            .collect();
+        Self::with_goals(Arc::clone(&self.graph), goals).find_safe_route_with_forecast(
+            from,
+            geometry,
+            occupants,
+            self.graph.agent_radius,
+        )
     }
 
     /// Search the same graph with known hazard crossings excluded. Failure is
@@ -717,7 +748,7 @@ mod reuse_tests {
         scenario.width = 12.0;
         scenario.height = 6.0;
         scenario.disaster.as_mut().unwrap().center = Point { x: 2.0, y: 3.0 };
-        scenario.disaster.as_mut().unwrap().radius = 3.0;
+        scenario.disaster.as_mut().unwrap().radius = 4.5;
         scenario.walls.push(crate::models::Wall {
             id: "partition".into(),
             name: None,

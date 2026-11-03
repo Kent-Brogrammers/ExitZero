@@ -622,28 +622,35 @@ impl<'a> Geometry<'a> {
     }
 
     pub(super) fn is_in_known_danger(&self, point: Point) -> bool {
-        self.disaster.is_some_and(|disaster| {
-            self.hazard_areas.iter().any(|area| {
-                let mut footprint = disaster;
-                footprint.radius = area.radius;
-                math::distance_to_point(point, area.center)
-                    < footprint.exposure_radius() + self.scenario.agent_radius
+        self.disaster.is_some()
+            && self.hazard_areas.iter().any(|area| {
+                math::distance_to_point(point, area.center) < self.routing_danger_radius(area)
             })
-        })
+    }
+
+    /// Fire's burning core constrains routes; its exposure halo is a soft cost.
+    pub(super) fn routing_danger_radius(&self, area: &crate::models::HazardArea) -> f64 {
+        let disaster = self.disaster.unwrap();
+        let mut footprint = disaster;
+        footprint.radius = area.radius;
+        (if disaster.kind == crate::models::DisasterKind::Fire {
+            area.radius
+        } else {
+            footprint.exposure_radius()
+        }) + self.scenario.agent_radius
     }
 
     /// Planning forbids entry from clear floor, but permits escape through the
-    /// connected exposure footprint containing the start. Overlapping patches
+    /// connected core (fire) or exposure footprint (gas) containing the start.
+    /// Overlapping patches
     /// must not each demand an incompatible outward direction. Only remembered
     /// danger is considered; physical walls still govern every movement.
     pub(super) fn avoids_known_danger(&self, from: Point, to: Point) -> bool {
-        let Some(disaster) = self.disaster else {
+        let Some(_) = self.disaster else {
             return true;
         };
         if self.hazard_areas.iter().all(|area| {
-            let mut footprint = disaster;
-            footprint.radius = area.radius;
-            let clearance = footprint.exposure_radius() + self.scenario.agent_radius;
+            let clearance = self.routing_danger_radius(area);
             let initial = math::distance_to_point(from, area.center);
             math::distance_to_segment(area.center, from, to) + math::EPSILON
                 >= clearance.min(initial)
@@ -666,9 +673,7 @@ impl<'a> Geometry<'a> {
         };
         let mut intervals = Vec::new();
         for area in &self.hazard_areas {
-            let mut footprint = disaster;
-            footprint.radius = area.radius;
-            let radius = footprint.exposure_radius() + self.scenario.agent_radius;
+            let radius = self.routing_danger_radius(area);
             let delta = Point {
                 x: area.center.x - from.x,
                 y: area.center.y - from.y,
@@ -731,8 +736,8 @@ impl<'a> Geometry<'a> {
             .is_some_and(|(start, end)| layout.clear_segments(start, end).is_empty())
     }
 
-    /// Local cut used only to see a closure without that closure occluding
-    /// itself. Planning geometry never cuts holes through observed material.
+    /// Local cut for observing a closure, or representing an exit believed
+    /// open before its actual state is observed. Physical material stays solid.
     fn covering_wall_gap(&self, wall: &Wall, opening: &Opening) -> Option<(f64, f64)> {
         let center = Self::opening_center(self.scenario, opening);
         if wall.id == opening.wall_id
@@ -825,6 +830,59 @@ impl<'a> Geometry<'a> {
             y: from.y.clamp(obstacle.y, obstacle.y + obstacle.height),
         };
         self.ray_is_clear(from, surface, &[], Some(&obstacle.id))
+    }
+
+    /// A window is discovered by seeing its near wall face, not through glass.
+    pub(super) fn can_see_window(
+        &self,
+        from: Point,
+        window: &crate::models::WindowOpening,
+        range: f64,
+    ) -> bool {
+        if range <= 0.0 {
+            return false;
+        }
+        let wall = self
+            .scenario
+            .walls
+            .iter()
+            .find(|wall| wall.id == window.wall_id)
+            .unwrap();
+        let length = wall.length();
+        let normal = Point {
+            x: -(wall.end.y - wall.start.y) / length,
+            y: (wall.end.x - wall.start.x) / length,
+        };
+        let side = if (from.x - wall.start.x) * normal.x + (from.y - wall.start.y) * normal.y >= 0.0
+        {
+            1.0
+        } else {
+            -1.0
+        };
+        let face = |offset| {
+            let point = math::interpolate(wall.start, wall.end, offset / length);
+            Point {
+                x: point.x + normal.x * side * (wall.thickness / 2.0 + 1e-6),
+                y: point.y + normal.y * side * (wall.thickness / 2.0 + 1e-6),
+            }
+        };
+        let start = face(window.offset);
+        let end = face(window.offset + window.width);
+        if math::distance_to_segment(from, start, end) > range {
+            return false;
+        }
+        let mut occluders: Vec<_> = self
+            .solid_walls
+            .iter()
+            .map(|&(start, end, radius, _)| Occluder::Capsule { start, end, radius })
+            .collect();
+        occluders.extend(self.obstructions.iter().map(|o| Occluder::Rectangle {
+            x: o.x,
+            y: o.y,
+            width: o.width,
+            height: o.height,
+        }));
+        !perception::visible_intervals(from, start, end, range, &occluders).is_empty()
     }
 
     pub(super) fn can_see_opening(
@@ -1254,8 +1312,21 @@ impl<'a> Geometry<'a> {
             .filter(|opening| opening.wall_id == wall.id)
             .map(|opening| (opening.offset, opening.offset + opening.width))
             .collect();
-        for opening in self.scenario.doors.iter().chain(&self.scenario.exits) {
-            if visible == Some(opening.id.as_str())
+        for (opening, is_exit) in self
+            .scenario
+            .doors
+            .iter()
+            .map(|opening| (opening, false))
+            .chain(self.scenario.exits.iter().map(|opening| (opening, true)))
+        {
+            // Exit locations belong to the initial map; their physical state
+            // does not. Even a covering wall must not disclose a closed exit
+            // before sight or a local report supplies its actual state.
+            let assumed_open_exit = self.partial_knowledge
+                && is_exit
+                && !self.opening_was_observed(&opening.id)
+                && !self.opening_is_blocked(&opening.id);
+            if (visible == Some(opening.id.as_str()) || assumed_open_exit)
                 && let Some(gap) = self.covering_wall_gap(wall, opening)
             {
                 intervals.push(gap);

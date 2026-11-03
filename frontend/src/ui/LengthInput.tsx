@@ -3,8 +3,10 @@ import {
   lengthFromInput,
   lengthInputValue,
   toDisplayLength,
+  toMetres,
 } from "../utils/units";
 import { useDisplayUnits } from "../utils/useDisplayUnits";
+import { NumberInput } from "./NumberInput";
 
 /** Callers supply and receive metres; the visible field follows Settings. */
 export function LengthInput({
@@ -12,31 +14,38 @@ export function LengthInput({
   onValue,
   min,
   max,
+  step = 1,
   precision = 4,
   ...props
 }: Omit<
   ComponentProps<"input">,
-  "value" | "defaultValue" | "type" | "min" | "max" | "onChange"
+  "value" | "defaultValue" | "type" | "min" | "max" | "onChange" | "step"
 > & {
   value: number;
   onValue: (metres: number) => void;
   min?: number;
   max?: number;
   precision?: number;
+  commitOnBlur?: boolean;
+  /** Increment in the displayed length unit, not metres. */
+  step?: number;
 }) {
-  useDisplayUnits();
+  const units = useDisplayUnits();
   return (
-    <input
+    <NumberInput
       {...props}
-      type="number"
-      step="any"
+      key={units}
+      step={step}
       min={min === undefined ? undefined : toDisplayLength(min)}
       max={max === undefined ? undefined : toDisplayLength(max)}
       value={lengthInputValue(value, precision)}
-      onChange={(event) => {
-        const displayed = event.currentTarget.valueAsNumber;
-        if (Number.isFinite(displayed))
-          onValue(lengthFromInput(displayed, value, precision));
+      onValue={(displayed) =>
+        onValue(lengthFromInput(displayed, value, precision))
+      }
+      onStep={(from, to) => {
+        const delta = units === "metric" ? to - from : toMetres(to - from);
+        const next = lengthFromInput(from, value, precision) + delta;
+        onValue(Math.max(min ?? -Infinity, Math.min(max ?? Infinity, next)));
       }}
     />
   );
