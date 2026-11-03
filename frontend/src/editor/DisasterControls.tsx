@@ -21,6 +21,8 @@ interface ScenarioProps {
   building: BuildingScenario;
   onChange: (next: BuildingScenario) => void | boolean;
   onLocate: () => void;
+  editHazard?: boolean;
+  onEditClose?: () => void;
 }
 
 export function DisasterControls(props: ScenarioProps) {
@@ -36,13 +38,21 @@ export function DisasterControls(props: ScenarioProps) {
         className="studio-control editor-tool-button"
         title={`Edit scenario · ${label}`}
         aria-haspopup="dialog"
-        aria-expanded={open}
+        aria-expanded={open || props.editHazard}
         onClick={() => setOpen(true)}
       >
         <ToolIcon name="shelter" />
         <span>Scenario</span>
       </button>
-      {open && <ScenarioDialog {...props} onClose={() => setOpen(false)} />}
+      {(open || props.editHazard) && (
+        <ScenarioDialog
+          {...props}
+          onClose={() => {
+            setOpen(false);
+            props.onEditClose?.();
+          }}
+        />
+      )}
     </>
   );
 }
@@ -52,6 +62,7 @@ function ScenarioDialog({
   onChange,
   onLocate,
   onClose,
+  editHazard = false,
 }: ScenarioProps & { onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const firstFocus = useRef<HTMLButtonElement>(null);
@@ -60,6 +71,7 @@ function ScenarioDialog({
   const id = useId();
   const [draft, setDraft] = useState(() => structuredClone(building));
   const [error, setError] = useState("");
+  const [parametersOpen, setParametersOpen] = useState(editHazard);
   useEffect(() => {
     const target = dialog.current;
     const previous = document.activeElement;
@@ -149,8 +161,9 @@ function ScenarioDialog({
         </header>
         <div className="scenario-dialog-body">
           <p id={`${id}-hint`} className="scenario-dialog-hint">
-            Configure the next simulation. Changes stay here until you apply
-            them.
+            Choose a scenario and place its hazard using the default settings.
+            Double-click the hazard on the plan to edit its parameters later.
+            Changes stay here until you apply them.
           </p>
           <ScenarioFields
             building={draft}
@@ -159,7 +172,28 @@ function ScenarioDialog({
               setError("");
             }}
             onLocate={() => apply(true)}
+            showParameters={parametersOpen}
           />
+          {!parametersOpen && (
+            <div className="scenario-dialog-actions">
+              <button
+                type="button"
+                className="studio-control"
+                onClick={() => setParametersOpen(true)}
+              >
+                Edit parameters
+              </button>
+              {draft.disaster && (
+                <button
+                  type="button"
+                  className="studio-control scenario-place"
+                  onClick={() => apply(true)}
+                >
+                  Place hazard on plan
+                </button>
+              )}
+            </div>
+          )}
           {error && (
             <p role="alert" className="scenario-dialog-error">
               {error}
@@ -187,10 +221,12 @@ export function ScenarioFields({
   building,
   onChange,
   onLocate,
+  showParameters = true,
 }: {
   building: BuildingScenario;
   onChange: (next: BuildingScenario) => void;
   onLocate: () => void;
+  showParameters?: boolean;
 }) {
   const pickerId = useId();
   const disaster = building.disaster;
@@ -312,7 +348,7 @@ export function ScenarioFields({
           ))}
         </div>
       </fieldset>
-      {disaster && (
+      {disaster && showParameters && (
         <>
           <section className="scenario-section">
             <h3>Hazard placement</h3>
@@ -525,25 +561,27 @@ export function ScenarioFields({
           </p>
         </>
       )}
-      <section className="scenario-section">
-        <h3>Repeatability</h3>
-        <label>
-          Scenario random seed
-          <input
-            type="number"
-            aria-label="Scenario random seed"
-            min={0}
-            max={Number.MAX_SAFE_INTEGER}
-            step={1}
-            value={building.seed}
-            onChange={(e) => {
-              const seed = e.currentTarget.valueAsNumber;
-              if (Number.isSafeInteger(seed) && seed >= 0)
-                onChange({ ...building, seed });
-            }}
-          />
-        </label>
-      </section>
+      {showParameters && (
+        <section className="scenario-section">
+          <h3>Repeatability</h3>
+          <label>
+            Scenario random seed
+            <input
+              type="number"
+              aria-label="Scenario random seed"
+              min={0}
+              max={Number.MAX_SAFE_INTEGER}
+              step={1}
+              value={building.seed}
+              onChange={(e) => {
+                const seed = e.currentTarget.valueAsNumber;
+                if (Number.isSafeInteger(seed) && seed >= 0)
+                  onChange({ ...building, seed });
+              }}
+            />
+          </label>
+        </section>
+      )}
     </div>
   );
 }

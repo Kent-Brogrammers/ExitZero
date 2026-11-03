@@ -88,7 +88,16 @@ export default function TrafficHeatmap({
       observer.disconnect();
       window.removeEventListener("resize", redraw);
     };
-  }, [building, result, visible, matches, smoothing, theme, units, elapsedSeconds]);
+  }, [
+    building,
+    result,
+    visible,
+    matches,
+    smoothing,
+    theme,
+    units,
+    elapsedSeconds,
+  ]);
   return (
     <section className="panel traffic-panel" aria-label="Congestion heatmap">
       <div className="panel-heading">

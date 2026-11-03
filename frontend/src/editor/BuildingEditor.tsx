@@ -228,6 +228,7 @@ export function BuildingEditor({
   const [selections, setSelections] = useState<Selection[]>([]);
   const selected = selections.at(-1) ?? null;
   const [propertiesOpen, setPropertiesOpen] = useState(false);
+  const [hazardSettingsOpen, setHazardSettingsOpen] = useState(false);
   const [spawnPolygon, setSpawnPolygon] = useState<Point[]>([]);
   const [polygonHover, setPolygonHover] = useState<Point | null>(null);
   const [gesture, setGesture] = useState<Gesture | null>(null);
@@ -1150,11 +1151,13 @@ export function BuildingEditor({
       return;
     }
     if (tool === "hazard" && building.disaster) {
-      commit({
+      const placed = commit({
         ...extendForPoints(building, point),
         disaster: { ...building.disaster, center: point },
       });
-      setNotice("Hazard location updated. Agents discover it during the run.");
+      if (!placed) return;
+      changeTool("select");
+      setNotice("Hazard placed · Double-click it to edit parameters.");
       return;
     }
     if (tool === "wall-freehand") {
@@ -1786,6 +1789,8 @@ export function BuildingEditor({
               scenarioControls={
                 <DisasterControls
                   building={building}
+                  editHazard={hazardSettingsOpen && !disabled}
+                  onEditClose={() => setHazardSettingsOpen(false)}
                   onChange={(next) => {
                     const applied = commit(next);
                     if (
@@ -2021,6 +2026,7 @@ export function BuildingEditor({
                 onContextMenu={(event) => event.preventDefault()}
                 onDoubleClick={(event) => {
                   if (
+                    disabled ||
                     panMode ||
                     spaceDown ||
                     event.shiftKey ||
@@ -2028,7 +2034,18 @@ export function BuildingEditor({
                     event.metaKey
                   )
                     return;
-                  const target = hit(world(event));
+                  const point = world(event);
+                  if (
+                    building.disaster &&
+                    (tool === "select" || tool === "hazard") &&
+                    distance(point, building.disaster.center) <=
+                      Math.max(tolerance(), building.disaster.radius)
+                  ) {
+                    setHazardSettingsOpen(true);
+                    setError("");
+                    return;
+                  }
+                  const target = hit(point);
                   if (target && tool !== "wall-freehand") {
                     if (!selections.some((s) => s.id === target.id))
                       selectElement(target);

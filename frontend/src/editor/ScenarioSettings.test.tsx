@@ -103,7 +103,7 @@ it("applies before canvas placement and keeps a rejected edit open", async () =>
   expect(host.querySelector('[role="alert"]')).not.toBeNull();
   expect(host.querySelector("dialog")!.open).toBe(true);
   expect(locate).not.toHaveBeenCalled();
-  await click("Apply & place hazard on plan");
+  await click("Place hazard on plan");
   await act(async () => {
     await new Promise<void>((resolve) =>
       requestAnimationFrame(() => resolve()),
@@ -114,4 +114,38 @@ it("applies before canvas placement and keeps a rejected edit open", async () =>
   expect(change.mock.invocationCallOrder.at(-1)!).toBeLessThan(
     locate.mock.invocationCallOrder[0]!,
   );
+});
+
+it.each(["Fire evacuation", "Gas leak evacuation", "Indoor shelter response"])(
+  "places %s with defaults without requiring parameter entry",
+  async (kind) => {
+    await mount();
+    await click("Scenario");
+    await choose(kind);
+    expect(host.querySelector('[aria-label="Hazard radius"]')).toBeNull();
+    expect(
+      host.querySelector('[aria-label="Scenario random seed"]'),
+    ).toBeNull();
+    await click("Place hazard on plan");
+    await act(async () => {
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => resolve()),
+      );
+    });
+    expect(change).toHaveBeenCalledOnce();
+    expect(change.mock.calls[0]![0].disaster?.dynamics?.enabled).toBe(true);
+    expect(locate).toHaveBeenCalledOnce();
+    expect(host.querySelector("dialog")).toBeNull();
+  },
+);
+
+it("keeps parameter editing available from the keyboard-accessible picker", async () => {
+  await mount();
+  await click("Scenario");
+  await choose("Fire evacuation");
+  await click("Edit parameters");
+  expect(host.querySelector('[aria-label="Hazard radius"]')).not.toBeNull();
+  expect(host.textContent).toContain("Spread settings");
+  await click("Cancel");
+  expect(change).not.toHaveBeenCalled();
 });
