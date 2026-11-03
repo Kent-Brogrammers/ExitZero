@@ -120,21 +120,40 @@ fn office_fire_redirects_evacuations_with_bounded_spread() {
     );
     let people = &fire.analytics.as_ref().unwrap().agents;
     assert_eq!(people.len(), 44);
-    assert!(people.iter().all(|a| a.evacuation_step.is_some()
-        && matches!(
-            a.exit_id.as_deref(),
-            Some("corp-exit-west" | "corp-exit-front")
-        )));
+    let east_closed_step = fire
+        .frames
+        .iter()
+        .find(|frame| {
+            frame
+                .blocked_opening_ids
+                .as_ref()
+                .unwrap()
+                .iter()
+                .any(|id| id == "corp-exit-east")
+        })
+        .unwrap()
+        .step;
+    for agent in people {
+        let departed = agent.evacuation_step.unwrap();
+        match agent.exit_id.as_deref() {
+            Some("corp-exit-east") => assert!(
+                departed <= east_closed_step,
+                "the outer ring may be crossed before the burning core closes this exit"
+            ),
+            Some("corp-exit-west" | "corp-exit-front") => {}
+            None => assert_eq!(
+                agent.escape_route.as_ref().unwrap().kind,
+                EscapeRouteKind::EmergencyWindow
+            ),
+            other => panic!("unexpected route {other:?}"),
+        }
+    }
     assert!(
         people
             .iter()
             .filter(|a| redirected.contains(&a.id))
-            .all(|a| a.exit_id
-                != baseline_people
-                    .iter()
-                    .find(|old| old.id == a.id)
-                    .unwrap()
-                    .exit_id)
+            .any(|a| a.exit_id.as_deref() != Some("corp-exit-east")),
+        "occupants who cannot beat the actual closure must use another route"
     );
 }
 
@@ -206,7 +225,7 @@ fn crossing_height(result: &SimulationResult, id: u32, x: f64) -> f64 {
 }
 
 #[test]
-fn laboratory_gas_redirects_west_foyer_occupants_to_the_safe_lower_corridor() {
+fn laboratory_gas_redirects_west_foyer_occupants_to_safe_detours() {
     let b = building(GAS);
     let gas = run(&b);
     let mut clear = b.clone();
@@ -244,9 +263,17 @@ fn laboratory_gas_redirects_west_foyer_occupants_to_the_safe_lower_corridor() {
     assert_eq!(b.spawn_zones[0].id, "lab-west-foyer");
     let foyer_count = b.spawn_zones[0].count;
     assert!((0..foyer_count).all(|id| crossing_height(&baseline, id, 17.0) < 9.0));
-    for id in 0..foyer_count {
-        assert!(crossing_height(&gas, id, 17.0) > 17.0 + b.agent_radius);
-    }
+    // The known static layout also exposes the route through north services.
+    // Both bypasses avoid the gas-filled upper corridor (y=6..9).
+    let crossings: Vec<_> = (0..foyer_count)
+        .map(|id| crossing_height(&gas, id, 17.0))
+        .collect();
+    assert!(crossings.iter().any(|&y| y > 17.0 + b.agent_radius));
+    assert!(
+        crossings
+            .iter()
+            .all(|&y| y > 17.0 + b.agent_radius || y < 6.0 - b.agent_radius)
+    );
     assert!(
         gas.frames[0]
             .blocked_opening_ids

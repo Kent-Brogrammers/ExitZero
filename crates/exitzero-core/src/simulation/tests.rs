@@ -217,7 +217,7 @@ fn fire_exposure_ring_keeps_an_exit_available_until_core_contact() {
         dynamics: None,
     });
     let geometry = Geometry::new(&scenario);
-    assert!(geometry.opening_is_unsafe("north_exit"));
+    assert!(!geometry.opening_is_unsafe("north_exit"));
     assert!(geometry.exit_segment("north_exit").is_some());
     assert!(
         Navigation::new(&scenario, &geometry)
@@ -369,7 +369,7 @@ fn an_unknown_exit_state_does_not_change_distant_crowd_guidance() {
 }
 
 #[test]
-fn a_wall_covering_the_example_exit_is_not_known_at_spawn() {
+fn signposted_layout_does_not_reveal_an_unobserved_exit_closure() {
     let mut open: BuildingScenario = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../shared/examples/building.json"
@@ -388,12 +388,15 @@ fn a_wall_covering_the_example_exit_is_not_known_at_spawn() {
     });
     let expected = simulate(&open).unwrap();
     let actual = simulate(&covered).unwrap();
+    assert_eq!(
+        serde_json::to_value(&expected.frames[0].agents).unwrap(),
+        serde_json::to_value(&actual.frames[0].agents).unwrap()
+    );
     for (a, b) in expected.frames.iter().zip(&actual.frames) {
         assert_eq!(
             serde_json::to_value(&a.agents).unwrap(),
             serde_json::to_value(&b.agents).unwrap(),
-            "an unseen wall covering the exit changed initial movement at step {}",
-            a.step
+            "static walls must not disclose an exit's unseen closure"
         );
     }
 }
@@ -1461,7 +1464,7 @@ fn approaching_an_unknown_obstruction_triggers_a_safe_detour_after_discovery() {
 }
 
 #[test]
-fn agents_approach_an_unknown_walled_off_exit_before_discovering_another_route() {
+fn agents_head_directly_to_the_next_exit_using_signposted_layout() {
     let mut scenario = room();
     scenario.spawn_zones = vec![pinned_zone("person", 5.0, 4.0)];
     scenario.awareness.sight_range_metres = 0.75;
@@ -1498,15 +1501,16 @@ fn agents_approach_an_unknown_walled_off_exit_before_discovering_another_route()
     ]);
     let result = simulate(&scenario).unwrap();
     assert!(
-        result.frames[1].agents[0].y < 4.0,
-        "the initial plan must approach the nearer north exit, not use unseen enclosure walls"
+        result.frames[1].agents[0].y > 4.0,
+        "head straight toward the reachable south exit"
     );
     assert!(
         result
             .frames
             .iter()
-            .any(|frame| frame.agents.iter().any(|agent| agent.y < 3.0)),
-        "the person should approach and investigate the barrier"
+            .flat_map(|frame| &frame.agents)
+            .all(|agent| agent.y >= 4.0),
+        "do not investigate the sealed north exit"
     );
     assert_eq!(result.metrics.status, SimulationStatus::Completed);
     assert_eq!(
@@ -2482,4 +2486,167 @@ fn a_moving_tornado_injures_people_it_passes_between_tick_endpoints() {
     assert!(agent.injury > 0.0 && agent.injury < 0.1);
     assert!(agent.exposure_seconds > 0.0 && agent.exposure_seconds < scenario.time_step_seconds);
     assert_eq!(agent.known_hazards[&0].revision, 1);
+}
+
+#[test]
+fn a_covered_exit_is_attempted_until_its_blockage_is_discovered() {
+    let mut scenario = room();
+    scenario.spawn_zones = vec![pinned_zone("person", 5.0, 4.0)];
+    scenario.awareness.sight_range_metres = 0.75;
+    scenario.awareness.communication_range_metres = 0.0;
+    scenario.exits.push(Opening {
+        id: "south_exit".into(),
+        name: None,
+        wall_id: "south".into(),
+        offset: 3.0,
+        width: 4.0,
+    });
+    scenario.walls.push(Wall {
+        id: "exit_cover".into(),
+        name: None,
+        start: Point { x: 3.0, y: 0.0 },
+        end: Point { x: 7.0, y: 0.0 },
+        thickness: 0.2,
+    });
+    let result = simulate(&scenario).unwrap();
+    result.validate().unwrap();
+    assert!(
+        result.frames[1].agents[0].y < 4.0,
+        "the nearer exit is believed open despite its physical covering wall"
+    );
+    let discovery = result
+        .communication_events
+        .as_ref()
+        .unwrap()
+        .iter()
+        .find(|event| {
+            event.event_type == crate::models::CommunicationEventType::Discovery
+                && event.opening_id == "north_exit"
+                && event.blocked
+        })
+        .unwrap();
+    assert!(discovery.step > 0);
+    let before = result
+        .frames
+        .iter()
+        .rfind(|frame| frame.step < discovery.step)
+        .unwrap();
+    assert!(
+        before.agents[0].y <= 1.0,
+        "approach within sight before learning the closure"
+    );
+    assert_eq!(result.metrics.status, SimulationStatus::Completed);
+    assert_eq!(
+        result.analytics.as_ref().unwrap().agents[0]
+            .exit_id
+            .as_deref(),
+        Some("south_exit")
+    );
+    assert_collision_free(&scenario, &result);
+}
+
+#[test]
+fn a_stalled_agent_actively_tries_another_exit_without_inventing_a_closure_report() {
+    let mut scenario = room();
+    scenario.spawn_zones = vec![pinned_zone("person", 5.0, 3.0)];
+    scenario.blocked_exit_ids = vec!["north_exit".into()];
+    scenario.awareness.sight_range_metres = 0.0;
+    scenario.awareness.communication_range_metres = 0.0;
+    scenario.exits.push(Opening {
+        id: "south_exit".into(),
+        name: None,
+        wall_id: "south".into(),
+        offset: 3.0,
+        width: 4.0,
+    });
+    let result = simulate(&scenario).unwrap();
+    result.validate().unwrap();
+    assert!(result.frames[1].agents[0].y < 3.0);
+    assert!(result.communication_events.as_ref().unwrap().is_empty());
+    assert_eq!(result.metrics.status, SimulationStatus::Completed);
+    assert_eq!(
+        result.analytics.as_ref().unwrap().agents[0]
+            .exit_id
+            .as_deref(),
+        Some("south_exit")
+    );
+    assert_collision_free(&scenario, &result);
+}
+
+fn fire_corridor(radius: f64) -> BuildingScenario {
+    serde_json::from_value(serde_json::json!({
+        "width":12,"height":8,
+        "walls":[
+            {"id":"top","start":{"x":1,"y":3},"end":{"x":11,"y":3},"thickness":0.2},
+            {"id":"bottom","start":{"x":11,"y":4.2},"end":{"x":1,"y":4.2},"thickness":0.2},
+            {"id":"left","start":{"x":1,"y":4.2},"end":{"x":1,"y":3},"thickness":0.2},
+            {"id":"right","start":{"x":11,"y":3},"end":{"x":11,"y":4.2},"thickness":0.2}],
+        "doors":[],"exits":[{"id":"exit","wall_id":"right","offset":0.1,"width":1}],
+        "placed_occupants":[{"id":"person","x":2,"y":3.6}],"spawn_zones":[],"obstructions":[],"blocked_exit_ids":[],
+        "agent_radius":0.15,"time_step_seconds":0.1,"max_steps":1000,"seed":42,
+        "awareness":{"sight_range_metres":20,"communication_range_metres":0},
+        "disaster":{"kind":"fire","center":{"x":6,"y":3},"radius":radius}
+    })).unwrap()
+}
+
+#[test]
+fn agents_evacuate_through_the_fire_exposure_ring_when_the_core_has_a_clear_detour() {
+    let scenario = fire_corridor(0.6);
+    let result = simulate(&scenario).unwrap();
+    result.validate().unwrap();
+    assert_eq!(result.metrics.status, SimulationStatus::Completed);
+    assert_eq!(result.metrics.evacuated, 1);
+    assert!(result.analytics.as_ref().unwrap().agents[0].exposure_seconds > 0.0);
+    let center = scenario.disaster.unwrap().center;
+    for pair in result.frames.windows(2) {
+        let Some(a) = pair[0].agents.first() else {
+            continue;
+        };
+        let Some(b) = pair[1].agents.first() else {
+            continue;
+        };
+        assert!(
+            math::distance_to_segment(center, Point { x: a.x, y: a.y }, Point { x: b.x, y: b.y })
+                >= 0.6 + scenario.agent_radius - 1e-6,
+            "accepted motion cannot enter the burning core"
+        );
+    }
+    assert_collision_free(&scenario, &result);
+}
+
+#[test]
+fn agents_stop_when_the_burning_core_really_seals_every_route() {
+    let scenario = fire_corridor(1.2);
+    let result = simulate(&scenario).unwrap();
+    result.validate().unwrap();
+    assert_eq!(result.metrics.status, SimulationStatus::Incomplete);
+    assert_eq!(result.metrics.evacuated, 0);
+    assert_eq!(result.metrics.remaining, 1);
+    assert!(
+        result
+            .frames
+            .iter()
+            .flat_map(|frame| &frame.agents)
+            .all(|agent| agent.x < 4.7)
+    );
+}
+
+#[test]
+fn an_unresolved_exit_route_keeps_retrying_until_the_step_limit() {
+    let mut scenario = room();
+    scenario.spawn_zones = vec![pinned_zone("person", 5.0, 3.0)];
+    scenario.blocked_exit_ids = vec!["north_exit".into()];
+    scenario.awareness.sight_range_metres = 0.0;
+    scenario.awareness.communication_range_metres = 0.0;
+    scenario.max_steps = 300;
+    let result = simulate(&scenario).unwrap();
+    result.validate().unwrap();
+    assert_eq!(result.metrics.status, SimulationStatus::Timeout);
+    assert!(matches!(
+        result.termination_reason,
+        Some(crate::models::TerminationReason::StepLimit)
+    ));
+    assert_eq!(result.frames.last().unwrap().step, 300);
+    assert_eq!(result.metrics.remaining, 1);
+    assert!(result.communication_events.as_ref().unwrap().is_empty());
 }
