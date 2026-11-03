@@ -4,6 +4,7 @@ import { useDisplayUnits } from "../utils/useDisplayUnits";
 import { snapshotFrameIndex, type ReplayTarget } from "./replayTarget";
 import {
   useEffect,
+  useCallback,
   useMemo,
   useRef,
   useState,
@@ -43,6 +44,8 @@ import {
 } from "./displayOptions";
 import { RecordingExport } from "./ExportRecording";
 import { PursuitMetrics } from "./PursuitMetrics";
+import { AgentInspector, AgentPicker } from "./AgentInspector";
+import { agentTrail, drawAgentInspection, pickAgent } from "./agentInspection";
 import "./SimulationView.css";
 
 interface SimulationViewProps {
@@ -89,6 +92,32 @@ function Playback({
     result !== null &&
     (result.width !== building.width || result.height !== building.height);
   const recording = mismatch ? null : result;
+  const [selection, setSelection] = useState<{
+    source: SimulationResult | null;
+    id: number | null;
+  }>({ source: null, id: null });
+  const selectedId = selection.source === recording ? selection.id : null;
+  const selectAgent = useCallback(
+    (id: number | null) => setSelection({ source: recording, id }),
+    [recording],
+  );
+  const trail = useMemo(
+    () =>
+      recording && selectedId !== null
+        ? agentTrail(building, recording.frames, selectedId)
+        : [],
+    [building, recording, selectedId],
+  );
+  const agentIds = useMemo(
+    () =>
+      [
+        ...new Set([
+          ...(recording?.frames[0]?.agents.map((agent) => agent.id) ?? []),
+          ...(recording?.analytics?.agents.map((agent) => agent.id) ?? []),
+        ]),
+      ].sort((a, b) => a - b),
+    [recording],
+  );
   const player = useMemo(() => {
     const playback = createPlayback(recording);
     // A real run has already been watched live. Begin its review at the end.
@@ -163,6 +192,15 @@ function Playback({
       if (!recording || !trailSampler) {
         render(agents, ratio, showAgentNumbers);
         effects(element, building, agents, time, ratio);
+        drawAgentInspection(
+          element,
+          building,
+          agents,
+          selectedId,
+          trail,
+          time / (recording?.time_step_seconds ?? 1),
+          palette,
+        );
         return;
       }
       const index = frameIndexAtTime(
@@ -219,6 +257,15 @@ function Playback({
       );
       drawAgents(element, building, agents, ratio, palette, showAgentNumbers);
       effects(element, building, agents, time, ratio);
+      drawAgentInspection(
+        element,
+        building,
+        agents,
+        selectedId,
+        trail,
+        time / recording.time_step_seconds,
+        palette,
+      );
     };
     const unsubscribe = player.subscribeRender(redraw);
     redraw();
@@ -240,6 +287,8 @@ function Playback({
     showAgentNumbers,
     displayOptions,
     active,
+    selectedId,
+    trail,
   ]);
 
   const status = state.playing
@@ -257,6 +306,18 @@ function Playback({
     >
       <div className="playback-stage">
         <div className="canvas-wrap playback-canvas-wrap">
+          {selectedId !== null && (
+            <AgentInspector
+              id={selectedId}
+              building={building}
+              frame={frame}
+              result={recording}
+              onClose={() => {
+                selectAgent(null);
+                canvas.current?.focus({ preventScroll: true });
+              }}
+            />
+          )}
           {showAgentChat && (
             <AgentChat
               building={building}
@@ -272,9 +333,23 @@ function Playback({
             height={800}
             role="img"
             tabIndex={0}
+            title="Click an occupant to inspect their statistics and sampled path"
+            onClick={(event) => {
+              if (!active) return;
+              selectAgent(
+                pickAgent(
+                  event.currentTarget,
+                  building,
+                  sample(player.getTime()),
+                  { x: event.clientX, y: event.clientY },
+                  showAgentNumbers,
+                ),
+              );
+            }}
             aria-keyshortcuts="Space ArrowLeft ArrowRight Home End"
             onKeyDown={(event) => {
               if (!active || !frame) return;
+              if (event.key === "Escape") selectAgent(null);
               if (
                 [" ", "ArrowLeft", "ArrowRight", "Home", "End"].includes(
                   event.key,
@@ -411,6 +486,11 @@ function Playback({
             </div>
           </div>
           <div className="playback-bottomline">
+            <AgentPicker
+              ids={agentIds}
+              selected={selectedId}
+              onSelect={selectAgent}
+            />
             <dl className="playback-readout">
               <div>
                 <dt>Elapsed time</dt>

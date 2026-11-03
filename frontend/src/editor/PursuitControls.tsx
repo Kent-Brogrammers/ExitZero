@@ -57,6 +57,7 @@ export function PursuitControls({
               value={pursuit[key]}
               min={0.1}
               max={3}
+              step={0.1}
               onValue={(value) => {
                 if (Number.isFinite(value) && value >= 0.1 && value <= 3)
                   onChange({

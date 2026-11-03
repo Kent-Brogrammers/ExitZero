@@ -1,4 +1,6 @@
-import { lengthInputValue, lengthFromInput, lengthUnit } from "../utils/units";
+import { lengthUnit } from "../utils/units";
+import { LengthInput } from "../ui/LengthInput";
+import { NumberInput } from "../ui/NumberInput";
 import type { BuildingScenario, WindowOpening } from "../types/simulation";
 import {
   configureWindowEscape,
@@ -179,25 +181,16 @@ function WindowNumber({
   onCommit: (n: number) => unknown;
   distance?: boolean;
 }) {
-  const displayed = distance ? lengthInputValue(value) : value;
+  const Input = distance ? LengthInput : NumberInput;
   return (
     <label className="number-field">
       {label}
-      <input
-        key={`${value}-${lengthUnit()}`}
+      <Input
         aria-label={label}
-        type="number"
-        step="any"
-        defaultValue={displayed}
-        onBlur={(e) => {
-          const input = e.currentTarget.valueAsNumber;
-          const n = distance ? lengthFromInput(input, value) : input;
-          if (Number.isFinite(n) && n !== value) onCommit(n);
-          e.currentTarget.value = String(displayed);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") e.currentTarget.blur();
-        }}
+        value={value}
+        step={distance ? 0.1 : 1}
+        commitOnBlur
+        onValue={onCommit}
       />
     </label>
   );

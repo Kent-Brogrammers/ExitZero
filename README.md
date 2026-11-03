@@ -12,17 +12,13 @@ To start both servers from the repository root:
 ./dev.sh
 ```
 
-The script installs frontend dependencies if `node_modules` is missing. Press Ctrl+C to stop both servers; if either server exits, the other stops too. The workspace development profile optimizes the web host and shared simulation crate while retaining debug symbols and incremental compilation; other dependencies keep their usual development settings.
+The script installs frontend dependencies if `node_modules` is missing. Both servers choose available ports automatically. Wait for **ExitZero ready**, then open the printed **App** URL; **API** and **Proxy** show the health-check URLs. The frontend is connected to that run's backend automatically, so multiple copies can run together. Press Ctrl+C to stop both servers; if either server exits, the other stops too. The workspace development profile optimizes the web host and shared simulation crate while retaining debug symbols and incremental compilation; other dependencies keep their usual development settings.
+
+Local Rust builds default to one compiler job to reduce peak RAM use. The checked-in VS Code settings also disable Rust Analyzer's startup cache priming, limit analysis to two worker threads and 64 cached syntax trees, and exclude generated directories from file watching. Reload the VS Code window after receiving these settings. On a machine with more available memory, `CARGO_BUILD_JOBS=2 ./dev.sh` allows two compiler jobs; build parallelism is independent of the simulator's runtime behavior.
 
 To measure compute time independently of the live view's real-time pacing, run `cargo run --locked -p exitzero --example benchmark_simulation` from the repository root. This runs the checked-in example with 30 occupants three times. Pass an output JSON path after `--` to save the first result for before/after comparison.
 
-To run them separately, in one terminal:
-
-```sh
-cargo run --locked -p exitzero --bin exitzero
-```
-
-In another:
+You can also start the same pair of servers from `frontend/`:
 
 ```sh
 cd frontend
@@ -30,7 +26,7 @@ npm ci
 npm run dev
 ```
 
-Open [http://127.0.0.1:5173](http://127.0.0.1:5173). The header should show **Backend online**. If the backend starts later, use **Retry**.
+Open the printed **App** URL. Settings should show **Backend online**. To preview a production build locally, run `npm run build` followed by `npm run preview` in `frontend/`; preview also starts and connects a backend using available ports.
 
 **Run simulation** opens a live first run at normal speed. The **Speed** button cycles through 1×, 2×, 4× and 8× while the backend continues running the same physics ticks. **Cancel run** stops the stream and keeps its last frame visible; cancelled runs do not produce a completed recording. The view shows elapsed simulation time and occupant counts without a predicted finish time. When the run ends, the recorded timeline opens at the end; rewind, step, or replay to review what happened.
 
@@ -43,6 +39,8 @@ successful arrival ends the incomplete run as `movement_stagnation`, with the
 occupants still inside counted as `remaining` and no full-clearance time.
 
 Under **Settings → Agent awareness**, adjust sight range (default 8 m) and communication/yelling range (default 3 m). These settings are saved with the building. A range of 0 disables that behavior. Agents start with exit locations and assume doors and exits are open, including initially blocked exits. Signposted evacuation guidance supplies the static wall layout from the start, so agents route directly toward reachable known exits instead of investigating walls. Every exit is believed open until its actual state is seen or received in a nearby person's report. Even a wall covering an exit does not disclose that closure through the initial map; physical collision checks still enforce it.
+
+Click an occupant during a live run or playback to inspect their position, injury, last reported destination, and recent activity. Injury labels match the occupant colors: **Healthy** up to 0.01, **Injured** above 0.01 and below 0.5, and **Severely Injured** from 0.5. Missing injury on a present occupant means zero, matching the engine's compact frames. **Inspect agent** also selects occupants by number, including those who have left a recording. The canvas draws sampled travelled movement in dashed blue and the engine's current desired route in solid green. Travelled paths run through the playhead; live trails begin at selection and keep up to 2,000 samples. Gaps and travelled joins crossing barriers are omitted. Desired paths reflect the agent's knowledge at that sample and may change when hazards or blockages are discovered. Snapshots carry at most 16 remaining waypoints and flag any continuation to bound recording size. Older recordings show desired routes as unavailable; rerun to capture them. Completed recordings additionally show full-run distance, collision waiting, exposure, evacuation, and shelter statistics when recorded. Press Escape or close the inspector to dismiss it.
 
 Wall perception still records visible portions and shares observed fragments. Evacuation routing already knows the static walls; it continues to learn opening closures, obstructions, and hazards locally. Actual collision checks always enforce the physical layout.
 
@@ -94,13 +92,15 @@ Building JSON can schedule runtime changes before the catastrophe system supplie
 
 These are optional fields on the existing `BuildingScenario`, not a separate request. Events reference door or exit IDs, are ordered by step, and occur before `max_steps`. Changes take effect at tick boundaries; a closure waits until occupants clear the opening rather than creating a wall inside them. Actual states are recorded in each frame's `blocked_opening_ids`, so live viewing and rewind display closures and reopenings at the corresponding time. Older recordings without this field retain their original layout behavior.
 
-The API binds to `127.0.0.1:3001`. Vite proxies `/api` to it and requires port `5173` to be available. The frontend defaults to `/api`; override its public API base URL when needed:
+The Rust server binds to an OS-assigned port when `PORT` is unset or `0`. Vite prefers `5173` for dev and `4173` for preview, then automatically tries another available port if occupied. These preferences preserve existing browser-local layouts when possible; layouts and preferences belong to their browser origin, including the port. The launcher connects `/api` to the backend it actually started, without a shared port file or preselected-port race. Set `PORT` for an explicitly fixed backend port, or `FRONTEND_PORT` for a different frontend preference. `FRONTEND_PORT=0 ./dev.sh` requests an OS-assigned frontend port too.
+
+To reuse a separately running backend, start it with `cargo run --locked -p exitzero --bin exitzero`, then copy its printed port into the frontend command:
 
 ```sh
-VITE_API_BASE_URL=http://127.0.0.1:3001/api npm run dev
+EXITZERO_BACKEND_URL='http://127.0.0.1:<backend-port>' npm run dev
 ```
 
-For production builds, provide that variable to `npm run build` instead; Vite embeds it at build time. `npm run preview` serves the built frontend and does not use the development proxy, so use a direct API base URL and configure backend CORS for your chosen preview origin before testing that mode. The initial CORS allowlist covers only `http://localhost:5173` and `http://127.0.0.1:5173`.
+`EXITZERO_BACKEND_URL` is a launcher/proxy setting and does not enter the browser bundle. The frontend uses relative `/api` URLs by default. For a deliberately separate public API, set `VITE_API_BASE_URL` when running dev or building; Vite embeds that override into the bundle. Direct backend CORS allows HTTP loopback origins (`localhost`, `127.0.0.1`, and `[::1]`) on any valid port. Production hosting continues to honor its supplied `PORT` and serve the frontend and API together.
 
 ## Exact occupant placement
 
@@ -134,7 +134,7 @@ commands or frontend service are needed.
 The image builds both apps, then runs only a stripped release Rust binary and the
 static frontend as a non-root user. Axum serves the site, assets, navigation
 fallback, API, and live NDJSON streams on the same origin. It binds to `0.0.0.0`
-using Render's `PORT` (image default `10000`; local Rust fallback `3001`). Keep
+using Render's `PORT` (image default `10000`; an unset local port is automatic). Keep
 `VITE_API_BASE_URL=/api`, which is set during the image build. The image sets
 `EXITZERO_FRONTEND_DIR=/app/frontend` and one compute worker to limit concurrent
 simulation memory use on a 512 MB instance. Large populations, long recordings,
@@ -190,6 +190,8 @@ The dependency direction is `web API → core feature modules → core models`. 
 
 The extraction preserves the existing simulation loop and contracts. The proposed stateful `step()` API, navigation-library evaluation, and future desktop integration are documented in [the shared simulation library guide](docs/shared-simulation-library.md).
 
+The [agent modifiers blueprint](docs/agent-modifiers-blueprint.md) proposes composable movement and decision-making modifiers, including scared and limited-mobility presets, for later implementation.
+
 ## API
 
 All bodies and property names use JSON and snake_case. Computation requests require `Content-Type: application/json`.
@@ -205,17 +207,17 @@ Errors have the shape `{"error":{"code":"validation_error","message":"..."}}`. I
 
 The studio uses `POST /api/simulate/live` with a `BuildingScenario` body. Its `application/x-ndjson` response emits `SimulationStreamEvent` objects, one per line: `{type: "frame", frame}` during computation, followed by `{type: "complete", result}` containing the ordinary `SimulationResult` and recording. Errors after streaming starts use `{type: "error", error: {code, message}}`. New dialogue is streamed as `{type: "chat", communication_events, agent_events}` after its corresponding frame. Frames are paced by their simulated timestamps; disconnecting cancels the worker. Clients can supply an optional `?run_id=<unique ID>` (1–64 letters, digits, hyphens or underscores). During that run, `POST /api/simulate/live/{run_id}/speed` accepts and returns `LiveSpeedControl`: `{speed: 1 | 2 | 4 | 8}`. Speed changes affect wall-clock pacing, preserving physics time steps and simulated metrics; completed or disconnected runs release their controls. The batch `/api/simulate` endpoint remains available to integrations.
 
-From the repository root, with both servers running:
+From the repository root, with both servers running, substitute the printed App URL:
 
 ```sh
-curl http://127.0.0.1:3001/api/health
-curl http://127.0.0.1:5173/api/health
-curl -i http://127.0.0.1:3001/api/simulate \
+app_url='http://127.0.0.1:<app-port>'
+curl "$app_url/api/health"
+curl -i "$app_url/api/simulate" \
   -H 'Content-Type: application/json' \
   --data-binary @shared/examples/building.json
 ```
 
-The first two return the same health JSON; the last returns `200` with computed metrics, animation frames, weighted traffic samples, and per-agent analytics.
+The health check returns the service's health JSON; simulation returns `200` with computed metrics, animation frames, weighted traffic samples, and per-agent analytics.
 
 ## Contracts
 
@@ -283,6 +285,8 @@ In `frontend/`:
 ```sh
 npm run verify
 ```
+
+With Rust installed and the frontend built, `npm run test:startup` also checks automatic ports, simultaneous instances, API/streaming proxies, preview, and process cleanup.
 
 This checks formatting, ESLint, mocked API/schema tests, strict TypeScript, and the production build. `npm run typecheck`, `npm test`, and `npm run lint` also run separately. Format changes with `cargo fmt --all` and `npm run format`. Commit the root `Cargo.lock` and frontend `package-lock.json` for reproducible installs. Build outputs and installed dependencies are ignored. Rust verification must include `--workspace` so that core unit tests run alongside the web host's integration tests; `cargo test --locked -p exitzero-core` can also test the core directly without a server.
 

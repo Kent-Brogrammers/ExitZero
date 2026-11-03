@@ -121,6 +121,17 @@ function canBlend(
   return true;
 }
 
+/** Display-only guard for joining sampled trail points, using their recorded layout. */
+export function canDisplayMovement(
+  building: BuildingScenario,
+  frame: AnimationFrame,
+  from: Point,
+  to: Point,
+) {
+  const layout = frameLayout(building, frame);
+  return canBlend(from, to, solidWalls(layout, frame), layout);
+}
+
 /**
  * Reuses a display buffer and one ID map per frame pair; recorded data stays immutable.
  * Missing IDs are held/introduced at the next sample, never routed to an exit.

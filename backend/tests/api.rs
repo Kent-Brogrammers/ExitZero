@@ -311,8 +311,15 @@ async fn malformed_json_and_missing_content_type_have_structured_errors() {
 }
 
 #[tokio::test]
-async fn cors_allows_both_documented_vite_origins() {
-    for origin in ["http://localhost:5173", "http://127.0.0.1:5173"] {
+async fn cors_allows_loopback_origins_on_any_valid_port() {
+    for origin in [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:43521",
+        "http://127.0.0.1:60817",
+        "http://[::1]:60123",
+        "http://localhost",
+    ] {
         let request = Request::builder()
             .method("OPTIONS")
             .uri("/api/simulate")
@@ -324,6 +331,41 @@ async fn cors_allows_both_documented_vite_origins() {
         let response = router().oneshot(request).await.unwrap();
         assert!(response.status().is_success());
         assert_eq!(response.headers()["access-control-allow-origin"], origin);
+    }
+}
+
+#[tokio::test]
+async fn cors_does_not_allow_remote_or_malformed_origins() {
+    for origin in [
+        "http://example.com:5173",
+        "http://localhost.evil.example:43521",
+        "http://127.0.0.1.evil.example:43521",
+        "http://localhost:0",
+        "http://localhost:65536",
+        "http://localhost:not-a-port",
+        "http://localhost:1234/path",
+        "http://localhost:1234?query",
+        "null",
+    ] {
+        let response = router()
+            .oneshot(
+                Request::builder()
+                    .method("OPTIONS")
+                    .uri("/api/simulate")
+                    .header("origin", origin)
+                    .header("access-control-request-method", "POST")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .is_none(),
+            "{origin}"
+        );
     }
 }
 

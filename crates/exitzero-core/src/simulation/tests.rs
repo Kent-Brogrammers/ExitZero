@@ -77,6 +77,73 @@ fn recordings_report_the_actual_termination_branch() {
 }
 
 #[test]
+fn recorded_plans_are_real_remaining_routes_and_live_samples_agree() {
+    let mut scenario = room();
+    scenario.max_steps = 4;
+    let mut live = Vec::new();
+    let result = super::simulate_live(&scenario, &mut |frame| {
+        live.push(frame.clone());
+        true
+    })
+    .unwrap();
+    result.validate().unwrap();
+    let geometry = Geometry::new(&scenario);
+    for recorded in &result.frames {
+        let streamed = live
+            .iter()
+            .find(|frame| frame.step == recorded.step)
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(recorded).unwrap(),
+            serde_json::to_value(streamed).unwrap()
+        );
+        for agent in &recorded.agents {
+            let plan = agent.planned_path.as_ref().unwrap();
+            assert!(!plan.waypoints.is_empty());
+            assert!(!plan.continues);
+            let mut from = Point {
+                x: agent.x,
+                y: agent.y,
+            };
+            for &to in &plan.waypoints {
+                assert!(
+                    geometry.can_move(from, to),
+                    "recorded plan must follow the actual clear route"
+                );
+                from = to;
+            }
+            assert!(geometry.at_exit(from, "north_exit"));
+        }
+    }
+}
+
+#[test]
+fn planned_path_snapshots_are_bounded_and_validate_legacy_absence() {
+    use crate::models::AgentPlannedPath;
+    let plan = AgentPlannedPath::snapshot((0..100).map(|_| Point { x: 1.0, y: 1.0 }));
+    assert_eq!(plan.waypoints.len(), 16);
+    assert!(plan.continues);
+    let mut scenario = room();
+    scenario.max_steps = 1;
+    let mut result = simulate(&scenario).unwrap();
+    result.frames[0].agents[0].planned_path = Some(plan);
+    result.validate().unwrap();
+    result.frames[0].agents[0]
+        .planned_path
+        .as_mut()
+        .unwrap()
+        .waypoints[0]
+        .x = f64::NAN;
+    assert!(result.validate().is_err());
+    result.frames[0].agents[0].planned_path = None;
+    result.validate().unwrap();
+    let json = serde_json::to_value(&result).unwrap();
+    assert!(json["frames"][0]["agents"][0].get("planned_path").is_none());
+    let restored: SimulationResult = serde_json::from_value(json).unwrap();
+    assert!(restored.frames[0].agents[0].planned_path.is_none());
+}
+
+#[test]
 fn a_fire_warning_relays_between_groups_and_immediately_changes_their_destination() {
     for kind in [
         crate::models::DisasterKind::Fire,

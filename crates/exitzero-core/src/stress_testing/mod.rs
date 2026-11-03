@@ -381,6 +381,7 @@ mod tests {
                 step: 0,
                 agents: (0..4)
                     .map(|id| AgentPosition {
+                        planned_path: None,
                         injury: None,
                         id,
                         x: 3.0 + f64::from(id),

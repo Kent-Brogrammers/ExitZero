@@ -7,7 +7,9 @@ use super::{
     math,
     navigation::{self, Navigation, Route},
 };
-use crate::models::{BuildingScenario, Point, WindowFrameState, WindowPreparation, WindowState};
+use crate::models::{
+    AgentPlannedPath, BuildingScenario, Point, WindowFrameState, WindowPreparation, WindowState,
+};
 use std::collections::BTreeSet;
 
 // Window crossings avoid burning cores and gas exposure footprints. Fire's
@@ -728,6 +730,32 @@ impl<'a> Windows<'a> {
         let target = a.route.waypoints[a.cursor];
         (math::distance_to_point(position, target) > 1e-6).then_some(target)
     }
+    /// Read-only snapshot of the same approach, queue or traversal guidance used by movement.
+    pub(super) fn planned_path(
+        &self,
+        i: usize,
+        position: Point,
+        geometry: &Geometry<'_>,
+    ) -> Option<AgentPlannedPath> {
+        let approach = self.approaches[i].as_ref()?;
+        let station = &self.stations[approach.station];
+        if station.traverser == Some(i) {
+            return Some(AgentPlannedPath::snapshot([station.landing]));
+        }
+        let remaining = &approach.route.waypoints[approach.cursor..];
+        if let Some(target) = self.target(i, position, geometry)
+            && remaining
+                .first()
+                .is_none_or(|point| math::distance_to_point(*point, target) > 1e-8)
+        {
+            // The controller currently aims at a queue position, not through its neighbors.
+            return Some(AgentPlannedPath::snapshot([target]));
+        }
+        Some(AgentPlannedPath::snapshot(
+            remaining.iter().copied().chain([station.landing]),
+        ))
+    }
+
     pub(super) fn approach_limits(
         &self,
         i: usize,

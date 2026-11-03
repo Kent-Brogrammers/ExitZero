@@ -1,6 +1,6 @@
 use self::agent::Agent;
 use crate::models::{
-    AgentEvent, AgentPosition, AgentStatistics, AnimationFrame, BuildingScenario,
+    AgentEvent, AgentPlannedPath, AgentPosition, AgentStatistics, AnimationFrame, BuildingScenario,
     CommunicationEvent, Point, SimulationMetrics, SimulationResult, SimulationStatus,
     TrafficSample,
 };
@@ -236,7 +236,21 @@ fn run(
     windows.update(0, &agents, &evacuated, &window_fallback, &geometry);
     let mut window_escapes = 0;
     let mut heatmap = heatmap::Heatmap::default();
-    let mut initial_frame = frame(0, &agents, &evacuated, &world, &windows);
+    let initial_plans = PlannedPaths {
+        routes: &routes,
+        cursors: &next_waypoint,
+        escapes: &escape_routes,
+        escape_cursors: &next_escape_waypoint,
+    };
+    let mut initial_frame = frame(
+        0,
+        &agents,
+        &evacuated,
+        &world,
+        &windows,
+        &initial_plans,
+        &geometry,
+    );
     initial_frame.congestion_samples = heatmap.saved();
     let mut frames = vec![initial_frame];
     let live_stride = (0.05 / scenario.time_step_seconds).ceil().max(1.0) as u32;
@@ -1160,15 +1174,25 @@ fn run(
                 statistic.route_found = true;
             }
         }
+        let plans = PlannedPaths {
+            routes: &routes,
+            cursors: &next_waypoint,
+            escapes: &escape_routes,
+            escape_cursors: &next_escape_waypoint,
+        };
         if step.is_multiple_of(frame_stride) {
-            let mut saved = frame(step, &agents, &evacuated, &world, &windows);
+            let mut saved = frame(
+                step, &agents, &evacuated, &world, &windows, &plans, &geometry,
+            );
             saved.congestion_samples = heatmap.saved();
             frames.push(saved);
         }
         if step.is_multiple_of(live_stride)
             && let Some(emit) = &mut on_frame
         {
-            let mut live = frame(step, &agents, &evacuated, &world, &windows);
+            let mut live = frame(
+                step, &agents, &evacuated, &world, &windows, &plans, &geometry,
+            );
             live.congestion_samples = heatmap.live();
             if !emit(&live) {
                 return Err(SimulationError::Cancelled);
@@ -1220,15 +1244,25 @@ fn run(
         }
     };
 
+    let plans = PlannedPaths {
+        routes: &routes,
+        cursors: &next_waypoint,
+        escapes: &escape_routes,
+        escape_cursors: &next_escape_waypoint,
+    };
     if frames.last().is_none_or(|last| last.step != step) {
-        let mut saved = frame(step, &agents, &evacuated, &world, &windows);
+        let mut saved = frame(
+            step, &agents, &evacuated, &world, &windows, &plans, &geometry,
+        );
         saved.congestion_samples = heatmap.saved();
         frames.push(saved);
     }
     if last_live_step != step
         && let Some(emit) = &mut on_frame
     {
-        let mut live = frame(step, &agents, &evacuated, &world, &windows);
+        let mut live = frame(
+            step, &agents, &evacuated, &world, &windows, &plans, &geometry,
+        );
         live.congestion_samples = heatmap.live();
         if !emit(&live) {
             return Err(SimulationError::Cancelled);
@@ -1288,12 +1322,41 @@ fn run(
     })
 }
 
+struct PlannedPaths<'a> {
+    routes: &'a [Option<navigation::Route>],
+    cursors: &'a [usize],
+    escapes: &'a [Option<Vec<Point>>],
+    escape_cursors: &'a [usize],
+}
+
+impl PlannedPaths<'_> {
+    fn for_agent(
+        &self,
+        i: usize,
+        position: Point,
+        windows: &windows::Windows<'_>,
+        geometry: &geometry::Geometry<'_>,
+    ) -> AgentPlannedPath {
+        if let Some(path) = windows.planned_path(i, position, geometry) {
+            path
+        } else if let Some(route) = &self.routes[i] {
+            AgentPlannedPath::snapshot(route.waypoints[self.cursors[i]..].iter().copied())
+        } else if let Some(route) = &self.escapes[i] {
+            AgentPlannedPath::snapshot(route[self.escape_cursors[i]..].iter().copied())
+        } else {
+            AgentPlannedPath::default()
+        }
+    }
+}
+
 fn frame(
     step: u32,
     agents: &[Agent],
     evacuated: &[bool],
     world: &awareness::OpeningStates,
     windows: &windows::Windows<'_>,
+    plans: &PlannedPaths<'_>,
+    geometry: &geometry::Geometry<'_>,
 ) -> AnimationFrame {
     AnimationFrame {
         congestion_samples: None,
@@ -1309,9 +1372,11 @@ fn frame(
         agents: agents
             .iter()
             .zip(evacuated)
-            .filter(|(_, gone)| !**gone)
-            .map(|(agent, _)| AgentPosition {
+            .enumerate()
+            .filter(|(_, (_, gone))| !**gone)
+            .map(|(i, (agent, _))| AgentPosition {
                 injury: (agent.injury > 0.0).then_some(agent.injury),
+                planned_path: Some(plans.for_agent(i, agent.position, windows, geometry)),
                 id: agent.id,
                 x: agent.position.x,
                 y: agent.position.y,
