@@ -1,4 +1,5 @@
 import { halloweenPreset } from "./editor/presets";
+import { useDisplayUnits } from "./utils/useDisplayUnits";
 import type { ReplayTarget } from "./simulation/replayTarget";
 import { appendChat } from "./simulation/communication";
 import { createLiveCongestion } from "./simulation/liveTraffic";
@@ -15,6 +16,8 @@ import { StudioWelcome } from "./studio/StudioWelcome";
 import { StudioSettings } from "./studio/StudioSettings";
 import { TemplatesPage } from "./templates/TemplatesPage";
 import { LayoutNameDialog } from "./templates/LayoutNameDialog";
+import { useDraftRecovery } from "./templates/useDraftRecovery";
+import { DraftRecoveryPrompt } from "./templates/DraftRecoveryPrompt";
 import { PursuitReport } from "./simulation/PursuitMetrics";
 import { storeLayout } from "./templates/layouts";
 import type { UserTemplate } from "./templates/templates";
@@ -61,6 +64,8 @@ function viewFromHash(): StudioView {
 }
 
 export default function App() {
+  // Refresh shared formatted labels without replacing the workspace or its state.
+  useDisplayUnits();
   const [view, setView] = useState<StudioView>(viewFromHash);
   const [settingsOpen, setSettingsOpen] = useState(false);
   function navigate(next: StudioView, focus = false) {
@@ -366,6 +371,32 @@ export default function App() {
     stressJobId: string | null;
     activeLayout: UserTemplate | null;
   } | null>(null);
+  // Viewing the saved demo should not replace the recoverable drawing it temporarily hides.
+  const draftWorkspace =
+    officeDemo === "recorded" && !dirty ? previousWorkspace.current : null;
+  const recovery = useDraftRecovery(
+    draftWorkspace?.building ?? building,
+    draftWorkspace?.savedLayoutJson ?? savedLayoutJson,
+    draftWorkspace ? draftWorkspace.activeLayout : activeLayout,
+  );
+  function restoreDraft() {
+    recovery.restore((draft) => {
+      if (
+        !loadTemplate(
+          draft.building,
+          "your recovered draft",
+          "edit",
+          draft.sourceLayout,
+        )
+      )
+        return false;
+      // Recovery is a backup, not a manual save. Preserve the original saved-layout baseline.
+      setSavedLayoutJson(
+        draft.sourceLayout ? JSON.stringify(draft.sourceLayout.building) : "",
+      );
+      return true;
+    });
+  }
 
   async function openOfficeDemo() {
     if (busy) return;
@@ -893,6 +924,22 @@ export default function App() {
                       {activeLayout.name}
                     </span>
                   )}
+                  {dirty && !recovery.pending && (
+                    <span
+                      title={
+                        recovery.problem ||
+                        (recovery.lastSavedAt
+                          ? `Recovery copy saved ${new Date(recovery.lastSavedAt).toLocaleString()}. Named layouts are unchanged.`
+                          : "A recovery copy is being saved locally.")
+                      }
+                    >
+                      {recovery.problem
+                        ? "Draft backup unavailable"
+                        : recovery.lastSavedAt
+                          ? `Draft backed up ${new Date(recovery.lastSavedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+                          : "Backing up draft…"}
+                    </span>
+                  )}
                 </div>
               </div>
             )}
@@ -1214,6 +1261,15 @@ export default function App() {
           </div>
         )}
       </div>
+      {recovery.pending && (
+        <DraftRecoveryPrompt
+          draft={recovery.draft}
+          problem={recovery.problem}
+          disabled={busy}
+          onRestore={restoreDraft}
+          onDiscard={recovery.discard}
+        />
+      )}
       {settingsOpen && (
         <StudioSettings
           building={building}

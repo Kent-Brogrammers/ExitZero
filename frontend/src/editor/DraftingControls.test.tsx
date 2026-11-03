@@ -55,6 +55,8 @@ it("migrates legacy preferences and persists wall snapping independently of the 
     snap: true,
     snapEndpoints: false,
     measurements: { walls: false, doors: true, windows: true, exits: true },
+    declutterLabels: true,
+    showScale: true,
     spacing: "5ft",
     doorMergeTolerance: 0.05,
   });
@@ -63,6 +65,18 @@ it("migrates legacy preferences and persists wall snapping independently of the 
     false,
   );
   await act(async () => checkbox("Snap to Grid").click());
+  expect(checkbox("Snap to wall endpoints, corners & segments").checked).toBe(
+    false,
+  );
+  expect(checkbox("Show scale bar").checked).toBe(true);
+  await act(async () => checkbox("Show scale bar").click());
+  await act(async () => root.render(<Harness key="reload-scale" />));
+  expect(checkbox("Show scale bar").checked).toBe(false);
+  expect(
+    JSON.parse(localStorage.getItem(DRAFTING_STORAGE_KEY)!).showScale,
+  ).toBe(false);
+  expect(checkbox("Snap to Grid").checked).toBe(false);
+  expect(checkbox("Show grid").checked).toBe(false);
   expect(checkbox("Snap to wall endpoints, corners & segments").checked).toBe(
     false,
   );
@@ -88,7 +102,10 @@ it("saves any measurement combination independently of grid and snapping setting
   expect(saved.visible).toBe(false);
   expect(saved.snap).toBe(false);
   expect(saved.snapEndpoints).toBe(true);
+  expect(checkbox("Reduce label clutter").checked).toBe(true);
+  await act(async () => checkbox("Reduce label clutter").click());
   await act(async () => root.render(<Harness key="refresh-measurements" />));
+  expect(checkbox("Reduce label clutter").checked).toBe(false);
   for (const label of ["Walls", "Doors"])
     expect(checkbox(label).checked).toBe(true);
   for (const label of ["Windows", "Exits"])

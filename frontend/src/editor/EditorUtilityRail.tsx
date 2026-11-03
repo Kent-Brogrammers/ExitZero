@@ -1,8 +1,9 @@
-import type { ReactNode, Ref } from "react";
+import { useId, type ReactNode, type Ref } from "react";
 import { StudioPopover } from "../ui/StudioPopover";
 import { DraftingControls } from "./DraftingControls";
 import type { DraftingPreferences } from "./drafting";
 import { ToolIcon } from "./ToolIcon";
+import type { EditorTool } from "./tools";
 import type { LayoutSaveActions } from "../templates/layouts";
 
 interface EditorUtilityRailProps {
@@ -11,63 +12,73 @@ interface EditorUtilityRailProps {
   disabled: boolean;
   canUndo: boolean;
   canRedo: boolean;
+  hasSelection: boolean;
+  tool: EditorTool;
+  showShelter: boolean;
   propertiesOpen: boolean;
   propertiesButton: Ref<HTMLButtonElement>;
   onUndo: () => void;
   onRedo: () => void;
+  onDuplicate: () => void;
+  onArrange?: () => void;
+  arrangeProblem?: string | null;
+  arrangeSelectionCount?: number;
+  onDelete: () => void;
+  onTool: (tool: EditorTool) => void;
   onNew: () => void;
   onImport: () => void;
   onImportDxf: () => void;
   onExport: () => void;
+  onExportImage?: () => void;
+  canFocusSelection?: boolean;
+  onFocusSelection?: () => void;
+  canRestorePreviousView?: boolean;
+  onPreviousView?: () => void;
   onProperties: () => void;
   canvasControls: ReactNode;
   drafting: DraftingPreferences;
   onDrafting: (p: DraftingPreferences) => void;
 }
-const content = (name: string, label: string) => (
-  <>
-    <ToolIcon name={name} />
-    <span>{label}</span>
-  </>
-);
+
+type HistoryProps = Pick<
+  EditorUtilityRailProps,
+  "disabled" | "canUndo" | "canRedo" | "onUndo" | "onRedo"
+>;
+export function EditorHistoryControls(props: HistoryProps) {
+  return (
+    <div className="editor-history" role="group" aria-label="History controls">
+      <button
+        type="button"
+        className="studio-control editor-tool-button"
+        disabled={props.disabled || !props.canUndo}
+        onClick={props.onUndo}
+        aria-label="Undo"
+        title="Undo (Ctrl/Cmd+Z on Canvas)"
+      >
+        <ToolIcon name="undo" />
+      </button>
+      <button
+        type="button"
+        className="studio-control editor-tool-button"
+        disabled={props.disabled || !props.canRedo}
+        onClick={props.onRedo}
+        aria-label="Redo"
+        title="Redo (Ctrl/Cmd+Shift+Z on Canvas)"
+      >
+        <ToolIcon name="redo" />
+      </button>
+    </div>
+  );
+}
 
 export function EditorUtilityRail(props: EditorUtilityRailProps) {
+  const arrangeHelp = useId();
   return (
-    <div
-      className="editor-rail editor-utility-rail"
-      role="toolbar"
-      aria-label="Editor utilities"
-    >
-      <div className="rail-history" role="group" aria-label="History controls">
-        <button
-          type="button"
-          className="studio-control rail-button"
-          disabled={props.disabled || !props.canUndo}
-          onClick={props.onUndo}
-          title="Undo (Ctrl/Cmd+Z on Canvas)"
-        >
-          {content("undo", "Undo")}
-        </button>
-        <button
-          type="button"
-          className="studio-control rail-button"
-          disabled={props.disabled || !props.canRedo}
-          onClick={props.onRedo}
-          title="Redo (Ctrl/Cmd+Shift+Z on Canvas)"
-        >
-          {content("redo", "Redo")}
-        </button>
-      </div>
-      <span className="rail-separator" aria-hidden="true" />
-      {props.scenarioControls}
+    <div className="editor-menubar" role="toolbar" aria-label="Editor menus">
       <StudioPopover
         label="File"
         className="editor-file"
         disabled={props.disabled}
-        side="left"
-        triggerClassName="rail-button"
-        triggerContent={content("file", "File")}
-        indicator={false}
       >
         {(close) => (
           <div className="file-actions">
@@ -116,55 +127,219 @@ export function EditorUtilityRail(props: EditorUtilityRailProps) {
                 {label}
               </button>
             ))}
+            {props.onExportImage && (
+              <button
+                type="button"
+                className="studio-control"
+                onClick={() => {
+                  close();
+                  props.onExportImage?.();
+                }}
+              >
+                Export Image
+              </button>
+            )}
           </div>
         )}
       </StudioPopover>
+      <StudioPopover
+        label="Edit"
+        className="editor-file"
+        disabled={props.disabled}
+      >
+        {(close) => (
+          <div className="file-actions">
+            {(
+              [
+                ["Undo", props.onUndo, !props.canUndo, "Ctrl/Cmd+Z"],
+                ["Redo", props.onRedo, !props.canRedo, "Ctrl/Cmd+Shift+Z"],
+                [
+                  "Duplicate selection",
+                  props.onDuplicate,
+                  !props.hasSelection,
+                  "Ctrl/Cmd+D",
+                ],
+                [
+                  "Delete selection",
+                  props.onDelete,
+                  !props.hasSelection,
+                  "Delete",
+                ],
+              ] as const
+            ).map(([label, action, disabled, keys]) => (
+              <button
+                type="button"
+                className="studio-control"
+                key={label}
+                disabled={disabled}
+                title={keys}
+                onClick={() => {
+                  close();
+                  action();
+                }}
+              >
+                {label}
+              </button>
+            ))}
+            {props.onArrange && (
+              <>
+                <button
+                  type="button"
+                  className="studio-control"
+                  disabled={!!props.arrangeProblem}
+                  aria-describedby={arrangeHelp}
+                  title={
+                    props.arrangeProblem ??
+                    "Align or evenly space the selected objects and zones"
+                  }
+                  onClick={() => {
+                    close();
+                    props.onArrange?.();
+                  }}
+                >
+                  Arrange…
+                </button>
+                <p id={arrangeHelp} className="editor-arrange-help">
+                  {props.arrangeSelectionCount ?? 0} selected ·{" "}
+                  {props.arrangeProblem ??
+                    "Ready to align or space the selection."}
+                  {props.arrangeProblem &&
+                    (props.arrangeSelectionCount ?? 0) < 2 && (
+                      <span>
+                        Select tool: Hold Shift, Ctrl or Cmd while clicking to
+                        add or remove items, or drag a box in empty space.
+                      </span>
+                    )}
+                </p>
+              </>
+            )}
+          </div>
+        )}
+      </StudioPopover>
+      <StudioPopover
+        label="Insert"
+        className="editor-shapes"
+        disabled={props.disabled}
+        triggerClassName={
+          props.tool === "stairs" || props.tool === "tornado-zone"
+            ? "is-selected"
+            : ""
+        }
+      >
+        {(close) => (
+          <>
+            <div className="control-popover-heading">
+              <h3>Architectural areas</h3>
+            </div>
+            <button
+              type="button"
+              className="shape-choice"
+              aria-pressed={props.tool === "stairs"}
+              onClick={() => {
+                close();
+                props.onTool("stairs");
+              }}
+            >
+              <ToolIcon name="stairs" />
+              <span>
+                Stair area
+                <small>
+                  Walkable single-floor marker · no floor connections
+                </small>
+              </span>
+            </button>
+            {props.showShelter && (
+              <button
+                type="button"
+                className="shape-choice"
+                aria-pressed={props.tool === "tornado-zone"}
+                onClick={() => {
+                  close();
+                  props.onTool("tornado-zone");
+                }}
+              >
+                <ToolIcon name="shelter" />
+                <span>
+                  Tornado shelter zone
+                  <small>Drag an indoor shelter destination</small>
+                </span>
+              </button>
+            )}
+          </>
+        )}
+      </StudioPopover>
+      <StudioPopover
+        label="View"
+        className="editor-view"
+        disabled={props.disabled}
+      >
+        {(close) => (
+          <>
+            {props.onFocusSelection && (
+              <div className="file-actions">
+                <button
+                  type="button"
+                  className="studio-control"
+                  disabled={!props.canFocusSelection}
+                  title="Focus Selection (F) · Select / move tool"
+                  onClick={() => {
+                    close();
+                    props.onFocusSelection?.();
+                  }}
+                >
+                  Focus Selection
+                </button>
+                {props.onPreviousView && (
+                  <button
+                    type="button"
+                    className="studio-control"
+                    disabled={!props.canRestorePreviousView}
+                    title="Previous View (Shift+F) · Return to the view before focusing"
+                    onClick={() => {
+                      close();
+                      props.onPreviousView?.();
+                    }}
+                  >
+                    Previous View
+                  </button>
+                )}
+              </div>
+            )}
+            <details className="view-canvas-section">
+              <summary>Drawing area & fullscreen</summary>
+              {props.canvasControls}
+            </details>
+            <DraftingControls
+              preferences={props.drafting}
+              onChange={props.onDrafting}
+            />
+          </>
+        )}
+      </StudioPopover>
+      {props.scenarioControls}
       <button
         type="button"
-        className="studio-control rail-button"
+        className="studio-control editor-tool-button"
         disabled={props.disabled}
         onClick={props.onNew}
         title="Clear the plan (Undo restores it)"
       >
-        {content("clear", "Clear Plan")}
+        <ToolIcon name="clear" />
+        <span>Clear Plan</span>
       </button>
-      <StudioPopover
-        label="Grid & snap"
-        side="left"
-        className="editor-shapes"
-        disabled={props.disabled}
-        triggerClassName="rail-button"
-        triggerContent={content("grid", "Grid")}
-        indicator={false}
-      >
-        {() => (
-          <DraftingControls
-            preferences={props.drafting}
-            onChange={props.onDrafting}
-          />
-        )}
-      </StudioPopover>
-      <StudioPopover
-        label="Canvas"
-        side="left"
-        className="editor-canvas-settings"
-        disabled={props.disabled}
-        triggerClassName="rail-button"
-        triggerContent={content("expand", "Canvas")}
-        indicator={false}
-      >
-        {() => props.canvasControls}
-      </StudioPopover>
       <button
         ref={props.propertiesButton}
         type="button"
-        className="studio-control rail-button"
+        className="studio-control editor-properties-button"
+        aria-label="Properties"
+        title="Properties"
         disabled={props.disabled}
         aria-expanded={props.propertiesOpen}
         aria-controls="editor-properties"
         onClick={props.onProperties}
       >
-        {content("properties", "Properties")}
+        <ToolIcon name="properties" />
+        <span>Properties</span>
       </button>
     </div>
   );

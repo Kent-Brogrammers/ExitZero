@@ -499,3 +499,57 @@ export function canvasView(
     y: (height - extent.height * scale) / 2 + (camera?.pan.y ?? 0) * pixelRatio,
   };
 }
+
+/** Fit world bounds inside the visible Canvas. Viewport and right inset are CSS pixels. */
+export function focusSelectionCamera(
+  width: number,
+  height: number,
+  building: Pick<BuildingScenario, "width" | "height">,
+  bounds: Rectangle,
+  rightInset = 0,
+): CanvasCamera | null {
+  if (
+    ![
+      width,
+      height,
+      building.width,
+      building.height,
+      bounds.x,
+      bounds.y,
+      bounds.width,
+      bounds.height,
+      rightInset,
+    ].every(Number.isFinite) ||
+    width <= 0 ||
+    height <= 0 ||
+    building.width <= 0 ||
+    building.height <= 0 ||
+    bounds.width < 0 ||
+    bounds.height < 0 ||
+    rightInset < 0 ||
+    rightInset >= width
+  )
+    return null;
+  const visibleWidth = width - rightInset;
+  const padding = Math.min(48, visibleWidth / 8, height / 8);
+  const baseScale = Math.min(width / building.width, height / building.height);
+  const zoom = clamp(
+    Math.min(
+      (visibleWidth - 2 * padding) / Math.max(1, bounds.width),
+      (height - 2 * padding) / Math.max(1, bounds.height),
+    ) / baseScale,
+    0.1,
+    20,
+  );
+  const scale = baseScale * zoom;
+  return {
+    zoom,
+    extent: { width: building.width, height: building.height },
+    pan: {
+      x:
+        -rightInset / 2 -
+        (bounds.x + bounds.width / 2 - building.width / 2) * scale,
+      y: -(bounds.y + bounds.height / 2 - building.height / 2) * scale,
+    },
+  };
+}

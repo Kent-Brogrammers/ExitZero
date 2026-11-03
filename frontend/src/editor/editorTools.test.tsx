@@ -116,11 +116,12 @@ it("offers a single door tool, creates an exterior exit, and draws a polygon wit
         ),
       );
     }
+    await click("Openings");
     await click("Door");
     await point(8, 2);
     expect(latest.exits).toHaveLength(1);
     expect(latest.doors).toHaveLength(0);
-    await click("Spawn zone");
+    await click("People");
     await click("Draw Polygon");
     for (const p of [
       [4, 4],

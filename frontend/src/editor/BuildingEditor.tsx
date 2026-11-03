@@ -3,7 +3,10 @@ import {
   formatDimensions,
   lengthInputValue,
   lengthFromInput,
+  lengthUnit,
+  toDisplayLength,
 } from "../utils/units";
+import { useDisplayUnits } from "../utils/useDisplayUnits";
 import DxfImport from "./dxf/DxfImport";
 import { classifyDoors, openingGeometryChanged } from "./exteriorDoors";
 import { isSpawnZone, spawnContains, transformSpawn } from "./spawnGeometry";
@@ -38,6 +41,7 @@ import {
 } from "react";
 import {
   gridSpacings,
+  gridSpacingLabel,
   snapGridPoint,
   useDraftingPreferences,
 } from "./drafting";
@@ -52,8 +56,13 @@ import {
 } from "./roomFill";
 import { WindowProperties } from "./WindowProperties";
 import { objectName, nextObjectName, renameObject } from "./names";
-import { EditorUtilityRail } from "./EditorUtilityRail";
+import { EditorHistoryControls, EditorUtilityRail } from "./EditorUtilityRail";
 import { EditorDrawingRail } from "./EditorDrawingRail";
+import {
+  FloorPlanImageDialog,
+  type FloorPlanImageSource,
+} from "./FloorPlanImageDialog";
+import { canvasPalette } from "../styles/canvasPalette";
 import { addObject, addWallShape, addSpawnZone, dragRectangle } from "./shapes";
 import { useStudioTheme } from "../styles/appearance";
 import { isWallTool, type EditorTool } from "./tools";
@@ -61,6 +70,7 @@ import type { BuildingScenario, Point } from "../types/simulation";
 import {
   buildingError,
   canvasView,
+  focusSelectionCamera,
   clamp,
   distance,
   project,
@@ -80,6 +90,9 @@ import {
 } from "./selection";
 import { duplicateSelection } from "./duplication";
 import { drawLayout } from "./draw";
+import { CanvasScale } from "./CanvasScale";
+import { ArrangeDialog, type ArrangeSource } from "./ArrangeDialog";
+import { arrangeProblem } from "./arrange";
 import { nearestWallSnap, wallSnapTargets } from "./snapping";
 import { measurementVisibility } from "./measurements";
 import { constrainWallEnd, isOnLockedWallAngle } from "./wallAngles";
@@ -140,13 +153,13 @@ function NumberField({
   return (
     <label className="number-field">
       {label}
-      {integer ? "" : " (ft)"}
+      {integer ? "" : ` (${lengthUnit()})`}
       <input
-        key={value}
+        key={`${value}-${lengthUnit()}`}
         type="number"
         step={integer ? 1 : "any"}
-        min={min}
-        max={max}
+        min={min === undefined || integer ? min : toDisplayLength(min)}
+        max={max === undefined || integer ? max : toDisplayLength(max)}
         defaultValue={displayed}
         onBlur={(event) => {
           const input = event.currentTarget.valueAsNumber;
@@ -172,6 +185,7 @@ export function BuildingEditor({
   editorRef,
 }: BuildingEditorProps) {
   const theme = useStudioTheme();
+  const units = useDisplayUnits();
   const [drafting, setDrafting] = useDraftingPreferences();
   const editor = useRef<HTMLElement>(null);
   const [expandedView, setExpandedView] = useState(false);
@@ -181,6 +195,11 @@ export function BuildingEditor({
     pan: { x: 0, y: 0 },
     extent: { width: building.width, height: building.height },
   });
+  const [previousView, setPreviousView] = useState<{
+    camera: CanvasCamera;
+    viewport: { width: number; height: number };
+    world: { width: number; height: number };
+  } | null>(null);
   const [panMode, setPanMode] = useState(false);
   const [spaceDown, setSpaceDown] = useState(false);
   const [panning, setPanning] = useState(false);
@@ -192,6 +211,12 @@ export function BuildingEditor({
   } | null>(null);
   const importInput = useRef<HTMLInputElement>(null);
   const dxfDialog = useRef<HTMLDialogElement>(null);
+  const [imageExport, setImageExport] = useState<FloorPlanImageSource | null>(
+    null,
+  );
+  const [arrangeSource, setArrangeSource] = useState<ArrangeSource | null>(
+    null,
+  );
   const propertiesButton = useRef<HTMLButtonElement>(null);
   const savedLayout = useRef(JSON.stringify(building));
   const [furnitureSymbols, setFurnitureSymbols] = useState(
@@ -252,6 +277,12 @@ export function BuildingEditor({
 
   function restore(previous: EditorSnapshot) {
     setFurnitureSymbols(new Map(previous.furniture));
+    if (
+      tool === "tornado-zone" &&
+      previous.building.disaster?.kind !== "tornado"
+    ) {
+      changeTool("select");
+    }
     onChange(previous.building);
   }
 
@@ -377,7 +408,9 @@ export function BuildingEditor({
   useImperativeHandle(editorRef, () => ({
     applyBuilding(next) {
       setGesture(null);
-      return commit(next, false, []);
+      const applied = commit(next, false, []);
+      if (applied) setPreviousView(null);
+      return applied;
     },
   }));
 
@@ -505,6 +538,92 @@ export function BuildingEditor({
       pan: { x: 0, y: 0 },
       extent: { width: building.width, height: building.height },
     });
+  }
+  const canNavigateView =
+    !disabled &&
+    tool === "select" &&
+    !gesture &&
+    !spawnPolygon.length &&
+    !panMode &&
+    !spaceDown &&
+    !panning;
+  const canFocusSelection = canNavigateView && selections.length > 0;
+  const canRestorePreviousView =
+    canNavigateView &&
+    previousView !== null &&
+    previousView.world.width === building.width &&
+    previousView.world.height === building.height;
+  function focusSelection() {
+    const element = canvas.current;
+    if (!canFocusSelection || !element || panGesture.current) return;
+    const bounds = selectionBounds(building, selections, true);
+    if (!bounds) return;
+    const rect = element.getBoundingClientRect();
+    const inspector = propertiesOpen
+      ? editor.current
+          ?.querySelector<HTMLElement>("#editor-properties")
+          ?.getBoundingClientRect()
+      : null;
+    const next = focusSelectionCamera(
+      rect.width,
+      rect.height,
+      building,
+      bounds,
+      inspector ? Math.max(0, rect.right - inspector.left + 16) : 0,
+    );
+    if (!next) return;
+    const current = canvasView(rect.width, rect.height, building, camera);
+    const focused = canvasView(rect.width, rect.height, building, next);
+    // Repeated F on the same view must not replace the useful return target.
+    if (
+      Math.abs(current.scale - focused.scale) > 1e-8 ||
+      Math.abs(current.x - focused.x) > 1e-8 ||
+      Math.abs(current.y - focused.y) > 1e-8
+    ) {
+      setPreviousView({
+        camera: structuredClone(camera),
+        viewport: { width: rect.width, height: rect.height },
+        world: { width: building.width, height: building.height },
+      });
+    }
+    setCamera(next);
+    setCursor(null);
+    element.focus({ preventScroll: true });
+  }
+  function restorePreviousView() {
+    const element = canvas.current;
+    if (
+      !canRestorePreviousView ||
+      !previousView ||
+      !element ||
+      panGesture.current
+    )
+      return;
+    const rect = element.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    const oldScale = canvasView(
+      previousView.viewport.width,
+      previousView.viewport.height,
+      building,
+      previousView.camera,
+    ).scale;
+    const newScale = canvasView(
+      rect.width,
+      rect.height,
+      building,
+      previousView.camera,
+    ).scale;
+    const relative = newScale / oldScale;
+    setCamera({
+      ...previousView.camera,
+      pan: {
+        x: previousView.camera.pan.x * relative,
+        y: previousView.camera.pan.y * relative,
+      },
+    });
+    setPreviousView(null);
+    setCursor(null);
+    element.focus({ preventScroll: true });
   }
   function extendForPoints(
     base: BuildingScenario,
@@ -848,6 +967,15 @@ export function BuildingEditor({
     if (selections.length && commit(removeSelection(building, selections)))
       selectElement(null);
   }
+  const hoveredId =
+    cursor &&
+    tool === "select" &&
+    !gesture &&
+    !panMode &&
+    !spaceDown &&
+    !panning
+      ? hit(cursor)?.id
+      : undefined;
   useEffect(() => {
     const element = canvas.current;
     if (!element) return;
@@ -908,6 +1036,8 @@ export function BuildingEditor({
           showDimensions: tool === "select" && !gesture,
           snapTarget: activeSnap,
           measurements: measurementVisibility(drafting.measurements),
+          declutterLabels: drafting.declutterLabels !== false,
+          hoveredId,
         },
       );
     redraw();
@@ -925,6 +1055,7 @@ export function BuildingEditor({
     gesture,
     tool,
     theme,
+    units,
     drafting,
     freehand,
     placement,
@@ -936,12 +1067,21 @@ export function BuildingEditor({
     camera,
     activeSnap,
     cursor,
+    hoveredId,
   ]);
 
   function pointerDown(event: PointerEvent<HTMLCanvasElement>) {
+    const additive = event.shiftKey || event.ctrlKey || event.metaKey;
+    // macOS may report Control-click as a secondary-button event.
+    const contextSelect =
+      tool === "select" &&
+      event.ctrlKey &&
+      event.button === 2 &&
+      !panMode &&
+      !spaceDown;
     if (
       event.button === 1 ||
-      event.button === 2 ||
+      (event.button === 2 && !contextSelect) ||
       (event.button === 0 && (panMode || spaceDown))
     ) {
       event.preventDefault();
@@ -958,7 +1098,8 @@ export function BuildingEditor({
       event.currentTarget.setPointerCapture(event.pointerId);
       return;
     }
-    if (disabled || event.button !== 0) return;
+    if (disabled || (event.button !== 0 && !contextSelect)) return;
+    if (tool === "select" && additive) event.preventDefault();
     event.currentTarget.focus({ preventScroll: true });
     const point = world(event);
     setCursor(point);
@@ -1070,11 +1211,7 @@ export function BuildingEditor({
       }
       let item = hit(point);
       let endpoint: "start" | "end" | undefined;
-      if (
-        selections.length === 1 &&
-        selected?.kind === "walls" &&
-        !event.shiftKey
-      ) {
+      if (selections.length === 1 && selected?.kind === "walls" && !additive) {
         const wall = building.walls.find((w) => w.id === selected.id);
         if (wall) {
           if (distance(point, wall.start) < tolerance()) endpoint = "start";
@@ -1083,7 +1220,7 @@ export function BuildingEditor({
         }
       }
       if (item) {
-        if (event.shiftKey) {
+        if (additive) {
           const members = event.altKey ? [item] : curveMembers(item);
           setSelections(
             members.every((m) => selections.some((v) => v.id === m.id))
@@ -1114,7 +1251,7 @@ export function BuildingEditor({
           current: point,
           base: building,
           marquee: true,
-          initial: event.shiftKey ? selections : [],
+          initial: additive ? selections : [],
         });
       }
     } else {
@@ -1437,6 +1574,7 @@ export function BuildingEditor({
     )
       return false;
     if (commit(next)) {
+      setPreviousView(null);
       curveGroups.current.clear();
       setFurnitureSymbols(new Map());
       savedLayout.current = JSON.stringify(next);
@@ -1575,7 +1713,7 @@ export function BuildingEditor({
           <p className="eyebrow">01 / Building</p>
           <h2 id="building-title">Build your floor plan</h2>
         </div>
-        <span className="badge">Freeform · feet</span>
+        <span className="badge">Freeform · {lengthUnit()}</span>
       </div>
       {roomDraft && (
         <RoomFillDialog
@@ -1615,22 +1753,47 @@ export function BuildingEditor({
         dialogRef={dxfDialog}
         onApply={(next) => replaceLayout(next, "the reviewed DXF layout")}
       />
+      {imageExport && imageExport.building === building && !disabled && (
+        <FloorPlanImageDialog
+          source={imageExport}
+          onClose={() => setImageExport(null)}
+        />
+      )}
+      {arrangeSource && (
+        <ArrangeDialog
+          source={arrangeSource}
+          stale={disabled || arrangeSource.building !== building}
+          onClose={() => {
+            setArrangeSource(null);
+            canvas.current?.focus({ preventScroll: true });
+          }}
+          onApply={(next) => {
+            if (disabled || arrangeSource.building !== building) return false;
+            if (commit(next, false, arrangeSource.selections)) {
+              setNotice(
+                "Arrangement applied · Undo restores the previous positions.",
+              );
+              return true;
+            }
+            return false;
+          }}
+        />
+      )}
       <fieldset className="editor-controls" disabled={disabled}>
         <div className="editor-workspace">
           <div className="editor-commandbar">
-            <EditorDrawingRail
-              tool={tool}
-              disabled={disabled}
-              onTool={changeTool}
-              onOpenPanel={() => setPropertiesOpen(false)}
-            />
             <EditorUtilityRail
               scenarioControls={
                 <DisasterControls
                   building={building}
                   onChange={(next) => {
                     const applied = commit(next);
-                    if (applied && !next.disaster && tool === "hazard")
+                    if (
+                      applied &&
+                      ((!next.disaster && tool === "hazard") ||
+                        (next.disaster?.kind !== "tornado" &&
+                          tool === "tornado-zone"))
+                    )
                       changeTool("select");
                     return applied;
                   }}
@@ -1641,14 +1804,56 @@ export function BuildingEditor({
               disabled={disabled}
               canUndo={history.length > 0}
               canRedo={redo.length > 0}
+              hasSelection={selections.length > 0 && !gesture}
+              tool={tool}
+              showShelter={
+                !building.pursuit && building.disaster?.kind === "tornado"
+              }
               propertiesOpen={propertiesOpen}
               propertiesButton={propertiesButton}
               onUndo={undo}
               onRedo={redoChange}
+              onDuplicate={duplicateSelectedElements}
+              arrangeSelectionCount={selections.length}
+              arrangeProblem={
+                gesture || panning || spawnPolygon.length
+                  ? "Finish the current gesture before arranging."
+                  : arrangeProblem(building, selections)
+              }
+              onArrange={() => {
+                if (
+                  disabled ||
+                  gesture ||
+                  panning ||
+                  spawnPolygon.length ||
+                  arrangeProblem(building, selections)
+                )
+                  return;
+                setArrangeSource({
+                  building,
+                  selections: [...selections],
+                  furniture: new Map(furnitureSymbols),
+                });
+              }}
+              onDelete={deleteSelected}
+              onTool={changeTool}
               onNew={clearPlan}
               onImport={() => importInput.current?.click()}
               onImportDxf={() => dxfDialog.current?.showModal()}
               onExport={exportLayout}
+              canFocusSelection={canFocusSelection}
+              onFocusSelection={focusSelection}
+              canRestorePreviousView={canRestorePreviousView}
+              onPreviousView={restorePreviousView}
+              onExportImage={() => {
+                if (!canvas.current) return;
+                setImageExport({
+                  building,
+                  drafting,
+                  furniture: new Map(furnitureSymbols),
+                  palette: canvasPalette(canvas.current),
+                });
+              }}
               onProperties={() => setPropertiesOpen(!propertiesOpen)}
               canvasControls={
                 <div className="canvas-size-controls">
@@ -1704,6 +1909,21 @@ export function BuildingEditor({
               drafting={drafting}
               onDrafting={setDrafting}
             />
+            <EditorDrawingRail
+              tool={tool}
+              disabled={disabled}
+              onTool={changeTool}
+              onOpenPanel={() => setPropertiesOpen(false)}
+              historyControls={
+                <EditorHistoryControls
+                  disabled={disabled}
+                  canUndo={history.length > 0}
+                  canRedo={redo.length > 0}
+                  onUndo={undo}
+                  onRedo={redoChange}
+                />
+              }
+            />
             <input
               ref={importInput}
               hidden
@@ -1725,7 +1945,7 @@ export function BuildingEditor({
                 title={selected ? objectName(building, selected) : ""}
               >
                 {activeSnap
-                  ? `Snap: wall ${activeSnap.kind} · ${lengthInputValue(activeSnap.point.x, 2)}, ${lengthInputValue(activeSnap.point.y, 2)} ft`
+                  ? `Snap: wall ${activeSnap.kind} · ${lengthInputValue(activeSnap.point.x, 2)}, ${lengthInputValue(activeSnap.point.y, 2)} ${lengthUnit()}`
                   : draftEdit?.snapped
                     ? "Snap preview · confirm placement to merge"
                     : notice
@@ -1748,7 +1968,7 @@ export function BuildingEditor({
                         ? selected?.kind === "obstructions" &&
                           selections.length === 1
                           ? "R rotate · Ctrl/Cmd+D duplicate selection · Drag to move · Double-click for Properties"
-                          : "Drag or marquee select · Shift-click to add · Ctrl/Cmd+D duplicate · Double-click for Properties"
+                          : "Drag-box to select · Shift/Ctrl/Cmd-click to add/remove · Ctrl/Cmd+D duplicate · Double-click for Properties"
                         : tool === "wall-freehand"
                           ? freehand?.error &&
                             gesture?.curve &&
@@ -1800,7 +2020,14 @@ export function BuildingEditor({
                 }}
                 onContextMenu={(event) => event.preventDefault()}
                 onDoubleClick={(event) => {
-                  if (panMode || spaceDown) return;
+                  if (
+                    panMode ||
+                    spaceDown ||
+                    event.shiftKey ||
+                    event.ctrlKey ||
+                    event.metaKey
+                  )
+                    return;
                   const target = hit(world(event));
                   if (target && tool !== "wall-freehand") {
                     if (!selections.some((s) => s.id === target.id))
@@ -1828,6 +2055,25 @@ export function BuildingEditor({
                   if (event.key === "Shift") setWallAngleLock(false);
                 }}
                 onKeyDown={(event) => {
+                  if (
+                    event.key.toLowerCase() === "f" &&
+                    !event.ctrlKey &&
+                    !event.metaKey &&
+                    !event.altKey &&
+                    !event.repeat &&
+                    !event.nativeEvent.isComposing
+                  ) {
+                    if (
+                      event.shiftKey
+                        ? canRestorePreviousView
+                        : canFocusSelection
+                    ) {
+                      event.preventDefault();
+                      if (event.shiftKey) restorePreviousView();
+                      else focusSelection();
+                    }
+                    return;
+                  }
                   if (event.key === "Shift") setWallAngleLock(true);
                   if (event.code === "Space") {
                     event.preventDefault();
@@ -1875,61 +2121,81 @@ export function BuildingEditor({
                   }
                 }}
               />
-              <div
-                className="canvas-navigation"
-                role="group"
-                aria-label="Canvas navigation"
-              >
-                <button
-                  type="button"
-                  aria-label="Pan canvas"
-                  aria-pressed={panMode}
-                  onClick={() => {
-                    setPanMode((value) => !value);
-                    setGesture(null);
-                  }}
+              {drafting.showScale !== false && (
+                <CanvasScale
+                  canvas={canvas}
+                  building={building}
+                  camera={camera}
+                />
+              )}
+              <div className="canvas-footer">
+                <div
+                  className="canvas-navigation"
+                  role="group"
+                  aria-label="Canvas navigation"
                 >
-                  Pan
-                </button>
-                <button
-                  type="button"
-                  aria-label="Zoom out"
-                  onClick={() => zoomAt(1 / 1.25)}
-                >
-                  −
-                </button>
-                <output aria-label="Canvas zoom">
-                  {Math.round(camera.zoom * 100)}%
-                </output>
-                <button
-                  type="button"
-                  aria-label="Zoom in"
-                  onClick={() => zoomAt(1.25)}
-                >
-                  +
-                </button>
-                <button type="button" onClick={() => fitPlan()}>
-                  Fit plan
-                </button>
-                <span>Scroll to zoom · Space + drag to pan</span>
-              </div>
-              <div className="canvas-caption">
-                <span>
-                  {building.walls.length} walls · {building.doors.length} doors
-                  · {building.exits.length} exits ·{" "}
-                  {building.windows?.length ?? 0} windows ·{" "}
-                  {building.spawn_zones.length} spawn zones
-                  {building.placed_occupants?.length
-                    ? ` · ${building.placed_occupants.length} placed occupants`
-                    : ""}
-                </span>
-                <span>
-                  {cursor
-                    ? `${lengthInputValue(cursor.x, 2)}, ${lengthInputValue(cursor.y, 2)} ft`
-                    : drafting.snap
-                      ? `Snap ${gridSpacings[drafting.spacing].label} · feet`
-                      : "Continuous coordinates"}
-                </span>
+                  <button
+                    type="button"
+                    aria-label="Pan canvas"
+                    aria-pressed={panMode}
+                    onClick={() => {
+                      setPanMode((value) => !value);
+                      setGesture(null);
+                    }}
+                  >
+                    Pan
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Zoom out"
+                    onClick={() => zoomAt(1 / 1.25)}
+                  >
+                    −
+                  </button>
+                  <output aria-label="Canvas zoom">
+                    {Math.round(camera.zoom * 100)}%
+                  </output>
+                  <button
+                    type="button"
+                    aria-label="Zoom in"
+                    onClick={() => zoomAt(1.25)}
+                  >
+                    +
+                  </button>
+                  <button type="button" onClick={() => fitPlan()}>
+                    Fit plan
+                  </button>
+                  <div className="canvas-navigation-help">
+                    <button
+                      type="button"
+                      aria-label="Canvas navigation help"
+                      aria-describedby="canvas-navigation-tip"
+                    >
+                      ?
+                    </button>
+                    <span id="canvas-navigation-tip" role="tooltip">
+                      Scroll to zoom · Space + drag to pan
+                    </span>
+                  </div>
+                </div>
+                <div className="canvas-caption">
+                  <span>
+                    {building.walls.length} walls · {building.doors.length}{" "}
+                    doors · {building.exits.length} exits ·{" "}
+                    {building.windows?.length ?? 0} windows ·{" "}
+                    {building.spawn_zones.length} spawn zones
+                    {building.placed_occupants?.length
+                      ? ` · ${building.placed_occupants.length} placed occupants`
+                      : ""}
+                  </span>
+                  <span>
+                    {cursor
+                      ? `${lengthInputValue(cursor.x, 2)}, ${lengthInputValue(cursor.y, 2)} ${lengthUnit()}`
+                      : drafting.snap
+                        ? `Snap ${gridSpacingLabel(drafting.spacing)}`
+                        : "Continuous coordinates"}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -2200,7 +2466,7 @@ export function BuildingEditor({
                 <p className="note">
                   {"wall_id" in selectedElement
                     ? `On ${objectName(building, { kind: "walls", id: selectedElement.wall_id })}. ${selected.kind === "windows" ? "Windows stay distinct and solid until serviced by the engine." : "Touching openings merge only with matching blocked states and compatible schedules. Blocked openings stay solid."}`
-                    : "Dimensions in feet"}
+                    : `Dimensions in ${lengthUnit()}`}
                 </p>
                 {"start" in selectedElement ? (
                   <>

@@ -1,8 +1,12 @@
 import { LengthInput } from "../../ui/LengthInput";
+import { useDisplayUnits } from "../../utils/useDisplayUnits";
 import {
   formatDimensions,
   formatLength,
   lengthInputValue,
+  lengthUnit,
+  lengthUnitName,
+  getDisplayUnits,
 } from "../../utils/units";
 import { classifyOpenings } from "./classify";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
@@ -31,6 +35,7 @@ function Preview({
 }) {
   const canvas = useRef<HTMLCanvasElement>(null),
     theme = useStudioTheme();
+  const units = useDisplayUnits();
   useEffect(() => {
     const target = canvas.current;
     if (!target) return;
@@ -77,7 +82,7 @@ function Preview({
     observer.observe(target);
     redraw();
     return () => observer.disconnect();
-  }, [building, candidates, theme]);
+  }, [building, candidates, theme, units]);
   return (
     <canvas
       ref={canvas}
@@ -361,7 +366,7 @@ export default function DxfImport({
                     : " — verify dimensions below."}
                 </p>
                 <label>
-                  Feet per DXF unit
+                  {lengthUnitName()} per DXF unit
                   <LengthInput
                     min={0.000001}
                     precision={8}
@@ -369,7 +374,11 @@ export default function DxfImport({
                     onValue={setScale}
                   />
                 </label>
-                <p>Feet: 1 · Inches: 0.08333333 · Millimeters: 0.00328084</p>
+                <p>
+                  {getDisplayUnits() === "metric"
+                    ? "Meters: 1 · Centimeters: 0.01 · Millimeters: 0.001"
+                    : "Feet: 1 · Inches: 0.08333333 · Millimeters: 0.00328084"}
+                </p>
                 <label>
                   <input
                     type="checkbox"
@@ -385,7 +394,7 @@ export default function DxfImport({
                   for room outlines; verify the preview before importing.
                 </p>
                 <label>
-                  Line-wall thickness (ft)
+                  Line-wall thickness ({lengthUnit()})
                   <LengthInput
                     min={0.01}
                     max={2}
@@ -394,7 +403,7 @@ export default function DxfImport({
                   />
                 </label>
                 <label>
-                  Detect gaps up to (ft)
+                  Detect gaps up to ({lengthUnit()})
                   <LengthInput
                     min={0}
                     max={5}
@@ -469,8 +478,8 @@ export default function DxfImport({
                         {w.id} · ({lengthInputValue(w.start.x, 2)},{" "}
                         {lengthInputValue(w.start.y, 2)}) → (
                         {lengthInputValue(w.end.x, 2)},{" "}
-                        {lengthInputValue(w.end.y, 2)}) ft · thickness{" "}
-                        {formatLength(w.thickness, 2)}
+                        {lengthInputValue(w.end.y, 2)}) {lengthUnit()} ·
+                        thickness {formatLength(w.thickness, 2)}
                       </label>
                     ))}
                   </div>

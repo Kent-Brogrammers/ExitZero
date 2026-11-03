@@ -1,5 +1,6 @@
 import { createAgentEffects } from "./agentEffects";
 import { formatDimensions } from "../utils/units";
+import { useDisplayUnits } from "../utils/useDisplayUnits";
 import { snapshotFrameIndex, type ReplayTarget } from "./replayTarget";
 import {
   useEffect,
@@ -17,6 +18,7 @@ import type {
 import { LiveSimulationView } from "./LiveSimulationView";
 import { createPlaybackRenderer, drawAgents } from "./drawPlayback";
 import { drawLayout } from "../editor/draw";
+import { CanvasScale } from "../editor/CanvasScale";
 import { canvasPalette } from "../styles/canvasPalette";
 import {
   trafficField,
@@ -81,6 +83,7 @@ function Playback({
   displayOptions,
 }: PlaybackProps) {
   const theme = useStudioTheme();
+  const units = useDisplayUnits();
 
   const mismatch =
     result !== null &&
@@ -232,6 +235,7 @@ function Playback({
     player,
     sample,
     theme,
+    units,
     recording,
     showAgentNumbers,
     displayOptions,
@@ -291,6 +295,9 @@ function Playback({
                 : "Building layout. No recorded occupants to display."
             }
           />
+          {displayOptions.showScale !== false && (
+            <CanvasScale canvas={canvas} building={building} />
+          )}
           <div className="canvas-caption">
             <span>
               {formatDimensions(building.width, building.height)} ·{" "}
@@ -739,6 +746,19 @@ export function SimulationView({
                     }
                   />
                   Show congestion overlay
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={displayOptions.showScale !== false}
+                    onChange={(event) =>
+                      setDisplayOptions({
+                        ...displayOptions,
+                        showScale: event.target.checked,
+                      })
+                    }
+                  />
+                  Show scale bar
                 </label>
                 <p className="note">
                   Closed openings retain their cross marks. Open Details for

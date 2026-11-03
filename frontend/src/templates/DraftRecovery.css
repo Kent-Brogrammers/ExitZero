@@ -1,0 +1,48 @@
+.draft-recovery-prompt {
+  position: fixed;
+  z-index: 80;
+  right: 24px;
+  bottom: 24px;
+  width: min(390px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+  padding: 20px;
+  border: 1px solid var(--cad-border-strong);
+  border-radius: var(--radius-control);
+  background: var(--cad-panel);
+  color: var(--cad-text);
+  box-shadow: 0 12px 32px #0006;
+}
+.draft-recovery-prompt h2 {
+  font-size: 16px;
+  font-weight: 500;
+  margin: 0 0 10px;
+}
+.draft-recovery-prompt p {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--cad-muted);
+  margin: 8px 0;
+}
+.draft-recovery-prompt [role="alert"] {
+  color: var(--cad-warning);
+}
+.draft-recovery-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+.draft-recovery-actions .draft-recovery-primary {
+  background: var(--studio-primary);
+  color: var(--studio-primary-text);
+}
+.draft-recovery-actions .draft-recovery-primary:hover:not(:disabled) {
+  background: var(--studio-primary-hover);
+}
+@media (max-width: 760px) {
+  .draft-recovery-prompt {
+    right: 16px;
+    bottom: 16px;
+  }
+}

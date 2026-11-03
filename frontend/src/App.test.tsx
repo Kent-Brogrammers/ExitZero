@@ -4,9 +4,14 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import exampleJson from "./editor/presets/corporate-office.json";
 import { halloweenPreset } from "./editor/presets";
+import { withWindowEscapeDefaults } from "./editor/openings";
 import App from "./App";
 import { api } from "./services/api";
 import { storeLayout } from "./templates/layouts";
+import {
+  DRAFT_STORAGE_KEY,
+  saveRecoveryDraft,
+} from "./templates/draftRecovery";
 import { readTemplates, TEMPLATE_STORAGE_KEY } from "./templates/templates";
 import type { BuildingScenario, SimulationResult } from "./types/simulation";
 
@@ -55,7 +60,9 @@ function button(text: string): HTMLButtonElement {
   const found = [...document.querySelectorAll("button")].find(
     (element) =>
       !element.closest("[hidden]") &&
-      element.textContent?.trim().startsWith(text),
+      (
+        element.getAttribute("aria-label") ?? element.textContent?.trim()
+      )?.startsWith(text),
   );
   if (!found) throw new Error(`Missing button: ${text}`);
   return found;
@@ -77,6 +84,7 @@ async function mount() {
 }
 
 beforeEach(() => {
+  window.localStorage.removeItem(DRAFT_STORAGE_KEY);
   vi.resetAllMocks();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal(
@@ -96,7 +104,70 @@ beforeEach(() => {
 });
 afterEach(async () => {
   await act(async () => root.unmount());
+  window.localStorage.removeItem(DRAFT_STORAGE_KEY);
   vi.unstubAllGlobals();
+});
+
+describe("draft recovery", () => {
+  it("restores an unsaved draft with its original Save target and clears unrelated results", async () => {
+    const previousLibrary = localStorage.getItem(TEMPLATE_STORAGE_KEY);
+    try {
+      const saved = storeLayout(
+        localStorage,
+        withWindowEscapeDefaults(structuredClone(example)),
+        "Recovery source layout",
+        "layout",
+      );
+      const edited = { ...saved.building, seed: saved.building.seed + 1 };
+      const copy = saveRecoveryDraft(localStorage, null, edited, saved);
+      vi.mocked(api.simulateLive).mockResolvedValue(recording);
+      await mount();
+      expect(document.body.textContent).toContain("Restore your draft?");
+      expect(localStorage.getItem(DRAFT_STORAGE_KEY)).toBe(copy.raw);
+      await click("Run Simulation");
+      expect(workspace().result).toEqual(recording);
+      await click("Restore Draft");
+      expect(workspace().building).toEqual(edited);
+      expect(workspace().result).toBeNull();
+      expect(workspace().live).toBeNull();
+      expect(window.location.hash).toBe("#building");
+      const status = document.querySelector(
+        '[aria-label="Layout save status"]',
+      )!;
+      expect(status.textContent).toContain("Unsaved changes");
+      expect(status.textContent).toContain(saved.name);
+      expect(
+        readTemplates(localStorage).find((entry) => entry.id === saved.id),
+      ).toEqual(saved);
+      await click("Save");
+      expect(
+        readTemplates(localStorage).find((entry) => entry.id === saved.id)
+          ?.building,
+      ).toEqual(edited);
+      expect(status.textContent).toContain("Saved");
+      expect(localStorage.getItem(DRAFT_STORAGE_KEY)).toBeNull();
+    } finally {
+      if (previousLibrary === null)
+        localStorage.removeItem(TEMPLATE_STORAGE_KEY);
+      else localStorage.setItem(TEMPLATE_STORAGE_KEY, previousLibrary);
+    }
+  });
+
+  it("discards a recovery copy without replacing the current layout", async () => {
+    saveRecoveryDraft(
+      localStorage,
+      null,
+      { ...example, seed: example.seed + 1 },
+      null,
+    );
+    await mount();
+    const current = structuredClone(workspace().building);
+    await click("Discard Draft");
+    expect(workspace().building).toEqual(current);
+    expect(localStorage.getItem(DRAFT_STORAGE_KEY)).toBeNull();
+    expect(document.body.textContent).not.toContain("Restore your draft?");
+    expect(api.simulateLive).not.toHaveBeenCalled();
+  });
 });
 
 describe("optimization editor history", () => {

@@ -1,10 +1,12 @@
 import { createAgentEffects } from "./agentEffects";
+import { CanvasScale } from "../editor/CanvasScale";
 import { totalPopulation } from "../utils/population";
 import { useEffect, useRef, useState } from "react";
 import { SimulationDetails } from "./SimulationDetails";
 import { AgentChat } from "./AgentChat";
 import { appendChat, chatSummaryMessage } from "./communication";
 import { formatDimensions } from "../utils/units";
+import { useDisplayUnits } from "../utils/useDisplayUnits";
 import { PursuitMetrics } from "./PursuitMetrics";
 import type {
   AnimationFrame,
@@ -54,6 +56,7 @@ export function LiveSimulationView({
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const theme = useStudioTheme();
+  const units = useDisplayUnits();
   const cancelled = live.status === "cancelled";
   const speed = live.speed ?? 1;
   const nextSpeed = speed === 1 ? 2 : speed === 2 ? 4 : speed === 4 ? 8 : 1;
@@ -201,6 +204,7 @@ export function LiveSimulationView({
     active,
     building,
     theme,
+    units,
     showAgentNumbers,
     speed,
     cancelled,
@@ -227,6 +231,9 @@ export function LiveSimulationView({
                   : "Preparing the live evacuation."
             }
           />
+          {displayOptions.showScale !== false && (
+            <CanvasScale canvas={canvas} building={building} />
+          )}
           <div className="canvas-caption">
             <span>{formatDimensions(building.width, building.height)}</span>
             <span>

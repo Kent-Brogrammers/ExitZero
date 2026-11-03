@@ -1,4 +1,4 @@
-import { formatDimensions, lengthInputValue } from "../utils/units";
+import { formatDimensions, lengthInputValue, lengthUnit } from "../utils/units";
 import { useState } from "react";
 import type { SimulationMetrics, StressTestResult } from "../types/simulation";
 import "./scenarioComparison.css";
@@ -214,7 +214,7 @@ export default function ScenarioComparison({
               ? selected.modifications.added_obstructions
                   .map(
                     (o) =>
-                      `${o.id}: (${lengthInputValue(o.x, 2)}, ${lengthInputValue(o.y, 2)}) ft, ${formatDimensions(o.width, o.height)}`,
+                      `${o.id}: (${lengthInputValue(o.x, 2)}, ${lengthInputValue(o.y, 2)}) ${lengthUnit()}, ${formatDimensions(o.width, o.height)}`,
                   )
                   .join("; ")
               : "None"}

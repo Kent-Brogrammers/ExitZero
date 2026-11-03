@@ -1,4 +1,10 @@
-import { formatDimensions, lengthInputValue } from "../utils/units";
+import {
+  formatDimensions,
+  formatLength,
+  lengthInputValue,
+  lengthUnit,
+} from "../utils/units";
+import { useDisplayUnits } from "../utils/useDisplayUnits";
 import { useEffect, useMemo, useRef } from "react";
 import type { BuildingScenario, SimulationResult } from "../types/simulation";
 import { drawLayout } from "../editor/draw";
@@ -46,6 +52,7 @@ function Snapshot({
   onViewInSimulation?: (step: number) => void;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
+  const units = useDisplayUnits();
   useEffect(() => {
     const target = canvas.current;
     if (!target) return;
@@ -104,7 +111,7 @@ function Snapshot({
     observer.observe(target);
     redraw();
     return () => observer.disconnect();
-  }, [building, spot, field, peak]);
+  }, [building, spot, field, peak, units]);
   return (
     <article className="crowding-card">
       <div className="crowding-card-heading">
@@ -118,11 +125,11 @@ function Snapshot({
       <canvas
         ref={canvas}
         role="img"
-        aria-label={`Crowding heatmap snapshot ${rank}: ${spot.count} occupants in the highlighted zone at x ${lengthInputValue(spot.x, 2)}, y ${lengthInputValue(spot.y, 2)} feet, step ${spot.frame.step}.`}
+        aria-label={`Crowding heatmap snapshot ${rank}: ${spot.count} occupants in the highlighted zone at x ${lengthInputValue(spot.x, 2)}, y ${lengthInputValue(spot.y, 2)} ${lengthUnit()}, step ${spot.frame.step}.`}
       />
       <p>
-        Zone: ({lengthInputValue(spot.x, 2)}, {lengthInputValue(spot.y, 2)}) ft
-        ·{" "}
+        Zone: ({lengthInputValue(spot.x, 2)}, {lengthInputValue(spot.y, 2)}){" "}
+        {lengthUnit()}·{" "}
         {formatDimensions(
           Math.min(CROWD_ZONE, building.width - spot.x),
           Math.min(CROWD_ZONE, building.height - spot.y),
@@ -163,7 +170,7 @@ function Cards({
       <p className="note">
         Three busiest {formatDimensions(CROWD_ZONE, CROWD_ZONE)} zones in
         recorded frames after the first {CROWDING_WARMUP_SECONDS} seconds and
-        after occupants move at least 6.6 ft (2 metres) from their starting
+        after occupants move at least {formatLength(2)} from their starting
         positions. Initial spawn crowds are excluded; later queues still count.
         Ranked by eligible occupant count, not density or proven congestion;
         boundary zones may be smaller.
@@ -198,7 +205,7 @@ function Cards({
       ) : (
         <p className="note">
           Crowding snapshots appear after the first {CROWDING_WARMUP_SECONDS}{" "}
-          seconds, once occupants move at least 6.6 ft (2 metres) from their
+          seconds, once occupants move at least {formatLength(2)} from their
           starting positions.
         </p>
       )}
