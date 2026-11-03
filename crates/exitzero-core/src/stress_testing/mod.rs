@@ -102,7 +102,8 @@ fn apply_modifications(
 }
 
 /// Replay a tested scenario using exactly the same forced-closure rules.
-pub(crate) fn record_scenario(
+/// Reject unknown scenario IDs and results that differ from the tested metrics.
+pub fn record_scenario(
     request: &StressTestRequest,
     id: &str,
     expected: &SimulationMetrics,
@@ -1680,8 +1681,11 @@ pub(crate) mod real_integration {
 
     #[test]
     fn real_checked_in_example_runs_baseline_and_both_exit_closures() {
-        let building: BuildingScenario =
-            serde_json::from_str(include_str!("../../../shared/examples/building.json")).unwrap();
+        let building: BuildingScenario = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/examples/building.json"
+        )))
+        .unwrap();
         let result = audit(&stress_request(building));
         assert_eq!(result.baseline.total_population, 34);
         assert_eq!(result.scenarios.len(), 2);

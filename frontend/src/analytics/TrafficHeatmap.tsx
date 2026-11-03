@@ -5,7 +5,11 @@ import { drawLayout } from "../editor/draw";
 import { canvasPalette } from "../styles/canvasPalette";
 import { useStudioTheme } from "../styles/appearance";
 import { congestionBins } from "./traffic";
-import { trafficField, fieldPixels } from "./trafficField";
+import {
+  trafficField,
+  congestionPixels,
+  CONGESTION_RED_REFERENCE_SECONDS,
+} from "./trafficField";
 
 export default function TrafficHeatmap({
   building,
@@ -21,6 +25,11 @@ export default function TrafficHeatmap({
   const traffic = result?.congestion_samples
     ? congestionBins(result.congestion_samples, result.width, result.height)
     : null;
+  const elapsedSeconds = result
+    ? (result.analytics?.simulated_seconds ??
+      (result.frames.at(-1)?.step ?? 0) * result.time_step_seconds)
+    : 0;
+  const peakDelay = traffic?.max ?? 0;
   const matches =
     !!building &&
     !!result &&
@@ -41,7 +50,7 @@ export default function TrafficHeatmap({
     const layerContext = layer.getContext("2d");
     if (layerContext) {
       const pixels = layerContext.createImageData(field.columns, field.rows);
-      pixels.data.set(fieldPixels(field));
+      pixels.data.set(congestionPixels(field, elapsedSeconds));
       layerContext.putImageData(pixels, 0, 0);
     }
     const redraw = () =>
@@ -77,11 +86,11 @@ export default function TrafficHeatmap({
       observer.disconnect();
       window.removeEventListener("resize", redraw);
     };
-  }, [building, result, visible, matches, smoothing, theme]);
+  }, [building, result, visible, matches, smoothing, theme, elapsedSeconds]);
   return (
     <section className="panel traffic-panel" aria-label="Congestion heatmap">
       <div className="panel-heading">
-        <h2>Congestion</h2>
+        <h2>Accumulated congestion</h2>
         <label>
           <input
             type="checkbox"
@@ -109,7 +118,7 @@ export default function TrafficHeatmap({
         <>
           <div className="traffic-tools">
             <span className="traffic-mode">
-              COMPUTED CONGESTION · SMOOTH VIEW
+              ACCUMULATED CONGESTION · SMOOTH VIEW
             </span>
             <label>
               Smoothing{" "}
@@ -130,15 +139,18 @@ export default function TrafficHeatmap({
             ref={canvas}
             className="traffic-canvas"
             role="img"
-            aria-label={`Congestion from the standalone simulation on a ${formatDimensions(result.width, result.height)} floor plan. Maximum ${(traffic?.max ?? 0).toFixed(2)} crowd-delay person-seconds per spatial bin.`}
+            aria-label={`Accumulated congestion from the standalone simulation on a ${formatDimensions(result.width, result.height)} floor plan. Maximum ${peakDelay.toFixed(2)} crowd-delay person-seconds per spatial bin over ${elapsedSeconds.toFixed(2)} simulated seconds.`}
           />
           {traffic?.max ? (
             <div className="traffic-legend">
-              <span>Lower intensity</span>
+              <span>0</span>
               <span className="traffic-gradient" aria-hidden="true" />
-              <span>Higher intensity</span>
+              <span>
+                {CONGESTION_RED_REFERENCE_SECONDS}+ crowd-delay person-seconds
+              </span>
               <span className="traffic-peak">
-                Peak source bin: {traffic.max.toFixed(2)} person-seconds
+                Peak source bin: {peakDelay.toFixed(2)} crowd-delay
+                person-seconds
               </span>
             </div>
           ) : (
@@ -146,12 +158,16 @@ export default function TrafficHeatmap({
           )}
           <div className="note traffic-explanation">
             <p>
-              Crowd-delay person-seconds accumulate while people are near others
-              and move below walking speed. More people, longer waits, and
-              slower movement add heat; freely moving traffic adds none. Colors
-              are relative to this run and smoothed for display, so color can
-              extend across walls. This is a simplified simulation measure, not
-              validated real-world crowd density. Scenario selection does not
+              Accumulated crowd delay: at least two nearby people must slow down
+              together to contribute. Two people stopped for ten seconds add
+              twenty person-seconds; two moving at half speed add ten. Larger
+              queues and longer waits add more heat, while freely moving traffic
+              adds none. Quiet time preserves recorded delay. Colors use a fixed
+              scale across runs, reaching red at{" "}
+              {CONGESTION_RED_REFERENCE_SECONDS} crowd-delay person-seconds in
+              the smoothed area. Smoothing can extend color across walls. This
+              is an exploratory slowdown indicator; the color reference is not a
+              safety threshold or a density measure. Scenario selection does not
               change this map.
             </p>
           </div>

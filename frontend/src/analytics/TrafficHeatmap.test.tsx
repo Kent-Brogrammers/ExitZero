@@ -51,7 +51,7 @@ describe("computed congestion heatmap", () => {
     ).toContain("Maximum 0.00 crowd-delay person-seconds");
   });
 
-  it("shows fractional backend delay weights and the metric's population/time meaning", async () => {
+  it("shows accumulated backend delay with a fixed numeric legend", async () => {
     await render({
       ...syntheticResult,
       traffic_samples: [{ x: 1, y: 1, visits: 999 }],
@@ -61,10 +61,17 @@ describe("computed congestion heatmap", () => {
       ],
     });
     expect(element.textContent).toContain(
-      "Peak source bin: 0.75 person-seconds",
+      "Peak source bin: 0.75 crowd-delay person-seconds",
     );
-    expect(element.textContent).toContain("longer waits");
+    expect(element.textContent).toContain("longer waits add more heat");
     expect(element.textContent).toContain("freely moving traffic adds none");
+    expect(element.textContent).toContain("at least two nearby people");
+    expect(element.textContent).toContain(
+      "Quiet time preserves recorded delay",
+    );
+    expect(element.textContent).toContain(
+      "red at 20 crowd-delay person-seconds",
+    );
     expect(
       element.querySelector("canvas")?.getAttribute("aria-label"),
     ).toContain("Maximum 0.75 crowd-delay person-seconds");

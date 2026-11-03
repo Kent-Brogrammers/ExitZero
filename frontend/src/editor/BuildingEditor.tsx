@@ -2161,7 +2161,8 @@ export function BuildingEditor({
                     />
                     <p className="note">
                       When full, people head to another available shelter. If no
-                      shelter has room, they remain unsheltered.
+                      shelter has room, the run stops with the remaining people
+                      unsheltered.
                     </p>
                   </>
                 )}

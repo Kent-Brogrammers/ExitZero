@@ -102,7 +102,11 @@ impl PursuitAwareness {
 mod tests {
     use super::*;
     fn scenario() -> crate::models::BuildingScenario {
-        serde_json::from_str(include_str!("../../../shared/examples/building.json")).unwrap()
+        serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/examples/building.json"
+        )))
+        .unwrap()
     }
     #[test]
     fn real_sighting_groups_new_recipients_and_relays_only_next_tick_without_spam() {

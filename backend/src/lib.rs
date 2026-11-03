@@ -1,5 +1,4 @@
 pub mod api;
-pub mod models;
-pub mod optimization;
-pub mod simulation;
-pub mod stress_testing;
+
+// Preserve existing imports while hosts can also depend on the core directly.
+pub use exitzero_core::{models, optimization, simulation, stress_testing};

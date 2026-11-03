@@ -240,7 +240,11 @@ export interface SimulationAnalytics {
 
 export interface SimulationResult extends SimulationMetrics {
   termination_reason?:
-    "completed" | "step_limit" | "no_active_routes" | "movement_stagnation";
+    | "completed"
+    | "step_limit"
+    | "no_active_routes"
+    | "movement_stagnation"
+    | "all_shelters_full";
   /** Absent in older saved results and synthetic fixtures. */
   analytics?: SimulationAnalytics;
   /** Actual opening discoveries and accepted shares; absent in older recordings. */
@@ -403,7 +407,7 @@ export interface TrafficSample extends Point {
 }
 
 export interface CongestionSample extends Point {
-  /** Sum of seconds × speed deficit for occupants with a nearby neighbour. */
+  /** Sum of seconds × speed deficit for occupants with a visibly slowed neighbour. */
   crowd_delay_seconds: number;
 }
 export interface ComputationCancellationResponse {

@@ -621,20 +621,83 @@ impl<'a> Geometry<'a> {
                     })
     }
 
-    /// Planning may avoid known danger even though the physics permits escape
-    /// from inside it. Someone already exposed can move outward; a route from
-    /// outside cannot enter the footprint. This never consults unknown patches.
-    pub(super) fn avoids_known_danger(&self, from: Point, to: Point) -> bool {
-        self.disaster.is_none_or(|disaster| {
-            self.hazard_areas.iter().all(|area| {
+    pub(super) fn is_in_known_danger(&self, point: Point) -> bool {
+        self.disaster.is_some_and(|disaster| {
+            self.hazard_areas.iter().any(|area| {
                 let mut footprint = disaster;
                 footprint.radius = area.radius;
-                let clearance = footprint.exposure_radius() + self.scenario.agent_radius;
-                let initial = math::distance_to_point(from, area.center);
-                math::distance_to_segment(area.center, from, to) + math::EPSILON
-                    >= clearance.min(initial)
+                math::distance_to_point(point, area.center)
+                    < footprint.exposure_radius() + self.scenario.agent_radius
             })
         })
+    }
+
+    /// Planning forbids entry from clear floor, but permits escape through the
+    /// connected exposure footprint containing the start. Overlapping patches
+    /// must not each demand an incompatible outward direction. Only remembered
+    /// danger is considered; physical walls still govern every movement.
+    pub(super) fn avoids_known_danger(&self, from: Point, to: Point) -> bool {
+        let Some(disaster) = self.disaster else {
+            return true;
+        };
+        if self.hazard_areas.iter().all(|area| {
+            let mut footprint = disaster;
+            footprint.radius = area.radius;
+            let clearance = footprint.exposure_radius() + self.scenario.agent_radius;
+            let initial = math::distance_to_point(from, area.center);
+            math::distance_to_segment(area.center, from, to) + math::EPSILON
+                >= clearance.min(initial)
+        }) {
+            return true;
+        }
+        // A short step that remains exposed retains the outward rule above.
+        // A complete escape segment from overlapping patches may approach one
+        // of them, provided it reaches clear floor without reentering danger.
+        if !self.is_in_known_danger(from) || self.is_in_known_danger(to) {
+            return false;
+        }
+        let length = math::distance_to_point(from, to);
+        if length <= math::EPSILON {
+            return false;
+        }
+        let heading = Point {
+            x: (to.x - from.x) / length,
+            y: (to.y - from.y) / length,
+        };
+        let mut intervals = Vec::new();
+        for area in &self.hazard_areas {
+            let mut footprint = disaster;
+            footprint.radius = area.radius;
+            let radius = footprint.exposure_radius() + self.scenario.agent_radius;
+            let delta = Point {
+                x: area.center.x - from.x,
+                y: area.center.y - from.y,
+            };
+            let along = delta.x * heading.x + delta.y * heading.y;
+            let across = delta.x * heading.y - delta.y * heading.x;
+            let half_squared = radius * radius - across * across;
+            if half_squared <= 0.0 {
+                continue;
+            }
+            let half = half_squared.sqrt();
+            let start = (along - half).max(0.0);
+            let end = (along + half).min(length);
+            if start < end {
+                intervals.push((start, end));
+            }
+        }
+        intervals.sort_by(|a, b| a.0.total_cmp(&b.0));
+        if intervals.iter().filter(|&&(start, _)| start == 0.0).count() < 2 {
+            return false;
+        }
+        let mut reached = 0.0_f64;
+        for (start, end) in intervals {
+            if start > reached + math::EPSILON {
+                return false;
+            }
+            reached = reached.max(end);
+        }
+        true
     }
 
     fn opening_center(scenario: &BuildingScenario, opening: &Opening) -> Point {
@@ -832,13 +895,13 @@ impl<'a> Geometry<'a> {
     /// Usable centre positions on the exit plane, inset from rounded jambs.
     /// Other obstacles are still checked by can_move/can_stand_at.
     pub(super) fn exit_segment(&self, exit_id: &str) -> Option<(Point, Point)> {
-        let gas = self
-            .disaster
-            .is_some_and(|d| d.kind == crate::models::DisasterKind::GasLeak);
-        if self.opening_is_blocked(exit_id) || (!gas && self.opening_is_unsafe(exit_id)) {
+        let exit = self.scenario.exits.iter().find(|exit| exit.id == exit_id)?;
+        if self.opening_is_blocked(exit_id)
+            || self.disaster.is_some()
+                && super::catastrophe::areas_close_opening(self.scenario, exit, &self.hazard_areas)
+        {
             return None;
         }
-        let exit = self.scenario.exits.iter().find(|exit| exit.id == exit_id)?;
         self.opening_segment(exit)
     }
 
@@ -1265,8 +1328,11 @@ mod opening_tolerance_tests {
     use crate::models::Opening;
 
     fn scenario(angled: bool) -> BuildingScenario {
-        let mut scenario: BuildingScenario =
-            serde_json::from_str(include_str!("../../../shared/examples/building.json")).unwrap();
+        let mut scenario: BuildingScenario = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/examples/building.json"
+        )))
+        .unwrap();
         scenario.walls = vec![Wall {
             id: "wall".into(),
             name: None,
@@ -1495,8 +1561,14 @@ mod index_tests {
     #[test]
     fn index_matches_exhaustive_queries_for_layouts_closures_and_beliefs() {
         for json in [
-            include_str!("../../../shared/examples/building.json"),
-            include_str!("../../../frontend/src/editor/presets/corporate-office.json"),
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../shared/examples/building.json"
+            )),
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../frontend/src/editor/presets/corporate-office.json"
+            )),
         ] {
             let scenario: BuildingScenario = serde_json::from_str(json).unwrap();
             check_queries(&Geometry::new(&scenario));
@@ -1551,9 +1623,11 @@ mod index_tests {
 
     #[test]
     fn window_aperture_and_vision_exclusions_keep_matching_exact_geometry() {
-        let scenario: BuildingScenario =
-            serde_json::from_str(include_str!("../../../shared/examples/window-escape.json"))
-                .unwrap();
+        let scenario: BuildingScenario = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/examples/window-escape.json"
+        )))
+        .unwrap();
         let window = scenario
             .windows
             .iter()

@@ -67,6 +67,27 @@ describe("shared continuous geometry schemas", () => {
     ).toBe(true);
     expect(mock.frames[0]!.agents[0]!.x % 1).not.toBe(0);
   });
+  it("accepts the shelter capacity stopping reason in results and live completion events", () => {
+    const recording: SimulationResult = {
+      ...mock,
+      status: "incomplete",
+      termination_reason: "all_shelters_full",
+      total_population: 3,
+      evacuated: 0,
+      sheltered: 2,
+      remaining: 1,
+      trapped: 0,
+      clearance_steps: null,
+    };
+    expect(
+      validateSimulation(recording),
+      ajv.errorsText(validateSimulation.errors),
+    ).toBe(true);
+    const validateStream = ajv.getSchema(
+      `${contracts.$id}#/$defs/SimulationStreamEvent`,
+    )!;
+    expect(validateStream({ type: "complete", result: recording })).toBe(true);
+  });
   it("accepts optional congestion totals and per-frame delay increments without changing legacy recordings", () => {
     const sample = { x: 2.75, y: 1.5, crowd_delay_seconds: 0.075 };
     for (const congestion_samples of [[], [sample]]) {

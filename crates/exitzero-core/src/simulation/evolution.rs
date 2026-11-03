@@ -433,8 +433,11 @@ mod tests {
     use crate::models::{DisasterDynamics, TornadoZone};
 
     fn scenario(kind: DisasterKind) -> BuildingScenario {
-        let mut scenario: BuildingScenario =
-            serde_json::from_str(include_str!("../../../shared/examples/building.json")).unwrap();
+        let mut scenario: BuildingScenario = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/examples/building.json"
+        )))
+        .unwrap();
         scenario.disaster = Some(Disaster {
             kind,
             center: Point { x: 5.0, y: 5.0 },

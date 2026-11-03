@@ -145,6 +145,9 @@ fn run(
         })
         .collect::<Result<Vec<_>, SimulationError>>()?;
     let mut next_waypoint = vec![0; agents.len()];
+    let mut escape_routes: Vec<Option<Vec<Point>>> = vec![None; agents.len()];
+    let mut next_escape_waypoint = vec![0; agents.len()];
+    let mut last_escape_attempt = vec![None; agents.len()];
     let mut motion: Vec<_> = agents.iter().map(|_| motion::Motion::new()).collect();
     let retry_ticks = (2.0 / scenario.time_step_seconds).ceil() as u32;
     let mut stalled_ticks = vec![0_u32; agents.len()];
@@ -246,6 +249,19 @@ fn run(
         control::step(step, scenario.max_steps);
         if evacuated_count + sheltered_count == total_population {
             break (SimulationStatus::Completed, TerminationReason::Completed);
+        }
+        // Admission counts, rather than route availability or movement, decide
+        // when shelter capacity is exhausted. Completion takes precedence above.
+        if tornado
+            && !scenario.tornado_zones.is_empty()
+            && scenario.tornado_zones.iter().all(|zone| {
+                shelter_admissions.get(&zone.id).copied().unwrap_or(0) >= zone.capacity()
+            })
+        {
+            break (
+                SimulationStatus::Incomplete,
+                TerminationReason::AllSheltersFull,
+            );
         }
         let now = f64::from(step) * scenario.time_step_seconds;
         let (changed_beliefs, information_changed) = awareness::update_knowledge(
@@ -567,6 +583,37 @@ fn run(
                 }
             }
         }
+        // A person without a usable destination still tries to leave known
+        // fire or gas. Keep these local waypoints separate from evacuation
+        // routes so reaching clear floor never resolves an occupant.
+        for i in 0..agents.len() {
+            control::checkpoint()?;
+            if evacuated[i] || tornado || windows.controls(i) || routes[i].is_some() {
+                escape_routes[i] = None;
+                continue;
+            }
+            let map = beliefs.geometry_for_agent(&agents[i]);
+            if !map.is_in_known_danger(before[i]) {
+                escape_routes[i] = None;
+                continue;
+            }
+            let valid = escape_routes[i].as_ref().is_some_and(|waypoints| {
+                !map.is_in_known_danger(*waypoints.last().unwrap())
+                    && map.can_move(before[i], waypoints[next_escape_waypoint[i]])
+            });
+            if valid && stalled_ticks[i] < retry_ticks {
+                continue;
+            }
+            escape_routes[i] = None;
+            if last_escape_attempt[i].is_some_and(|last| step.saturating_sub(last) < retry_ticks) {
+                continue;
+            }
+            let (map, navigation) = beliefs.for_agent(&agents[i]);
+            escape_routes[i] = navigation.find_escape_route(before[i], map);
+            next_escape_waypoint[i] = 0;
+            last_escape_attempt[i] = Some(step);
+            stalled_ticks[i] = 0;
+        }
         // Priority is local to overlapping arrival lanes. A narrow opening
         // still needs yielding, while separated lanes can arrive together.
         // Use belief geometry here so unseen closures do not change guidance.
@@ -645,6 +692,14 @@ fn run(
                 continue;
             }
             let Some(route) = &mut routes[i] else {
+                if let Some(waypoints) = &escape_routes[i] {
+                    targets[i] = Some(waypoints[next_escape_waypoint[i]]);
+                    velocity_limits[i] =
+                        geometry.velocity_limits(before[i], scenario.time_step_seconds);
+                    if agents[i].injury > 0.0 {
+                        velocity_limits[i].extend(motion::injury_speed_limits(agents[i].injury));
+                    }
+                }
                 continue;
             };
             let map = beliefs.geometry_for_agent(&agents[i]);
@@ -719,7 +774,11 @@ fn run(
                 .map(|(j, &position)| motion::Neighbor {
                     position,
                     velocity: previous_velocities[j],
-                    responsibility: if routes[j].is_some() { 0.5 } else { 1.0 },
+                    responsibility: if routes[j].is_some() || escape_routes[j].is_some() {
+                        0.5
+                    } else {
+                        1.0
+                    },
                     horizon: 1.5,
                 })
                 .collect()
@@ -789,8 +848,8 @@ fn run(
                 }
                 continue;
             }
-            let route = routes[i].as_ref().unwrap();
-            let exit = *route.waypoints.last().unwrap();
+            let route = routes[i].as_ref();
+            let exit = route.map_or(waypoint, |route| *route.waypoints.last().unwrap());
             let neighbors: Vec<_> = before
                 .iter()
                 .enumerate()
@@ -798,7 +857,7 @@ fn run(
                 .map(|(j, &position)| motion::Neighbor {
                     position,
                     velocity: intents[j],
-                    responsibility: if routes[j].is_none() {
+                    responsibility: if routes[j].is_none() && escape_routes[j].is_none() {
                         1.0
                     } else if same_lane(i, j) && arrival_priority[i] {
                         0.05
@@ -807,10 +866,11 @@ fn run(
                     } else {
                         0.5
                     },
-                    horizon: if routes[j]
-                        .as_ref()
-                        .is_some_and(|other| other.exit_id == route.exit_id)
-                    {
+                    horizon: if route.is_some_and(|route| {
+                        routes[j]
+                            .as_ref()
+                            .is_some_and(|other| other.exit_id == route.exit_id)
+                    }) {
                         ((math::distance_to_point(before[i], exit)
                             .min(math::distance_to_point(position, exit)))
                             / motion::WALKING_SPEED
@@ -830,7 +890,7 @@ fn run(
                 velocity_limits[i].clone(),
             );
             if arrival_priority[i]
-                && next_waypoint[i] + 1 == route.waypoints.len()
+                && route.is_some_and(|route| next_waypoint[i] + 1 == route.waypoints.len())
                 && math::distance_to_point(before[i], exit)
                     <= 2.0 * scenario.agent_radius + movement_budget
                 && geometry.can_move(before[i], exit)
@@ -945,7 +1005,15 @@ fn run(
             if windows.controls(i) {
                 continue;
             }
-            let route = routes[i].as_ref().unwrap();
+            let Some(route) = routes[i].as_ref() else {
+                if math::distance_to_point(proposed[i], waypoint) <= math::EPSILON
+                    && let Some(waypoints) = &escape_routes[i]
+                {
+                    next_escape_waypoint[i] =
+                        (next_escape_waypoint[i] + 1).min(waypoints.len() - 1);
+                }
+                continue;
+            };
             if (tornado
                 && catastrophe::shelter_at(scenario, proposed[i], &shelter_admissions).is_some())
                 || (!tornado && geometry.at_exit(proposed[i], &route.exit_id))

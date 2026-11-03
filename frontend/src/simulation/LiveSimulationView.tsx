@@ -16,7 +16,11 @@ import { useStudioTheme } from "../styles/appearance";
 import { drawAgents } from "./drawPlayback";
 import { drawLayout } from "../editor/draw";
 import { canvasPalette } from "../styles/canvasPalette";
-import { trafficField, fieldPixels } from "../analytics/trafficField";
+import {
+  trafficField,
+  congestionPixels,
+  CONGESTION_RED_REFERENCE_SECONDS,
+} from "../analytics/trafficField";
 import { congestionBins } from "../analytics/traffic";
 import { frameCrowding } from "../analytics/crowding";
 
@@ -97,7 +101,10 @@ export function LiveSimulationView({
       if (ctx) {
         const pixels = ctx.createImageData(field.columns, field.rows);
         pixels.data.set(
-          fieldPixels({ ...field, peak: Math.max(4, field.peak) }),
+          congestionPixels(
+            field,
+            (live.frame?.step ?? 0) * building.time_step_seconds,
+          ),
         );
         ctx.putImageData(pixels, 0, 0);
       }
@@ -339,7 +346,7 @@ export function LiveSimulationView({
                   <p className="note">
                     {live.congestion_samples === undefined
                       ? "Congestion data is unavailable for this live run."
-                      : "The congestion overlay accumulates backend crowd-delay person-seconds while nearby people move slowly. Colors are relative to this run so far; this is a simplified simulation measure."}{" "}
+                      : `The overlay accumulates crowd delay since the run began, using simulated time. At least two nearby people must slow together to contribute. Larger queues and longer waits add more heat; freely moving traffic adds none. Red means ${CONGESTION_RED_REFERENCE_SECONDS}+ crowd-delay person-seconds in the smoothed area. This is a simplified simulation measure.`}{" "}
                     Rewind, replay and peak crowding snapshots are available
                     after the run.
                   </p>

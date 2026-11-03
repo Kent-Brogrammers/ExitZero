@@ -1,6 +1,11 @@
-[package]
-name = "exit-zero"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+members = ["backend", "crates/exitzero-core"]
+default-members = ["backend", "crates/exitzero-core"]
+resolver = "3"
 
-[dependencies]
+# Keep incremental builds and debug symbols while optimizing simulation code.
+[profile.dev.package.exitzero]
+opt-level = 2
+
+[profile.dev.package.exitzero-core]
+opt-level = 2

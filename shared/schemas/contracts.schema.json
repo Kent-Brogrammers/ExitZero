@@ -658,7 +658,8 @@
             "completed",
             "step_limit",
             "no_active_routes",
-            "movement_stagnation"
+            "movement_stagnation",
+            "all_shelters_full"
           ]
         },
         "status": {
@@ -1187,7 +1188,7 @@
           "type": "number",
           "minimum": 0,
           "maximum": 1000000000,
-          "description": "Sum of tick duration multiplied by walking-speed deficit for occupants with a nearby neighbour; an exploratory delay metric, not validated density."
+          "description": "Sum of tick duration multiplied by walking-speed deficit when an occupant and a visible nearby neighbour each lose at least 20% of walking speed; an exploratory delay metric, not validated density."
         }
       }
     },

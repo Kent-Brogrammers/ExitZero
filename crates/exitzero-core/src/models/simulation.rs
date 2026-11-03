@@ -121,8 +121,8 @@ pub struct TrafficSample {
     pub visits: u32,
 }
 
-/// Observed crowd-delay person-seconds at a world position. This is an
-/// illustrative crowding/slowdown measure, not a validated density estimate.
+/// Observed crowd-delay person-seconds for materially slowed occupants with a
+/// visibly slowed neighbor. This is illustrative delay, not validated density.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CongestionSample {
@@ -206,6 +206,7 @@ pub enum TerminationReason {
     StepLimit,
     NoActiveRoutes,
     MovementStagnation,
+    AllSheltersFull,
 }
 
 impl SimulationResult {

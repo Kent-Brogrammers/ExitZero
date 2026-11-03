@@ -682,8 +682,11 @@ mod tests {
     }
 
     fn scenario() -> BuildingScenario {
-        let mut b: BuildingScenario =
-            serde_json::from_str(include_str!("../../../shared/examples/building.json")).unwrap();
+        let mut b: BuildingScenario = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/examples/building.json"
+        )))
+        .unwrap();
         b.walls = vec![Wall {
             id: "north".into(),
             name: None,
@@ -1400,8 +1403,11 @@ mod tests {
 
     #[test]
     fn example_agents_do_not_learn_the_left_closure_from_behind_a_corner() {
-        let mut b: BuildingScenario =
-            serde_json::from_str(include_str!("../../../shared/examples/building.json")).unwrap();
+        let mut b: BuildingScenario = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/examples/building.json"
+        )))
+        .unwrap();
         b.blocked_exit_ids = vec!["west".into()];
         // Add a wall between the example's west spawn zone and west exit.
         // The wall joins the west boundary, forcing a detour at its right end.

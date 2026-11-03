@@ -1052,8 +1052,11 @@ mod real_integration {
 
     #[test]
     fn real_checked_in_example_optimization_matches_individually_measured_candidates() {
-        let building: BuildingScenario =
-            serde_json::from_str(include_str!("../../../shared/examples/building.json")).unwrap();
+        let building: BuildingScenario = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/examples/building.json"
+        )))
+        .unwrap();
         let result = audit(
             "checked-in example",
             &OptimizeRequest {

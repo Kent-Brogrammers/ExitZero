@@ -18,7 +18,11 @@ import { LiveSimulationView } from "./LiveSimulationView";
 import { createPlaybackRenderer, drawAgents } from "./drawPlayback";
 import { drawLayout } from "../editor/draw";
 import { canvasPalette } from "../styles/canvasPalette";
-import { trafficField, fieldPixels } from "../analytics/trafficField";
+import {
+  trafficField,
+  congestionPixels,
+  CONGESTION_RED_REFERENCE_SECONDS,
+} from "../analytics/trafficField";
 import { createRecordedTrails } from "./recordedTrails";
 import { frameIndexAtTime } from "./playback";
 import { useStudioTheme } from "../styles/appearance";
@@ -147,15 +151,6 @@ function Playback({
       recording && displayOptions.showTraffic
         ? createRecordedTrails(recording)
         : null;
-    const finalData =
-      recording && trailSampler
-        ? trailSampler(recording.frames.length - 1)
-        : null;
-    const finalPeak =
-      finalData && recording
-        ? trafficField(finalData, recording.width, recording.height, 0.6).peak
-        : 0;
-    trailSampler?.(0);
     const layer = document.createElement("canvas");
     let lastIndex = -1;
     const redraw = () => {
@@ -184,7 +179,13 @@ function Playback({
         const ctx = layer.getContext("2d");
         if (ctx) {
           const pixels = ctx.createImageData(field.columns, field.rows);
-          pixels.data.set(fieldPixels({ ...field, peak: finalPeak }));
+          pixels.data.set(
+            congestionPixels(
+              field,
+              (recording.frames[index]?.step ?? 0) *
+                recording.time_step_seconds,
+            ),
+          );
           ctx.putImageData(pixels, 0, 0);
         }
         lastIndex = index;
@@ -572,7 +573,7 @@ function Playback({
                   <p className="note">
                     {recording.congestion_samples === undefined
                       ? "Congestion data is unavailable for this recording. Rerun the simulation to measure crowd delay."
-                      : "Accumulates backend crowd-delay person-seconds as playback advances. Nearby people moving below walking speed add heat over simulated time. Pause freezes the map; reset clears it; seeking rebuilds it. Colors use a fixed scale for this recording."}
+                      : `Accumulates crowd delay through this point in simulated time. Larger queues and longer waits add more heat; freely moving traffic adds none. Colors use the same fixed scale across runs: red means ${CONGESTION_RED_REFERENCE_SECONDS}+ crowd-delay person-seconds in the smoothed area. Pause freezes the map; seeking rebuilds it.`}
                   </p>
                 </section>
               </SimulationDetails>

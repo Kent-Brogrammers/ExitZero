@@ -12,15 +12,14 @@ To start both servers from the repository root:
 ./dev.sh
 ```
 
-The script installs frontend dependencies if `node_modules` is missing. Press Ctrl+C to stop both servers; if either server exits, the other stops too. The backend development profile optimizes the app crate while retaining debug symbols and incremental compilation; dependencies keep their usual development settings.
+The script installs frontend dependencies if `node_modules` is missing. Press Ctrl+C to stop both servers; if either server exits, the other stops too. The workspace development profile optimizes the web host and shared simulation crate while retaining debug symbols and incremental compilation; other dependencies keep their usual development settings.
 
-To measure compute time independently of the live view's real-time pacing, run `cargo run --manifest-path backend/Cargo.toml --locked --example benchmark_simulation` from the repository root. This runs the checked-in example with 30 occupants three times. Pass an output JSON path after `--` to save the first result for before/after comparison.
+To measure compute time independently of the live view's real-time pacing, run `cargo run --locked -p exitzero --example benchmark_simulation` from the repository root. This runs the checked-in example with 30 occupants three times. Pass an output JSON path after `--` to save the first result for before/after comparison.
 
 To run them separately, in one terminal:
 
 ```sh
-cd backend
-cargo run --locked
+cargo run --locked -p exitzero --bin exitzero
 ```
 
 In another:
@@ -59,9 +58,9 @@ A congestion detour must remain materially better across repeated assessments be
 
 Exit routes target the usable span of each opening, with agent-radius and wall-thickness clearance at the jambs. People can approach different positions across a wide exit and evacuate side by side. Arrival is counted when an agent's centre reaches that span; narrow exits still require people to yield through ordinary crowd avoidance and collision checks. The exit plane applies equally to openings in horizontal, vertical, and angled walls, approached from either side.
 
-Choose **Emergency scenario** in the editor: baseline evacuation, fire, gas leak, or tornado. Use **Place hazard on plan** to position its origin and adjust the radius. The darker core and outer exposure ring are shown on the plan. Fire closes doors and exits whose openings intersect the exposure area, including at the start of a run. Gas leaves passages open: agents prefer routes clear of known gas or usable escape windows, then attempt a hazardous exit route if those options are unavailable. Exposure still accumulates injury and slows movement. Fire models a heat/smoke exposure area; gas uses a wider exposure footprint and a lower injury rate. Newly configured catastrophes enable spread or movement by default. Expand **Spread settings** or **Tornado movement settings** to tune the behavior or switch it off. Older layouts without dynamics retain their fixed footprints until enabled.
+Choose **Emergency scenario** in the editor: baseline evacuation, fire, gas leak, or tornado. Use **Place hazard on plan** to position its origin and adjust the radius. The darker core and outer exposure ring are shown on the plan. Fire closes doors and exits only when the darker burning core touches their opening, including at the start of a run. The lighter exposure ring can cause injury and affect route choices without physically closing a passage. Gas leaves passages open: agents prefer routes clear of known gas or usable escape windows, then attempt a hazardous exit route if those options are unavailable. Exposure still accumulates injury and slows movement. Fire models a heat/smoke exposure area; gas uses a wider exposure footprint and a lower injury rate. Newly configured catastrophes enable spread or movement by default. Expand **Spread settings** or **Tornado movement settings** to tune the behavior or switch it off. Older layouts without dynamics retain their fixed footprints until enabled.
 
-For a tornado, draw one or more **Tornado zones** outside the impact/exposure area. They are walkable shelter destinations, not obstacles. Select a zone and set **Maximum occupants** in Properties (1–10,000 people). Each zone's optional `max_occupants` defaults to 50, including in older layouts, and is preserved in saved JSON. The alarm directs people toward these zones rather than exits and announces when a shelter fills, triggering routes toward other available shelters. Admission follows deterministic agent order for simultaneous arrivals and never exceeds a shelter's maximum. If accessible shelter capacity is insufficient, the run remains incomplete with unsheltered occupants counted as remaining and no full-clearance time. Arrival is recorded as sheltered, separately from evacuated; population totals include both. Admission abstracts entry into safety rather than simulating people's positions inside the shelter; the configured maximum is not a validated capacity derived from floor area.
+For a tornado, draw one or more **Tornado zones** outside the impact/exposure area. They are walkable shelter destinations, not obstacles. Select a zone and set **Maximum occupants** in Properties (1–10,000 people). Each zone's optional `max_occupants` defaults to 50, including in older layouts, and is preserved in saved JSON. The alarm directs people toward these zones rather than exits and announces when a shelter fills, triggering routes toward other available shelters. Admission follows deterministic agent order for simultaneous arrivals and never exceeds a shelter's maximum. As soon as every shelter reaches its maximum, the run stops with `all_shelters_full`, even if people are still moving. If everyone has reached shelter, completion takes precedence. Otherwise the run is incomplete, with unsheltered occupants counted as remaining and no full-clearance time. A shelter with unused capacity does not trigger this stop; ordinary termination conditions still apply if it cannot be reached. Arrival is recorded as sheltered, separately from evacuated; population totals include both. Admission abstracts entry into safety rather than simulating people's positions inside the shelter; the configured maximum is not a validated capacity derived from floor area.
 
 The alarm sounds at the start of the run. Occupants know which response to take and know destination locations, but do not start with the hazard location. They discover danger through sight, physical exposure, or a nearby person's report, using the same visibility and one-hop communication rules as blocked openings. Discovered hazards add strong routing penalties and detour waypoints. Hazard footprints remain traversable so someone already inside can escape. Exposure is integrated over accepted movement and waiting time; injury accumulates gradually, lowers walking speed, and is displayed in orange/red. There are no deaths in this version. Injury levels and rates are illustrative simulation parameters, not medical or building-safety predictions.
 
@@ -162,12 +161,15 @@ frontend/src/
   services/            Developer 4: typed API client and integration tests
   types/               Shared TypeScript contracts and schema tests
   App.tsx              Shared dashboard integration
-backend/src/
-  api/                 Shared Axum routes and error mapping
+crates/exitzero-core/src/
   models/              Shared Rust contracts and validation
   simulation/          Connor: simulation engine
   stress_testing/      Nick: scenario generation and evaluation
   optimization/        Nick: candidate layout comparison
+backend/src/
+  api/                 Shared Axum routes and error mapping
+  lib.rs               Core compatibility re-exports and API module
+  main.rs              Web server executable
 backend/tests/         API and contract integration tests
 shared/
   schemas/             JSON Schema definitions for requests and responses
@@ -176,7 +178,11 @@ shared/
 
 Keep implementation changes inside your workstream. Review changes to `models/`, `types/`, schemas, examples, dependencies, and `App.tsx` together. Use branches such as `[name]/building-editor`, `[name]/simulation-engine`, `[name]/stress-testing`, and `[name]/analytics-integration`.
 
-The dependency direction is `api → feature modules → models`. Stress testing and optimization can call `simulation::simulate(&BuildingScenario) -> Result<SimulationResult, SimulationError>`. The simulation module does not depend on either feature module.
+Rust packages share the root Cargo workspace, `Cargo.lock`, and `target/` directory. `exitzero-core` contains the reusable computation and canonical Rust models; the `exitzero` package in `backend/` hosts the existing web API. Its compatibility re-exports preserve existing `exitzero::models` and `exitzero::simulation` imports. New Rust hosts can depend directly on `exitzero-core` and import `exitzero_core`.
+
+The dependency direction is `web API → core feature modules → core models`. Stress testing and optimization call `simulation::simulate(&BuildingScenario) -> Result<SimulationResult, SimulationError>` directly. The simulation module does not depend on either feature module. Core simulation functions run synchronously without an HTTP server; live pacing and worker admission remain in the web host.
+
+The extraction preserves the existing simulation loop and contracts. The proposed stateful `step()` API, navigation-library evaluation, and future desktop integration are documented in [the shared simulation library guide](docs/shared-simulation-library.md).
 
 ## API
 
@@ -207,7 +213,7 @@ The first two return the same health JSON; the last returns `200` with computed 
 
 ## Contracts
 
-`shared/schemas/contracts.schema.json` uses JSON Schema draft 7. Its root validates a building; `$defs` contains every named API contract. Rust types live in `backend/src/models/`; matching TypeScript interfaces live in `frontend/src/types/simulation.ts`. Shared fixture tests exercise the same JSON on both sides. Keep all three contract representations in sync.
+`shared/schemas/contracts.schema.json` uses JSON Schema draft 7. Its root validates a building; `$defs` contains every named API contract. Rust types live in `crates/exitzero-core/src/models/`; matching TypeScript interfaces live in `frontend/src/types/simulation.ts`. Shared fixture tests exercise the same JSON on both sides. Keep all three contract representations in sync.
 
 - Geometry uses finite, continuous metre coordinates: origin at the top left, x right, y down. Workspace extents are in `(0, 1000]` metres. There is no navigation grid or cell snapping. Element IDs are globally unique, nonblank strings of at most 64 characters.
 - Walls have `id`, `start: {x, y}`, `end: {x, y}`, and `thickness`. They can run at any angle, must be at least 0.1 m long, and have thickness in `(0, 2]` m. Endpoints lie within the workspace; the visible wall stroke extends half its thickness on each side of the centreline.
@@ -219,7 +225,7 @@ The first two return the same health JSON; the last returns `200` with computed 
 - JSON Schema validates shapes and numeric ranges, including draft layouts with no exits or occupants. The editor also checks geometric relationships. Rust computation validation requires at least one exit and one spawn zone and checks bounds, references, opening overlap, spawn areas, and obstruction geometry. The schema alone is insufficient for running a layout.
 - `evacuated + remaining = total_population`; `trapped` is a subset of `remaining`. `completed` requires zero remaining and non-null `clearance_steps`. `incomplete` and `timeout` require positive remaining and null clearance. Never interpret missing clearance as zero.
 - Frames contain `step` and `agents: [{id, x, y}]`, with continuous agent positions. Steps strictly increase and agent IDs are unique per frame. Playback can interpolate positions between frames using `time_step_seconds`. Result dimensions are metre extents. `traffic_samples: [{x, y, visits}]` retains legacy accumulated traffic counts.
-- Congestion heatmaps use optional `congestion_samples: [{x, y, crowd_delay_seconds}]`. Rust integrates every physics tick: each active occupant contributes `tick_seconds * clamp(1 - accepted_speed / walking_speed, 0, 1)` when another active occupant is within `max(1 metre, 4 * agent_radius)` and has a clear sight line. Contributions sum across occupants and time, in crowd-delay person-seconds. A lone stationary occupant and a freely flowing crowd produce no delay heat. Slow movement near others can have causes besides crowding; this is an exploratory congestion indicator, not validated density or a measured cause of delay. Display smoothing does not change source values; colors are relative to each run.
+- Congestion heatmaps use optional `congestion_samples: [{x, y, crowd_delay_seconds}]`. Rust integrates every physics tick: an active occupant and at least one visible active neighbor within `max(1 metre, 4 * agent_radius)` must each lose at least 20% of walking speed before their actual `tick_seconds * clamp(1 - accepted_speed / walking_speed, 0, 1)` deficits contribute. Contributions sum across people and time, in crowd-delay person-seconds: larger simultaneous backlogs and longer waits add more heat. A lone stalled occupant beside freely moving traffic produces none. Analytics, live viewing, playback, and export display accumulated crowd delay on a fixed scale from 0 to 20 crowd-delay person-seconds (red at 20 or more), without rescaling to each recording’s peak or dividing by the run duration. Two stopped occupants waiting ten seconds contribute twenty person-seconds; two occupants moving at half walking speed over the same interval contribute ten. Larger queues and longer waits add more heat, and subsequent quiet time preserves recorded delay. Playback uses only the samples through the displayed recorded frame; pauses, playback speed, and seeking never add delay. This color reference is an illustrative display choice, not a safety threshold. Smoothing does not change raw totals; initial acceleration, injury, and other factors can still cause coincident slowdown, so this is an exploratory delay indicator rather than validated density or a measured cause of delay. Earlier recordings retain their original recorded measurements.
 - A result's congestion samples cover the whole run. Each saved/live frame carries only increments since the previous frame in its own stream, starting empty at step zero. Playback and exports accumulate those increments, including the intervals between sampled frames. Live viewing accumulates every delivered increment before UI rendering. Older recordings without this field show congestion as unavailable; visits are never substituted for delay.
 - Stress results contain baseline metrics and scenario IDs, descriptions, additional blocker modifications, metrics, rank, and severity. Rank 1 is worst; ties may share a rank. Compare remaining occupants first, trapped occupants second, then clearance steps (null sorts worse than measured clearance). The shared `compare_severity` helper encodes that order. Severity labels are exploratory heuristics; incomplete runs remain distinct from measured full clearances.
 
@@ -247,7 +253,7 @@ The example is a 30×20 m workspace with angled and straight walls, two exits, t
 - **Undo/Redo** restores up to 50 edits. Canvas keyboard shortcuts: Delete/Backspace removes the selection, Escape cancels a gesture/selection, and Ctrl/Cmd+Z undoes (Shift redoes).
 - **New layout** creates an empty draft; **Load example** restores the sample. **Export JSON** saves the current layout locally; **Import JSON** loads a continuous-geometry layout under 2 MB. Draft layouts can be saved before exits and occupants are added. Layouts live in memory until exported.
 
-API requests use the current edited layout. Computation buttons remain disabled until it has exits, occupants, and valid geometry. Run Simulation records actual movement; Analytics shows its metrics and a world-coordinate congestion heatmap weighted by crowd-delay person-seconds. Stress Test compares independently modified layouts against its own baseline.
+API requests use the current edited layout. Computation buttons remain disabled until it has exits, occupants, and valid geometry. Run Simulation records actual movement; Analytics shows its metrics and a world-coordinate heatmap of accumulated crowd delay. Stress Test compares independently modified layouts against its own baseline.
 
 Optimize evaluates a bounded set of valid door/exit widenings. Compare the ranked metrics and preview candidate geometry before applying a layout. Applying clears previous simulation/stress results; Run Simulation then measures the applied layout. The comparison retains the original optimization baseline. An empty candidate list means no strict improvement was found within the budget.
 
@@ -256,11 +262,10 @@ Optimize evaluates a bounded set of valid door/exit widenings. Compare the ranke
 ## Verify
 
 ```sh
-cd backend
-cargo fmt --check
-cargo clippy --locked --all-targets -- -D warnings
-cargo test --locked
-cargo build --locked
+cargo fmt --all --check
+cargo clippy --workspace --locked --all-targets -- -D warnings
+cargo test --workspace --locked
+cargo build --release --locked -p exitzero --bin exitzero
 ```
 
 In `frontend/`:
@@ -269,7 +274,7 @@ In `frontend/`:
 npm run verify
 ```
 
-This checks formatting, ESLint, mocked API/schema tests, strict TypeScript, and the production build. `npm run typecheck`, `npm test`, and `npm run lint` also run separately. Format changes with `cargo fmt` and `npm run format`. Commit `Cargo.lock` and `package-lock.json` for reproducible installs. Build outputs and installed dependencies are ignored.
+This checks formatting, ESLint, mocked API/schema tests, strict TypeScript, and the production build. `npm run typecheck`, `npm test`, and `npm run lint` also run separately. Format changes with `cargo fmt --all` and `npm run format`. Commit the root `Cargo.lock` and frontend `package-lock.json` for reproducible installs. Build outputs and installed dependencies are ignored. Rust verification must include `--workspace` so that core unit tests run alongside the web host's integration tests; `cargo test --locked -p exitzero-core` can also test the core directly without a server.
 
 ## Simulation analytics handoff
 

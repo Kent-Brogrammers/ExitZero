@@ -721,9 +721,10 @@ mod tests {
     }
     #[test]
     fn house_frames_respect_swept_wall_furniture_and_survivor_collision() {
-        let b: BuildingScenario = serde_json::from_str(include_str!(
-            "../../../frontend/src/editor/presets/halloween-pursuit.json"
-        ))
+        let b: BuildingScenario = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../frontend/src/editor/presets/halloween-pursuit.json"
+        )))
         .unwrap();
         let result = super::super::simulate(&b).unwrap();
         for pair in result.frames.windows(2) {

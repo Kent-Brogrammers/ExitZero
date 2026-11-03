@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createExportRenderer } from "./exportRendering";
 import { createPlaybackRenderer, drawAgents } from "./drawPlayback";
 import { drawLayout } from "../editor/draw";
+import { congestionBins } from "../analytics/traffic";
+import { congestionPixels, trafficField } from "../analytics/trafficField";
 import {
   syntheticBuilding as building,
   syntheticResult as result,
@@ -27,6 +29,44 @@ function fixture() {
 }
 beforeEach(() => vi.clearAllMocks());
 describe("independent export rendering", () => {
+  it("accumulates sparse intervals without losing resolved queues and matches analytics at the end", () => {
+    const totals = [{ x: 1, y: 1.5, crowd_delay_seconds: 10 }];
+    const recording = {
+      ...result,
+      time_step_seconds: 0.2,
+      clearance_steps: 100,
+      congestion_samples: totals,
+      frames: [
+        { ...result.frames[0]!, step: 0, congestion_samples: [] },
+        { ...result.frames[1]!, step: 50, congestion_samples: totals },
+        { ...result.frames.at(-1)!, step: 100, congestion_samples: [] },
+      ],
+    };
+    const before = structuredClone(recording);
+    const { canvas, context } = fixture();
+    const draw = createExportRenderer(canvas, building, recording, {
+      resolution: 720,
+      includeHeatmap: true,
+      showAgentNumbers: false,
+    });
+    const pixels = () =>
+      (context.putImageData.mock.lastCall![0] as { data: Uint8ClampedArray })
+        .data;
+    const field = trafficField(congestionBins(totals, 4, 3), 4, 3, 0.6);
+    draw(10);
+    expect(pixels()).toEqual(congestionPixels(field, 10));
+    const earlier = pixels().slice();
+    draw(19); // Same recorded interval: interpolation/redraw adds no samples.
+    expect(context.putImageData).toHaveBeenCalledTimes(1);
+    draw(20); // Quiet time preserves the measured queue delay.
+    expect(pixels()).toEqual(congestionPixels(field, 20));
+    expect(pixels()).toEqual(earlier);
+    draw(10);
+    expect(pixels()).toEqual(earlier);
+    draw(0);
+    expect(pixels().every((v) => v === 0)).toBe(true);
+    expect(recording).toEqual(before);
+  });
   it("samples recorded IDs at simulation timestamps, honors numbers without heatmap, and never changes frames", () => {
     const { canvas, context } = fixture(),
       render = vi.fn(),
@@ -81,6 +121,12 @@ describe("independent export rendering", () => {
       data: Uint8ClampedArray;
     };
     expect(nextPixels.data.some((v) => v > 0)).toBe(true);
+    const alpha = nextPixels.data.filter((_, index) => index % 4 === 3);
+    expect(Math.max(...alpha)).toBeLessThan(100);
+    for (let i = 0; i < nextPixels.data.length; i += 4) {
+      if (nextPixels.data[i + 3]! > 0)
+        expect(nextPixels.data[i + 2]).toBeGreaterThan(nextPixels.data[i]!);
+    }
     draw(1.25); // Interpolated movement never adds congestion.
     expect(context.putImageData).toHaveBeenCalledTimes(2);
     draw(0);

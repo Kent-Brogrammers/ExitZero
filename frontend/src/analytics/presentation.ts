@@ -24,6 +24,8 @@ export function outcomeExplanation(
     return "All occupants evacuated. Clearance was measured for this run.";
   if (metrics.status === "timeout")
     return "The simulation reached its step limit with occupants still inside. No full-evacuation clearance was measured.";
+  if (reason === "all_shelters_full")
+    return `All tornado shelters reached their maximum capacity. Unsheltered occupants remaining: ${metrics.remaining}. No complete clearance was measured.`;
   if (reason === "no_active_routes")
     return "The engine ended because no remaining occupant had an active route and no pending change could restart routing. This does not prove that every remaining occupant is physically trapped. No complete clearance was measured.";
   if (reason === "movement_stagnation")

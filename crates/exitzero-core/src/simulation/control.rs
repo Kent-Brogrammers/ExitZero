@@ -40,7 +40,11 @@ impl ComputationControl {
     pub fn progress(&self) -> ComputationProgress {
         self.progress.lock().unwrap().clone()
     }
-    pub(crate) async fn cancellation(&self) {
+    /// Wait for cancellation while a host is admitting this computation.
+    ///
+    /// A handle supports one admission waiter. Synchronous computation should
+    /// use `run` and the cooperative checks already inside the engine instead.
+    pub async fn cancellation(&self) {
         loop {
             let notified = self.notification.notified();
             if self.is_cancelled() {
@@ -110,8 +114,11 @@ mod tests {
     use super::*;
     #[test]
     fn cancellation_during_real_physics_is_not_success_and_does_not_leak() {
-        let building =
-            serde_json::from_str(include_str!("../../../shared/examples/building.json")).unwrap();
+        let building = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/examples/building.json"
+        )))
+        .unwrap();
         let control = Arc::new(ComputationControl::default());
         let result = control.run(|| {
             super::super::simulate_live(&building, &mut |frame| {

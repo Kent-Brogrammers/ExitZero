@@ -370,6 +370,75 @@ impl VisibilityGraph {
 }
 
 impl Navigation {
+    /// Seek clear floor when no evacuation destination is currently usable.
+    /// These waypoints are movement guidance only, never an exit or shelter.
+    pub(super) fn find_escape_route(
+        &self,
+        from: Point,
+        geometry: &Geometry<'_>,
+    ) -> Option<Vec<Point>> {
+        if geometry
+            .disaster
+            .is_none_or(|d| d.kind == crate::models::DisasterKind::Tornado)
+            || !geometry.is_in_known_danger(from)
+            || !geometry.can_stand_at(from)
+        {
+            return None;
+        }
+        let forecast = CrowdForecast::for_geometry(geometry);
+        let mut distances = vec![f64::INFINITY; self.graph.points.len()];
+        let mut previous = vec![None; self.graph.points.len()];
+        let mut queue = BinaryHeap::new();
+        for (node, &point) in self.graph.points.iter().enumerate() {
+            if geometry.can_move_between_standable(from, point) {
+                let distance = math::distance_to_point(from, point)
+                    + forecast.cost(from, point, self.graph.agent_radius);
+                distances[node] = distance;
+                queue.push(SearchState { node, distance });
+            }
+        }
+        // Permit movement within the initial exposure area: requiring every
+        // edge to move away from every overlapping patch can trap its occupant.
+        // Hazard-weighted costs favor a short escape, while all edges retain
+        // the same exact wall and obstruction checks as ordinary navigation.
+        while let Some(SearchState { node, distance }) = queue.pop() {
+            if super::control::cancelled() {
+                return None;
+            }
+            if distance > distances[node] {
+                continue;
+            }
+            if !geometry.is_in_known_danger(self.graph.points[node]) {
+                let mut waypoints = Vec::new();
+                let mut cursor = Some(node);
+                while let Some(index) = cursor {
+                    waypoints.push(self.graph.points[index]);
+                    cursor = previous[index];
+                }
+                waypoints.reverse();
+                return Some(waypoints);
+            }
+            for edge in &self.graph.connections[node] {
+                let candidate = distance
+                    + edge.distance
+                    + forecast.cost(
+                        self.graph.points[node],
+                        self.graph.points[edge.to],
+                        self.graph.agent_radius,
+                    );
+                if candidate < distances[edge.to] {
+                    distances[edge.to] = candidate;
+                    previous[edge.to] = Some(node);
+                    queue.push(SearchState {
+                        node: edge.to,
+                        distance: candidate,
+                    });
+                }
+            }
+        }
+        None
+    }
+
     /// Shortest route through the sampled visibility graph. None means no
     /// route was found with these waypoints, not proof of physical entrapment.
     /// Use the same unchanged scenario for this graph and the supplied Geometry.
@@ -586,7 +655,100 @@ mod reuse_tests {
     use super::*;
 
     fn scenario() -> BuildingScenario {
-        serde_json::from_str(include_str!("../../../shared/examples/building.json")).unwrap()
+        serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/examples/building.json"
+        )))
+        .unwrap()
+    }
+
+    fn escape_scenario() -> BuildingScenario {
+        let mut scenario = scenario();
+        scenario.width = 20.0;
+        scenario.height = 20.0;
+        scenario.walls.clear();
+        scenario.doors.clear();
+        scenario.exits.clear();
+        scenario.obstructions.clear();
+        scenario.blocked_exit_ids.clear();
+        scenario.disaster = Some(crate::models::Disaster {
+            kind: crate::models::DisasterKind::Fire,
+            center: Point { x: 10.0, y: 10.0 },
+            radius: 2.0,
+            dynamics: None,
+        });
+        scenario
+    }
+
+    #[test]
+    fn local_escape_finds_clear_floor_without_any_evacuation_goal() {
+        let scenario = escape_scenario();
+        let mut geometry = Geometry::new(&scenario);
+        let from = scenario.disaster.unwrap().center;
+        geometry.hazard_areas = (0..3)
+            .map(|id| {
+                let angle = f64::from(id) * std::f64::consts::TAU / 3.0;
+                crate::models::HazardArea {
+                    id,
+                    revision: 0,
+                    center: Point {
+                        x: from.x + angle.cos(),
+                        y: from.y + angle.sin(),
+                    },
+                    radius: 2.0,
+                }
+            })
+            .collect();
+        let navigation = Navigation::new(&scenario, &geometry);
+        assert!(navigation.find_route(from, &geometry).is_none());
+        let escape = navigation.find_escape_route(from, &geometry).unwrap();
+        let mut start = from;
+        for &end in &escape {
+            assert!(geometry.can_move(start, end));
+            start = end;
+        }
+        assert!(!geometry.is_in_known_danger(start));
+        assert!(navigation.find_escape_route(start, &geometry).is_none());
+    }
+
+    #[test]
+    fn local_escape_routes_around_solid_walls_instead_of_crossing_them() {
+        let mut scenario = escape_scenario();
+        scenario.width = 12.0;
+        scenario.height = 6.0;
+        scenario.disaster.as_mut().unwrap().center = Point { x: 2.0, y: 3.0 };
+        scenario.disaster.as_mut().unwrap().radius = 3.0;
+        scenario.walls.push(crate::models::Wall {
+            id: "partition".into(),
+            name: None,
+            start: Point { x: 5.0, y: 0.0 },
+            end: Point { x: 5.0, y: 4.5 },
+            thickness: 0.2,
+        });
+        let geometry = Geometry::new(&scenario);
+        let navigation = Navigation::new(&scenario, &geometry);
+        let from = scenario.disaster.unwrap().center;
+        let escape = navigation.find_escape_route(from, &geometry).unwrap();
+        assert!(escape.len() > 1, "escape must turn around the wall");
+        let mut start = from;
+        for &end in &escape {
+            assert!(geometry.can_move(start, end), "{start:?} -> {end:?}");
+            start = end;
+        }
+        assert!(!geometry.is_in_known_danger(start));
+    }
+
+    #[test]
+    fn local_escape_does_not_invent_clear_floor_in_an_engulfed_workspace() {
+        let mut scenario = escape_scenario();
+        scenario.disaster.as_mut().unwrap().radius = 100.0;
+        let geometry = Geometry::new(&scenario);
+        let navigation = Navigation::new(&scenario, &geometry);
+        assert!(
+            navigation
+                .find_escape_route(scenario.disaster.unwrap().center, &geometry)
+                .is_none()
+        );
     }
 
     fn assert_clear_route(from: Point, route: &Route, target: Point, geometry: &Geometry<'_>) {
@@ -678,9 +840,18 @@ mod reuse_tests {
     #[test]
     fn reused_point_graph_matches_or_improves_original_point_specific_routes() {
         for json in [
-            include_str!("../../../shared/examples/building.json"),
-            include_str!("../../../frontend/src/editor/presets/corporate-office.json"),
-            include_str!("../../../frontend/src/editor/presets/halloween-pursuit.json"),
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../shared/examples/building.json"
+            )),
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../frontend/src/editor/presets/corporate-office.json"
+            )),
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../frontend/src/editor/presets/halloween-pursuit.json"
+            )),
         ] {
             let scenario: BuildingScenario = serde_json::from_str(json).unwrap();
             let geometry = Geometry::new(&scenario);

@@ -5,6 +5,9 @@ use std::collections::BTreeMap;
 
 type Samples = BTreeMap<(u32, u32), CongestionSample>;
 
+// Ignore ordinary speed variation; this is an illustrative queue criterion.
+const MIN_SPEED_DEFICIT: f64 = 0.2;
+
 #[derive(Default)]
 pub(super) struct Heatmap {
     total: Samples,
@@ -13,10 +16,10 @@ pub(super) struct Heatmap {
 }
 
 impl Heatmap {
-    /// Delay is the fraction of a normal walking tick lost while another active
-    /// occupant is within the local neighborhood and on the same visible side
-    /// of static geometry. This measures coincident crowding and slowdown; it
-    /// does not claim that crowding caused every lost second.
+    /// Add each person's actual walking-time deficit only when both they and a
+    /// visible neighbor are materially slowed. Contributions remain additive
+    /// person-seconds: a larger simultaneous backlog adds more delay, without
+    /// multiplying the same person's lost time by their neighbor count.
     pub(super) fn record(
         &mut self,
         scenario: &BuildingScenario,
@@ -27,6 +30,23 @@ impl Heatmap {
         walking_speed: f64,
     ) {
         let radius = 1.0_f64.max(4.0 * scenario.agent_radius);
+        let delays: Vec<_> = agents
+            .iter()
+            .enumerate()
+            .map(|(i, agent)| {
+                if inactive[i] {
+                    return 0.0;
+                }
+                scenario.time_step_seconds
+                    * (1.0
+                        - math::distance_to_point(before[i], agent.position)
+                            / (walking_speed * scenario.time_step_seconds))
+                        .clamp(0.0, 1.0)
+            })
+            .collect();
+        // A small tolerance keeps the exact cutoff stable under roundoff.
+        let delayed =
+            |i: usize| delays[i] >= scenario.time_step_seconds * (MIN_SPEED_DEFICIT - 1e-9);
         let mut neighbors: BTreeMap<(i32, i32), Vec<usize>> = BTreeMap::new();
         let cell = |point: Point| {
             (
@@ -34,21 +54,13 @@ impl Heatmap {
                 (point.y / radius).floor() as i32,
             )
         };
-        for (i, agent) in agents.iter().enumerate().filter(|(i, _)| !inactive[*i]) {
+        for (i, agent) in agents.iter().enumerate().filter(|(i, _)| delayed(*i)) {
             neighbors.entry(cell(agent.position)).or_default().push(i);
         }
         // Aggregation is for display only and never changes navigation.
         let bucket = scenario.width.max(scenario.height) / 128.0;
-        for (i, agent) in agents.iter().enumerate().filter(|(i, _)| !inactive[*i]) {
-            let delay = scenario.time_step_seconds
-                * (1.0
-                    - math::distance_to_point(before[i], agent.position)
-                        / (walking_speed * scenario.time_step_seconds))
-                    .clamp(0.0, 1.0);
-            // Avoid a false free-flow signal from floating-point roundoff.
-            if delay <= scenario.time_step_seconds * 1e-9 {
-                continue;
-            }
+        for (i, agent) in agents.iter().enumerate().filter(|(i, _)| delayed(*i)) {
+            let delay = delays[i];
             let (col, row) = cell(agent.position);
             let crowded = (-1..=1).any(|dy| {
                 (-1..=1).any(|dx| {
@@ -110,8 +122,11 @@ mod tests {
     use crate::models::Wall;
 
     fn scenario() -> BuildingScenario {
-        let mut scenario: BuildingScenario =
-            serde_json::from_str(include_str!("../../../shared/examples/building.json")).unwrap();
+        let mut scenario: BuildingScenario = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/examples/building.json"
+        )))
+        .unwrap();
         scenario.width = 10.0;
         scenario.height = 10.0;
         scenario.agent_radius = 0.2;
@@ -173,6 +188,76 @@ mod tests {
         // A departed occupant no longer makes the remaining person crowded.
         map.record(&scenario, &before, &queued, &[false, true], &geometry, 1.3);
         assert_eq!(total(map.saved()), 0.0);
+    }
+
+    #[test]
+    fn a_lone_stalled_person_beside_free_flow_does_not_register_a_backlog() {
+        let scenario = scenario();
+        let geometry = Geometry::new(&scenario);
+        let agents = people(&[2.0, 2.6, 3.2]);
+        let before = [
+            agents[0].position,
+            Point { x: 2.47, y: 2.0 },
+            Point { x: 3.07, y: 2.0 },
+        ];
+        let mut map = Heatmap::default();
+        // Half a second stalled at a door while other people pass by.
+        for _ in 0..5 {
+            map.record(&scenario, &before, &agents, &[false; 3], &geometry, 1.3);
+        }
+        assert_eq!(total(map.total()), 0.0);
+    }
+
+    #[test]
+    fn larger_simultaneous_backlogs_add_proportionally_more_person_seconds() {
+        let scenario = scenario();
+        let geometry = Geometry::new(&scenario);
+        let measure = |count: usize| {
+            // Nonoverlapping occupants in one visible local area.
+            let agents: Vec<_> = [
+                Point { x: 2.0, y: 2.0 },
+                Point { x: 2.5, y: 2.0 },
+                Point { x: 2.0, y: 2.5 },
+                Point { x: 2.5, y: 2.5 },
+            ]
+            .into_iter()
+            .take(count)
+            .enumerate()
+            .map(|(id, point)| Agent::new(id as u32, point))
+            .collect();
+            let before: Vec<_> = agents.iter().map(|agent| agent.position).collect();
+            let mut map = Heatmap::default();
+            for _ in 0..5 {
+                map.record(
+                    &scenario,
+                    &before,
+                    &agents,
+                    &vec![false; count],
+                    &geometry,
+                    1.3,
+                );
+            }
+            total(map.total())
+        };
+        assert_eq!(measure(1), 0.0);
+        assert!((measure(2) - 1.0).abs() < 1e-10);
+        assert!((measure(4) - 2.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn ordinary_speed_variation_is_not_a_backlog_but_the_cutoff_keeps_actual_delay() {
+        let scenario = scenario();
+        let geometry = Geometry::new(&scenario);
+        let before = [Point { x: 2.0, y: 2.0 }, Point { x: 2.6, y: 2.0 }];
+        for (speed_fraction, expected) in [(0.9, 0.0), (0.8, 0.04), (0.5, 0.1)] {
+            let agents = people(&[
+                before[0].x + 1.3 * scenario.time_step_seconds * speed_fraction,
+                before[1].x + 1.3 * scenario.time_step_seconds * speed_fraction,
+            ]);
+            let mut map = Heatmap::default();
+            map.record(&scenario, &before, &agents, &[false; 2], &geometry, 1.3);
+            assert!((total(map.total()) - expected).abs() < 1e-10);
+        }
     }
 
     #[test]

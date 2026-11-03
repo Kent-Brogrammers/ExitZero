@@ -148,8 +148,175 @@ fn danger_avoiding_routes_allow_outward_escape_but_reject_entry_and_inward_cross
     let geometry = Geometry::new(&scenario);
     assert!(!geometry.avoids_known_danger(Point { x: 2.0, y: 5.0 }, Point { x: 8.0, y: 5.0 }));
     assert!(!geometry.avoids_known_danger(Point { x: 5.5, y: 5.0 }, Point { x: 4.0, y: 5.0 }));
+    assert!(!geometry.avoids_known_danger(Point { x: 5.5, y: 5.0 }, Point { x: 2.0, y: 5.0 }));
     assert!(geometry.avoids_known_danger(Point { x: 5.0, y: 5.0 }, Point { x: 8.0, y: 5.0 }));
     assert!(geometry.avoids_known_danger(Point { x: 5.5, y: 5.0 }, Point { x: 8.0, y: 5.0 }));
+}
+
+#[test]
+fn overlapping_fire_patches_allow_escape_without_reentry_into_separate_danger() {
+    use crate::models::{Disaster, DisasterKind, HazardArea};
+    let mut scenario = room();
+    scenario.disaster = Some(Disaster {
+        kind: DisasterKind::Fire,
+        center: Point { x: 5.5, y: 5.0 },
+        radius: 0.5,
+        dynamics: None,
+    });
+    let mut geometry = Geometry::new(&scenario);
+    geometry.hazard_areas = [
+        Point { x: 5.5, y: 5.0 },
+        Point { x: 4.75, y: 5.433 },
+        Point { x: 4.75, y: 4.567 },
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(id, center)| HazardArea {
+        id: id as u32,
+        revision: 0,
+        center,
+        radius: 0.5,
+    })
+    .collect();
+    let from = Point { x: 5.0, y: 5.0 };
+    let clear = Point { x: 5.0, y: 2.0 };
+    assert!(geometry.is_in_known_danger(from));
+    assert!(geometry.avoids_known_danger(from, clear));
+    assert!(!geometry.avoids_known_danger(clear, from));
+    let route = Navigation::new(&scenario, &geometry)
+        .find_route_avoiding_danger(from, &geometry)
+        .expect("overlapping exposure must not rule out every escape direction");
+    let mut previous = from;
+    for point in route.waypoints {
+        assert!(geometry.can_move(previous, point));
+        assert!(geometry.avoids_known_danger(previous, point));
+        previous = point;
+    }
+    assert!(!geometry.is_in_known_danger(previous));
+
+    geometry.hazard_areas.push(HazardArea {
+        id: 3,
+        revision: 0,
+        center: Point { x: 5.0, y: 0.8 },
+        radius: 0.25,
+    });
+    assert!(geometry.avoids_known_danger(from, clear));
+    assert!(
+        !geometry.avoids_known_danger(from, Point { x: 5.0, y: 0.0 }),
+        "escape cannot leave one fire and cross a separate fire"
+    );
+}
+
+#[test]
+fn fire_exposure_ring_keeps_an_exit_available_until_core_contact() {
+    let mut scenario = room();
+    scenario.disaster = Some(crate::models::Disaster {
+        kind: crate::models::DisasterKind::Fire,
+        center: Point { x: 5.0, y: 1.4 },
+        radius: 1.0,
+        dynamics: None,
+    });
+    let geometry = Geometry::new(&scenario);
+    assert!(geometry.opening_is_unsafe("north_exit"));
+    assert!(geometry.exit_segment("north_exit").is_some());
+    assert!(
+        Navigation::new(&scenario, &geometry)
+            .find_route(Point { x: 5.0, y: 5.0 }, &geometry)
+            .is_some()
+    );
+    scenario.disaster.as_mut().unwrap().center.y = 1.0;
+    assert!(
+        Geometry::new(&scenario)
+            .exit_segment("north_exit")
+            .is_none()
+    );
+}
+
+#[test]
+fn exposed_people_seek_clear_floor_when_all_exits_are_blocked() {
+    for kind in [
+        crate::models::DisasterKind::Fire,
+        crate::models::DisasterKind::GasLeak,
+    ] {
+        let mut scenario = room();
+        scenario.spawn_zones = vec![pinned_zone("inside", 5.0, 5.0)];
+        scenario.blocked_exit_ids = vec!["north_exit".into()];
+        scenario.awareness.sight_range_metres = 30.0;
+        scenario.disaster = Some(crate::models::Disaster {
+            kind,
+            center: Point { x: 5.0, y: 5.0 },
+            radius: 1.0,
+            dynamics: None,
+        });
+        let result = simulate(&scenario).unwrap();
+        result.validate().unwrap();
+        let last = &result.frames.last().unwrap().agents[0];
+        assert!(
+            !Geometry::new(&scenario).is_in_known_danger(Point {
+                x: last.x,
+                y: last.y
+            }),
+            "{kind:?}: person should leave exposure even without an evacuation route"
+        );
+        assert_eq!(result.metrics.evacuated, 0);
+        assert_eq!(result.metrics.remaining, 1);
+        assert_ne!(result.metrics.status, SimulationStatus::Completed);
+        assert!(result.metrics.clearance_steps.is_none());
+        assert_collision_free(&scenario, &result);
+        assert_eq!(
+            serde_json::to_value(&result).unwrap(),
+            serde_json::to_value(simulate(&scenario).unwrap()).unwrap()
+        );
+    }
+}
+
+#[test]
+fn escaping_fire_locally_does_not_prevent_using_an_exit_that_reopens() {
+    let mut scenario = room();
+    scenario.spawn_zones = vec![pinned_zone("inside", 5.0, 5.0)];
+    scenario.blocked_exit_ids = vec!["north_exit".into()];
+    scenario.awareness.sight_range_metres = 30.0;
+    scenario
+        .opening_events
+        .push(crate::models::OpeningStateChange {
+            step: 80,
+            opening_id: "north_exit".into(),
+            blocked: false,
+        });
+    scenario.disaster = Some(crate::models::Disaster {
+        kind: crate::models::DisasterKind::Fire,
+        center: Point { x: 5.0, y: 5.0 },
+        radius: 1.0,
+        dynamics: None,
+    });
+    let result = simulate(&scenario).unwrap();
+    result.validate().unwrap();
+    assert_eq!(result.metrics.status, SimulationStatus::Completed);
+    assert_eq!(result.metrics.evacuated, 1);
+    assert_eq!(result.metrics.remaining, 0);
+    for frame in &result.frames {
+        let geometry = Geometry::with_blocked_openings(
+            &scenario,
+            &[],
+            frame
+                .blocked_opening_ids
+                .as_ref()
+                .unwrap()
+                .iter()
+                .cloned()
+                .collect(),
+        );
+        for agent in &frame.agents {
+            assert!(geometry.can_stand_at(Point {
+                x: agent.x,
+                y: agent.y
+            }));
+        }
+    }
+    // The general swept-path helper uses a fixed layout; the frame checks
+    // above additionally enforce the initially closed opening until it reopens.
+    scenario.blocked_exit_ids.clear();
+    assert_collision_free(&scenario, &result);
 }
 
 #[test]
@@ -203,8 +370,11 @@ fn an_unknown_exit_state_does_not_change_distant_crowd_guidance() {
 
 #[test]
 fn a_wall_covering_the_example_exit_is_not_known_at_spawn() {
-    let mut open: BuildingScenario =
-        serde_json::from_str(include_str!("../../../shared/examples/building.json")).unwrap();
+    let mut open: BuildingScenario = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../shared/examples/building.json"
+    )))
+    .unwrap();
     open.awareness.sight_range_metres = 0.0;
     open.awareness.communication_range_metres = 0.0;
     open.max_steps = 2;
@@ -878,8 +1048,11 @@ fn diagonal_exit_targets_respect_wall_geometry() {
 
 #[test]
 fn sample_opening_changes_preserve_spawning_by_id() {
-    let scenario: BuildingScenario =
-        serde_json::from_str(include_str!("../../../shared/examples/building.json")).unwrap();
+    let scenario: BuildingScenario = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../shared/examples/building.json"
+    )))
+    .unwrap();
     let baseline = simulate(&scenario).unwrap();
     let mut changed = scenario.clone();
     changed.exits[0].width += 0.5;
@@ -1883,6 +2056,10 @@ fn full_shelters_force_rerouting_and_live_runs_preserve_deterministic_admissions
     let result = simulate(&scenario).unwrap();
     assert_collision_free(&scenario, &result);
     assert_eq!(result.metrics.status, SimulationStatus::Completed);
+    assert!(matches!(
+        result.termination_reason,
+        Some(crate::models::TerminationReason::Completed)
+    ));
     assert_eq!(result.metrics.sheltered, 3);
     assert_eq!(result.metrics.evacuated, 0);
     let agents = &result.analytics.as_ref().unwrap().agents;
@@ -1920,6 +2097,11 @@ fn simultaneous_shelter_arrivals_never_overbook_and_overflow_stays_remaining() {
     let result = simulate(&scenario).unwrap();
     assert_collision_free(&scenario, &result);
     assert_eq!(result.metrics.status, SimulationStatus::Incomplete);
+    assert!(matches!(
+        result.termination_reason,
+        Some(crate::models::TerminationReason::AllSheltersFull)
+    ));
+    assert_eq!(result.frames.last().unwrap().step, 1);
     assert_eq!(result.metrics.sheltered, 1);
     assert_eq!(result.metrics.evacuated, 0);
     assert_eq!(result.metrics.remaining, 2);
@@ -1939,6 +2121,76 @@ fn simultaneous_shelter_arrivals_never_overbook_and_overflow_stays_remaining() {
             .iter()
             .all(|frame| frame.sheltered.unwrap_or(0) <= 1)
     );
+}
+
+#[test]
+fn all_shelters_full_stops_moving_occupants_and_emits_the_final_live_frame() {
+    use crate::models::TerminationReason;
+    // Also check capacity exhaustion on the last allowed tick: this is not a timeout.
+    for max_steps in [1, 1000] {
+        let mut scenario = limited_shelters();
+        scenario.max_steps = max_steps;
+        scenario.tornado_zones[1].max_occupants = Some(1);
+        scenario.spawn_zones = vec![
+            pinned_zone("near_arrival", 2.0, 7.0),
+            pinned_zone("far_arrival", 8.0, 7.0),
+            pinned_zone("still_walking", 4.5, 7.0),
+        ];
+        let result = simulate(&scenario).unwrap();
+        result.validate().unwrap();
+        assert_collision_free(&scenario, &result);
+        assert_eq!(result.metrics.status, SimulationStatus::Incomplete);
+        assert!(matches!(
+            result.termination_reason,
+            Some(TerminationReason::AllSheltersFull)
+        ));
+        assert_eq!(result.metrics.sheltered, 2);
+        assert_eq!(result.metrics.evacuated, 0);
+        assert_eq!(result.metrics.remaining, 1);
+        assert_eq!(result.metrics.trapped, 0);
+        assert!(result.metrics.clearance_steps.is_none());
+        let last = result.frames.last().unwrap();
+        assert_eq!(last.step, 1);
+        assert_eq!(last.sheltered, Some(2));
+        assert_eq!(last.agents.len(), 1);
+        let walker = &result.analytics.as_ref().unwrap().agents[2];
+        assert!(walker.distance_metres > 0.0);
+        assert!(walker.route_found);
+        assert!(walker.shelter.is_none());
+        assert_eq!(walker.elapsed_seconds, scenario.time_step_seconds);
+
+        let mut observed = Vec::new();
+        let live = super::simulate_live(&scenario, &mut |frame| {
+            observed.push(frame.clone());
+            true
+        })
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(&live).unwrap(),
+            serde_json::to_value(&result).unwrap()
+        );
+        assert_eq!(
+            serde_json::to_value(observed.last().unwrap()).unwrap(),
+            serde_json::to_value(last).unwrap()
+        );
+        let json = serde_json::to_value(&result).unwrap();
+        assert_eq!(json["termination_reason"], "all_shelters_full");
+        serde_json::from_value::<SimulationResult>(json)
+            .unwrap()
+            .validate()
+            .unwrap();
+    }
+}
+
+#[test]
+fn shelter_capacity_does_not_end_non_tornado_evacuation() {
+    let mut scenario = limited_shelters();
+    scenario.disaster = None;
+    let result = simulate(&scenario).unwrap();
+    result.validate().unwrap();
+    assert_eq!(result.metrics.status, SimulationStatus::Completed);
+    assert_eq!(result.metrics.sheltered, 0);
+    assert_eq!(result.metrics.evacuated, 3);
 }
 
 #[test]

@@ -31,7 +31,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 echo "Starting backend..."
-(cd "$project_dir/backend" && exec cargo run --locked) &
+(cd "$project_dir" && exec cargo run --locked -p exitzero --bin exitzero) &
 server_pids+=("$!")
 
 echo "Starting frontend..."

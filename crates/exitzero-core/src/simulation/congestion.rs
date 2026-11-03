@@ -311,8 +311,11 @@ mod tests {
     use crate::models::BuildingScenario;
 
     fn open_space() -> BuildingScenario {
-        let mut scenario: BuildingScenario =
-            serde_json::from_str(include_str!("../../../shared/examples/building.json")).unwrap();
+        let mut scenario: BuildingScenario = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/examples/building.json"
+        )))
+        .unwrap();
         scenario.walls.clear();
         scenario.doors.clear();
         scenario.exits.clear();
