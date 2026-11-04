@@ -115,6 +115,12 @@ pub struct SpawnZone {
         deserialize_with = "super::windows::present",
         skip_serializing_if = "Option::is_none"
     )]
+    pub modifier_groups: Option<Vec<super::AgentModifierGroup>>,
+    #[serde(
+        default,
+        deserialize_with = "super::windows::present",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub polygon: Option<Vec<Point>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub holes: Vec<Vec<Point>>,
@@ -124,6 +130,8 @@ pub struct SpawnZone {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PlacedOccupant {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub modifier_ids: Vec<String>,
     pub id: String,
     #[serde(
         default,
@@ -168,6 +176,28 @@ where
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BuildingScenario {
+    #[serde(
+        default,
+        deserialize_with = "super::windows::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub personality_fraction: Option<f64>,
+    /// When present, choose one allowed modifier per occupant at spawn. Empty means neutral.
+    #[serde(
+        default,
+        deserialize_with = "super::windows::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub spawn_modifier_ids: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agent_modifiers: Vec<super::AgentModifier>,
+    /// Fractional uniform speed spread; omitted preserves legacy motion.
+    #[serde(
+        default,
+        deserialize_with = "super::windows::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub agent_speed_variation: Option<f64>,
     /// Workspace extent in metres, not a navigation grid.
     pub width: f64,
     pub height: f64,
@@ -251,6 +281,7 @@ impl BuildingScenario {
     }
 
     pub fn validate(&self) -> Result<(), String> {
+        super::modifiers::validate_scenario(self)?;
         if let Some(pursuit) = &self.pursuit {
             pursuit.validate(self)?;
         }

@@ -9,6 +9,7 @@ import type {
   JobList,
   ScenarioReplay,
   AnimationFrame,
+  AgentModifierRecording,
   BuildingScenario,
   HealthResponse,
   OptimizationResult,
@@ -639,6 +640,7 @@ export function createApiClient(
       signal?: AbortSignal,
       onChat?: (chat: LiveChatBatch) => void,
       computationId?: string,
+      onInitialized?: (modifiers: AgentModifierRecording) => void,
     ): Promise<SimulationResult> => {
       let response: Response;
       try {
@@ -694,6 +696,7 @@ export function createApiClient(
       const decoder = new TextDecoder("utf-8", { fatal: true });
       let buffer = "";
       let lastStep = -1;
+      let initialModifiers: AgentModifierRecording | null = null;
       let previousIds: Set<number> | null = null;
       let initialIds = new Set<number>();
       let lastChatStep = 0;
@@ -717,8 +720,45 @@ export function createApiClient(
           );
         if (event.type === "error")
           throw new ApiError(200, event.error.code, event.error.message);
+        if (event.type === "initialized") {
+          const metadata = event.agent_modifiers;
+          const definitions = new Set(metadata.definitions.map((m) => m.id));
+          const ids = new Set(metadata.agents.map((a) => a.id));
+          if (
+            lastStep >= 0 ||
+            initialModifiers ||
+            metadata.agents.length !== population ||
+            ids.size !== population ||
+            definitions.size !== metadata.definitions.length ||
+            metadata.agents.some(
+              (a) =>
+                a.id >= population ||
+                a.modifier_ids.some((id) => !definitions.has(id)),
+            )
+          ) {
+            throw new ApiError(
+              200,
+              "invalid_response",
+              "Invalid live spawn assignments.",
+            );
+          }
+          initialModifiers = metadata;
+          onInitialized?.(metadata);
+          return null;
+        }
         if (event.type === "complete") {
           const result = checkSimulation(event.result, building);
+          if (
+            initialModifiers &&
+            JSON.stringify(result.agent_modifiers) !==
+              JSON.stringify(initialModifiers)
+          ) {
+            throw new ApiError(
+              200,
+              "invalid_response",
+              "Recorded modifiers do not match the live spawn assignments.",
+            );
+          }
           if (
             lastStep < 0 ||
             result.width !== building.width ||

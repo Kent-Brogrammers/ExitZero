@@ -1234,3 +1234,30 @@ fn searching_can_discover_a_window_before_committing_to_a_long_exit_route() {
         serde_json::to_value(simulate(&b).unwrap()).unwrap()
     );
 }
+
+#[test]
+fn nearby_crowd_splits_between_window_service_and_faster_normal_exit() {
+    let mut b = scenario();
+    b.blocked_exit_ids.clear();
+    b.awareness.sight_range_metres = 100.0;
+    b.spawn_zones[0].x = 14.0;
+    b.spawn_zones[0].y = 3.0;
+    b.spawn_zones[0].width = 3.0;
+    b.spawn_zones[0].height = 6.0;
+    b.spawn_zones[0].count = 12;
+    let escape = b.windows[0].emergency_escape.as_mut().unwrap();
+    escape.preparation_seconds = 0.0;
+    escape.traversal_seconds = 1.0;
+    let result = simulate(&b).unwrap();
+    result.validate().unwrap();
+    let routes = result.metrics.evacuated_by_route.as_ref().unwrap();
+    assert!(
+        routes.emergency_window > 0,
+        "a nearby free window should sometimes save time"
+    );
+    assert!(
+        routes.normal_exit > 0,
+        "a serial window queue must not attract the whole crowd"
+    );
+    assert_eq!(result.metrics.evacuated, 12);
+}

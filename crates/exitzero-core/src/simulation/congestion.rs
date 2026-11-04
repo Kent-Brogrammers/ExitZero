@@ -35,6 +35,7 @@ struct Prediction {
 
 #[derive(Default)]
 pub(super) struct CrowdForecast {
+    parameters: crate::models::AgentModifierParameters,
     outlook: Option<super::discovery::Outlook>,
     pursuit_threat: Option<(Point, f64)>,
     people: Vec<Prediction>,
@@ -66,7 +67,7 @@ impl CrowdMemory {
                 let alpha = 1.0 - (-dt / FLOW_SMOOTHING_SECONDS).exp();
                 let smooth = math::interpolate(track.velocity, measured, alpha);
                 (
-                    math::move_toward(ZERO, smooth, WALKING_SPEED),
+                    math::move_toward(ZERO, smooth, super::motion::MAX_WALKING_SPEED),
                     track.observed_seconds + dt,
                 )
             } else {
@@ -96,6 +97,7 @@ impl CrowdMemory {
         }
         self.tracks.retain(|_, track| track.tick == tick);
         CrowdForecast {
+            parameters: Default::default(),
             outlook: None,
             pursuit_threat: None,
             people,
@@ -108,6 +110,7 @@ impl CrowdMemory {
 impl CrowdForecast {
     pub(super) fn for_geometry(geometry: &Geometry<'_>) -> Self {
         Self {
+            parameters: Default::default(),
             outlook: None,
             pursuit_threat: None,
             people: vec![],
@@ -118,6 +121,7 @@ impl CrowdForecast {
     #[cfg(test)]
     pub(super) fn stationary(positions: &[Point]) -> Self {
         Self {
+            parameters: Default::default(),
             outlook: None,
             pursuit_threat: None,
             disaster: None,
@@ -148,6 +152,7 @@ impl CrowdForecast {
         agent: &super::agent::Agent,
         geometry: &Geometry<'_>,
     ) -> Self {
+        self.parameters = agent.modifiers.resolved;
         self.outlook = Some(super::discovery::Outlook::new(scenario, agent, geometry));
         self
     }
@@ -191,37 +196,39 @@ impl CrowdForecast {
         self.outlook
             .as_ref()
             .map_or(0.0, |outlook| outlook.cost(start, end))
-            + danger_cost
+            + danger_cost * self.parameters.hazard_cost_multiplier
             + self.pursuit_threat.map_or(0.0, |(stalker, distance)| {
                 occupancy_cost(start, heading, length, stalker, distance / 4.0) * 40.0
             })
-            + self
-                .people
-                .iter()
-                .map(|person| {
-                    let current = occupancy_cost(start, heading, length, person.position, radius);
-                    if person.confidence == 0.0 {
-                        return current;
-                    }
-                    let forward_speed = (person.velocity.x * heading.x
-                        + person.velocity.y * heading.y)
-                        .clamp(0.0, WALKING_SPEED)
-                        / WALKING_SPEED;
-                    let predicted = 0.2 * current
-                        + person
-                            .future
-                            .iter()
-                            .zip(FORECAST_WEIGHTS)
-                            .filter_map(|(position, weight)| {
-                                position.map(|p| {
-                                    weight * occupancy_cost(start, heading, length, p, radius)
+            + self.parameters.crowd_cost_multiplier
+                * self
+                    .people
+                    .iter()
+                    .map(|person| {
+                        let current =
+                            occupancy_cost(start, heading, length, person.position, radius);
+                        if person.confidence == 0.0 {
+                            return current;
+                        }
+                        let forward_speed = (person.velocity.x * heading.x
+                            + person.velocity.y * heading.y)
+                            .clamp(0.0, WALKING_SPEED)
+                            / WALKING_SPEED;
+                        let predicted = 0.2 * current
+                            + person
+                                .future
+                                .iter()
+                                .zip(FORECAST_WEIGHTS)
+                                .filter_map(|(position, weight)| {
+                                    position.map(|p| {
+                                        weight * occupancy_cost(start, heading, length, p, radius)
+                                    })
                                 })
-                            })
-                            .sum::<f64>();
-                    (1.0 - person.confidence) * current
-                        + person.confidence * (1.0 - 0.7 * forward_speed) * predicted
-                })
-                .sum::<f64>()
+                                .sum::<f64>();
+                        (1.0 - person.confidence) * current
+                            + person.confidence * (1.0 - 0.7 * forward_speed) * predicted
+                    })
+                    .sum::<f64>()
     }
 }
 
@@ -264,6 +271,7 @@ impl RouteCommitment {
         self.pending = None;
     }
 
+    #[cfg(test)]
     pub(super) fn consider(
         &mut self,
         now: f64,
@@ -271,6 +279,18 @@ impl RouteCommitment {
         current: RouteEstimate<'_>,
         candidate: RouteEstimate<'_>,
         radius: f64,
+    ) -> bool {
+        self.consider_with_threshold(now, from, current, candidate, radius, 1.0)
+    }
+
+    pub(super) fn consider_with_threshold(
+        &mut self,
+        now: f64,
+        from: Point,
+        current: RouteEstimate<'_>,
+        candidate: RouteEstimate<'_>,
+        radius: f64,
+        threshold: f64,
     ) -> bool {
         let heading = |points: &[Point]| {
             points.iter().find_map(|&point| {
@@ -294,7 +314,12 @@ impl RouteCommitment {
         } else {
             0.0
         };
-        if !navigation::materially_better(candidate.cost + turn_cost, current.cost, radius) {
+        if !(if threshold == 1.0 {
+            navigation::materially_better(candidate.cost + turn_cost, current.cost, radius)
+        } else {
+            candidate.cost + turn_cost + (current.cost * 0.12).max(radius * 2.0) * threshold
+                < current.cost
+        }) {
             self.pending = None;
             return false;
         }
@@ -326,6 +351,109 @@ impl RouteCommitment {
 mod tests {
     use super::*;
     use crate::models::BuildingScenario;
+
+    #[test]
+    fn crowd_preferences_change_route_choices_without_changing_geometry_or_knowledge() {
+        let mut scenario = open_space();
+        scenario.walls = serde_json::from_value(serde_json::json!([
+            {"id":"west","start":{"x":0,"y":12},"end":{"x":0,"y":0},"thickness":0.2},
+            {"id":"east","start":{"x":20,"y":0},"end":{"x":20,"y":12},"thickness":0.2}
+        ]))
+        .unwrap();
+        scenario.exits = serde_json::from_value(serde_json::json!([
+            {"id":"left","wall_id":"west","offset":5,"width":2},
+            {"id":"right","wall_id":"east","offset":5,"width":2}
+        ]))
+        .unwrap();
+        let geometry = Geometry::new(&scenario);
+        let navigation = navigation::Navigation::new(&scenario, &geometry);
+        let from = Point { x: 8.0, y: 6.0 };
+        let mut forecast = CrowdForecast::stationary(&[
+            Point { x: 4.0, y: 6.0 },
+            Point { x: 3.0, y: 6.0 },
+            Point { x: 2.0, y: 6.0 },
+            Point { x: 1.0, y: 6.0 },
+        ]);
+        forecast.parameters.crowd_cost_multiplier = 0.0;
+        assert_eq!(
+            navigation
+                .find_route_with_forecast(from, &geometry, &forecast, scenario.agent_radius)
+                .unwrap()
+                .exit_id,
+            "left"
+        );
+        forecast.parameters.crowd_cost_multiplier = 4.0;
+        assert_eq!(
+            navigation
+                .find_route_with_forecast(from, &geometry, &forecast, scenario.agent_radius)
+                .unwrap()
+                .exit_id,
+            "right"
+        );
+        forecast.parameters.crowd_cost_multiplier = 0.0;
+        assert_eq!(
+            navigation
+                .find_route_with_forecast(from, &geometry, &forecast, scenario.agent_radius)
+                .unwrap()
+                .exit_id,
+            "left"
+        );
+    }
+
+    #[test]
+    fn preferences_weight_known_hazards_and_crowds_independently() {
+        let from = Point { x: 2.0, y: 10.0 };
+        let to = Point { x: 28.0, y: 10.0 };
+        let mut forecast = CrowdForecast::stationary(&[Point { x: 15.0, y: 10.0 }]);
+        let crowd = forecast.cost(from, to, 0.2);
+        forecast.parameters.crowd_cost_multiplier = 0.0;
+        assert_eq!(forecast.cost(from, to, 0.2), 0.0);
+        forecast.disaster = Some(crate::models::Disaster {
+            kind: crate::models::DisasterKind::GasLeak,
+            center: Point { x: 15.0, y: 10.0 },
+            radius: 1.0,
+            dynamics: None,
+        });
+        forecast.hazard_areas = vec![crate::models::HazardArea {
+            id: 0,
+            revision: 0,
+            center: Point { x: 15.0, y: 10.0 },
+            radius: 1.0,
+        }];
+        let hazard = forecast.cost(from, to, 0.2);
+        assert!(hazard > 0.0);
+        forecast.parameters.hazard_cost_multiplier = 2.0;
+        assert!((forecast.cost(from, to, 0.2) - 2.0 * hazard).abs() < 1e-9);
+        forecast.parameters.crowd_cost_multiplier = 3.0;
+        assert!((forecast.cost(from, to, 0.2) - 2.0 * hazard - 3.0 * crowd).abs() < 1e-9);
+    }
+
+    #[test]
+    fn smaller_switch_threshold_accepts_a_sustained_smaller_improvement() {
+        let forward = [Point { x: 10.0, y: 0.0 }];
+        let side = [Point { x: 0.0, y: 10.0 }];
+        let mut neutral = RouteCommitment::default();
+        let mut flexible = RouteCommitment::default();
+        for now in [0.0, 2.0] {
+            assert!(!neutral.consider_with_threshold(
+                now,
+                ZERO,
+                estimate("current", &forward, 20.0),
+                estimate("side", &side, 18.0),
+                0.2,
+                1.0
+            ));
+            let switched = flexible.consider_with_threshold(
+                now,
+                ZERO,
+                estimate("current", &forward, 20.0),
+                estimate("side", &side, 18.0),
+                0.2,
+                0.5,
+            );
+            assert_eq!(switched, now == 2.0);
+        }
+    }
 
     fn open_space() -> BuildingScenario {
         let mut scenario: BuildingScenario = serde_json::from_str(include_str!(concat!(

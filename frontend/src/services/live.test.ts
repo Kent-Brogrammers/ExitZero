@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApiClient } from "./api";
 import type { BuildingScenario } from "../types/simulation";
+import { resolvedModifiers } from "../editor/agentModifiers";
 import {
   syntheticBuilding as building,
   syntheticResult as result,
@@ -32,6 +33,88 @@ function streamEvents(events: unknown[]) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("live simulation transport", () => {
+  it("delivers actual spawn personalities before live movement and preserves them in the recording", async () => {
+    const definitions = [{ id: "slow", name: "Slow", speed_multiplier: 0.5 }];
+    const metadata = {
+      model_version: "static-modifiers-v1" as const,
+      definitions,
+      agents: result.frames[0]!.agents.map((a) => ({
+        id: a.id,
+        source_id: `person-${a.id}`,
+        source_ordinal: null,
+        modifier_ids: ["slow"],
+        resolved: resolvedModifiers(definitions, ["slow"]),
+        speed_variation_multiplier: 1,
+        uninjured_speed_metres_per_second: 0.65,
+        reaction_steps: 0,
+      })),
+    };
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    respond(
+      new ReadableStream({
+        start(value) {
+          controller = value;
+        },
+      }),
+    );
+    const onFrame = vi.fn(),
+      onInitialized = vi.fn();
+    const run = client.simulateLive(
+      building,
+      onFrame,
+      undefined,
+      undefined,
+      undefined,
+      onInitialized,
+    );
+    controller.enqueue(
+      encode({ type: "initialized", agent_modifiers: metadata }),
+    );
+    await vi.waitFor(() =>
+      expect(onInitialized).toHaveBeenCalledWith(metadata),
+    );
+    expect(onFrame).not.toHaveBeenCalled();
+    result.frames.forEach((frame) =>
+      controller.enqueue(encode({ type: "frame", frame })),
+    );
+    const recording = { ...result, agent_modifiers: metadata };
+    controller.enqueue(encode({ type: "complete", result: recording }));
+    controller.close();
+    await expect(run).resolves.toEqual(recording);
+  });
+
+  it("rejects duplicate or changed live spawn assignments", async () => {
+    const metadata = {
+      model_version: "static-modifiers-v1" as const,
+      definitions: [],
+      agents: result.frames[0]!.agents.map((a) => ({
+        id: a.id,
+        source_id: `person-${a.id}`,
+        source_ordinal: null,
+        modifier_ids: [],
+        resolved: resolvedModifiers([], []),
+        speed_variation_multiplier: 1,
+        uninjured_speed_metres_per_second: 1.3,
+        reaction_steps: 0,
+      })),
+    };
+    for (const events of [
+      [
+        { type: "initialized", agent_modifiers: metadata },
+        { type: "initialized", agent_modifiers: metadata },
+      ],
+      [
+        { type: "initialized", agent_modifiers: metadata },
+        ...result.frames.map((frame) => ({ type: "frame", frame })),
+        { type: "complete", result },
+      ],
+    ]) {
+      streamEvents(events);
+      await expect(
+        client.simulateLive(building, vi.fn()),
+      ).rejects.toMatchObject({ code: "invalid_response" });
+    }
+  });
   it("delivers the first frame while the run is still pending, then returns its recording", async () => {
     let controller!: ReadableStreamDefaultController<Uint8Array>;
     respond(

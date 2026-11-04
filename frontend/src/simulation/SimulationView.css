@@ -570,3 +570,57 @@
   margin-top: 4px;
   line-height: 1.6;
 }
+
+.agent-personality {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--cad-surface);
+  border: 1px solid var(--cad-border);
+  border-radius: var(--radius-control);
+}
+.agent-personality-label {
+  color: var(--cad-muted);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.agent-personality-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 12px;
+}
+.agent-personality-badge {
+  border: 1px solid var(--cad-accent);
+  border-radius: var(--radius-control);
+  padding: 4px 8px;
+  color: var(--cad-accent);
+  font-size: 12px;
+}
+.agent-personality-speed {
+  margin: 0;
+}
+.agent-personality-speed > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.agent-personality-speed dt {
+  color: var(--cad-muted);
+  font-size: 11px;
+}
+.agent-personality-speed dd {
+  margin: 0;
+  color: var(--cad-text);
+  font-size: 19px;
+  font-variant-numeric: tabular-nums;
+}
+.agent-personality-details {
+  margin-top: 12px;
+  font-size: 11px;
+  color: var(--cad-muted);
+}
+.agent-personality-details summary {
+  cursor: pointer;
+}

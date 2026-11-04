@@ -286,6 +286,7 @@ export function LiveSimulationView({
               building={building}
               frame={frame}
               events={live.effect_events}
+              modifierRecording={live.agent_modifiers}
               live
               onClose={() => {
                 setSelectedId(null);

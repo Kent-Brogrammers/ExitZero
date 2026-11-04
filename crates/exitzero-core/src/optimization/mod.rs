@@ -262,6 +262,8 @@ mod tests {
 
     fn synthetic_run(building: &BuildingScenario, metrics: SimulationMetrics) -> SimulationResult {
         SimulationResult {
+            agent_modifiers: None,
+
             congestion_samples: None,
             termination_reason: None,
             metrics,

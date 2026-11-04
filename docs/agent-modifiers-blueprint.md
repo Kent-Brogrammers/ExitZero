@@ -1,6 +1,14 @@
 # Agent modifiers blueprint
 
-Status: proposed design for later implementation. This document adds no runtime behavior, API fields, presets, or UI controls. The checked-in JSON schema and Rust/TypeScript models remain authoritative; the proposed fields below are not accepted by the current API.
+Status: static modifier foundation implemented as `static-modifiers-v1`. The shared schema and Rust/TypeScript models define accepted fields. The editor uses **Edit → Agent personalities…** to choose allowed modifiers for automatic spawning, and the agent inspector shows the recorded personality and walking speed during live runs and playback. Explicit occupant/group assignments remain supported by the JSON contract. Dynamic fear, assistance, and injury transitions remain deferred.
+
+Speed variation is separate from modifier composition: `agent_speed_variation` is an optional fractional uniform spread in [0, 0.2]. New evacuation presets and blank layouts use 0.05 (±5%); omission/zero preserves legacy speeds. Each source identity gets a fixed seeded multiplier, independent of placement and group assignment. Pursuit rejects an explicit nonzero spread.
+
+An additional typed `avoidance_priority_multiplier` in [0.25, 4] defaults to 1 and composes multiplicatively with a single final cap. Higher priority shifts reciprocal avoidance and collision-correction responsibility to other moving people. Aggressive agents can make others yield but cannot overlap bodies or pass obstacles. Presets are Older, Scared, Aggressive, Calm, and Limited mobility; saved numeric values remain authoritative.
+
+The app defaults ordinary evacuation layouts to all saved presets allowed. It saves full numeric definitions and `spawn_modifier_ids` before a run. The Rust spawner first selects occupants using `personality_fraction` (default 0.3), then chooses one allowed modifier per selected occupant with equal probability, using a separate source-identity random stream (domain 4 for exact occupants, 5 for zone occupants). Canonically sorting the allow list preserves assignments when the list is reordered. An empty allow list makes every occupant neutral; omission in raw API input retains legacy/manual assignment semantics. Automatic and explicit assignments cannot be combined. The dialog converts the layout to automatic assignment when saved.
+
+Live HTTP streams send one `initialized` event containing the actual immutable assignments before the first frame. The completed recording retains the same metadata. The inspector reads that output rather than inferring personality from current editor settings.
 
 ## Goal
 
@@ -64,7 +72,7 @@ Proposed additions:
 - `PlacedOccupant.modifier_ids`: optional list of references to those definitions. Omission or an empty list means neutral.
 - `SpawnZone.modifier_groups`: optional array of `{ count, modifier_ids }` groups. Each occupant belongs to one group, whose modifier list can combine several effects. If omitted, everyone in the zone is neutral.
 
-Illustrative partial building JSON, **not a currently valid request**. The numbers demonstrate configuration only; they are not final preset values:
+Illustrative partial building JSON (supply the remaining required scenario fields):
 
 ```json
 {
@@ -152,11 +160,11 @@ Emergency windows retain their existing explicit `all_agents_can_traverse` scena
 
 The fictional pursuit engine has its own configured survivor speed and movement path. Until that path explicitly supports modifiers, reject active nonneutral modifier assignments in pursuit mode with a meaningful validation error. Do not silently ignore them or alter pursuit's existing neutral behavior.
 
-## Later implementation sequence
+## Implementation boundaries and follow-up
 
 1. **Shared contracts:** agree on names/ranges, add optional configuration and recording metadata in all three contract representations, and add shared fixtures and validation coverage. Old layouts resolve to neutral.
 2. **Connor — engine:** implement resolution, stable assignment, reaction state, per-person motion limits, weighted route decisions, termination adjustments, and congestion normalization in core. Keep the current simulation entry points.
-3. **Frontend owners:** add modifier assignment to exact occupants and spawn zones, editable presets, effective-parameter summaries, saved-layout support, and recorded inspection. Render actual backend movement and decisions.
+3. **Frontend owners:** maintain the Edit-menu allow-list dialog, editable effects, saved-layout support, and recorded/live inspection. Render actual backend movement and decisions.
 4. **Nick and integration owners:** verify assignments persist through stress testing/optimization and explain population assumptions and outcomes in comparisons.
 
 These are implementation handoffs, not new GitHub issues. Dynamic fear transitions, following/helping behavior, assistance devices, per-person body sizes, and demographic calibration remain deferred.
@@ -171,3 +179,5 @@ Acceptance checks for that implementation:
 - Known closures force rerouting regardless of commitment; unseen hazards remain unknown. No modifier permits collisions or access to a physically blocked exit.
 - Reaction timers and slow progress do not cause premature termination or false congestion; a step-limit run still ends with honest remaining/trapped counts.
 - Normal and live runs agree for identical settings; recordings preserve modifier metadata. Old layouts/recordings load, and unsupported pursuit combinations fail explicitly.
+
+See [Personalities](personalities.md) for the current presets, Curious discovery behavior, and the percentage control.
