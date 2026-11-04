@@ -1,4 +1,4 @@
-use super::{agent::Agent, awareness::can_communicate, geometry::Geometry, math};
+use super::{agent::Agent, awareness::can_communicate, geometry::Geometry};
 use crate::models::{AgentAwareness, Point, PursuitEvent, PursuitEventType};
 
 #[derive(Clone, Copy)]
@@ -36,8 +36,7 @@ impl PursuitAwareness {
         let mut alerted = vec![false; people.len()];
         for (i, person) in people.iter().enumerate() {
             if !gone[i]
-                && settings.sight_range_metres > 0.0
-                && math::distance_to_point(person.position, stalker) <= settings.sight_range_metres
+                && settings.visibility_range() > 0.0
                 && geometry.has_line_of_sight(person.position, stalker)
             {
                 alerted[i] = self.known[i].is_none();
@@ -115,11 +114,18 @@ mod tests {
         b.doors.clear();
         b.exits.clear();
         b.obstructions.clear();
+        b.walls.push(crate::models::Wall {
+            id: "screen".into(),
+            name: None,
+            start: Point { x: 2.0, y: 0.0 },
+            end: Point { x: 2.0, y: 2.6 },
+            thickness: 0.1,
+        });
         let geometry = Geometry::new(&b);
         let people: Vec<_> = [1.0, 3.0, 3.1, 5.0]
             .iter()
             .enumerate()
-            .map(|(i, &x)| Agent::new(i as u32, Point { x, y: 1.0 }))
+            .map(|(i, &x)| Agent::new(i as u32, Point { x, y: 3.0 }))
             .collect();
         let settings = AgentAwareness {
             sight_range_metres: 1.1,

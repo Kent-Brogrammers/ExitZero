@@ -145,21 +145,22 @@ fn building() -> Value {
 
 #[tokio::test]
 async fn recorded_chat_reaches_api_as_actual_discovery_grouped_share_and_later_relay() {
-    // Tiny spawn areas make the sight/range relationships deterministic. This
+    // Tiny spawn areas and a real screen isolate witnesses and relays. This
     // tests the real simulator and HTTP serialization, not a message fixture.
     let mut scenario = json!({
         "width":20,"height":12,
-        "walls":[{"id":"north","start":{"x":0,"y":0},"end":{"x":20,"y":0},"thickness":0.2}],
+        "walls":[{"id":"north","start":{"x":0,"y":0},"end":{"x":20,"y":0},"thickness":0.2},
+            {"id":"screen","start":{"x":3.2,"y":0},"end":{"x":3.2,"y":2.8},"thickness":0.1}],
         "doors":[],
         "exits":[
             {"id":"left","wall_id":"north","offset":1,"width":2},
             {"id":"right","wall_id":"north","offset":17,"width":2}
         ],
         "spawn_zones":[
-            {"id":"a","x":1.9,"y":0.9,"width":0.2,"height":0.2,"count":1},
-            {"id":"b","x":1.9,"y":2.9,"width":0.2,"height":0.2,"count":1},
-            {"id":"c","x":2.9,"y":2.4,"width":0.2,"height":0.2,"count":1},
-            {"id":"d","x":1.9,"y":4.9,"width":0.2,"height":0.2,"count":1}
+            {"id":"a","x":1.9,"y":2.9,"width":0.2,"height":0.2,"count":1},
+            {"id":"b","x":3.9,"y":2.9,"width":0.2,"height":0.2,"count":1},
+            {"id":"c","x":3.9,"y":3.4,"width":0.2,"height":0.2,"count":1},
+            {"id":"d","x":5.9,"y":2.9,"width":0.2,"height":0.2,"count":1}
         ],
         "blocked_exit_ids":["left"],"obstructions":[],"agent_radius":0.1,
         "time_step_seconds":0.1,"seed":42,"max_steps":500,

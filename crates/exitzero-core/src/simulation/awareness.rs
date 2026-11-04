@@ -335,12 +335,30 @@ pub(super) fn update_knowledge(
     evacuated: &[bool],
     world: &OpeningStates<'_>,
     geometry: &Geometry<'_>,
+    record: impl FnMut(CommunicationEventType, u32, &str, bool, Vec<u32>),
+) -> (Vec<bool>, bool) {
+    observe_and_share(
+        agents,
+        evacuated,
+        world,
+        geometry,
+        world.scenario.awareness.visibility_range(),
+        record,
+    )
+}
+
+fn observe_and_share(
+    agents: &mut [Agent],
+    evacuated: &[bool],
+    world: &OpeningStates<'_>,
+    geometry: &Geometry<'_>,
+    sight: f64,
     mut record: impl FnMut(CommunicationEventType, u32, &str, bool, Vec<u32>),
 ) -> (Vec<bool>, bool) {
     let scenario = world.scenario;
     let before: Vec<_> = agents.iter().map(BeliefKey::for_agent).collect();
     let mut informed = false;
-    if scenario.awareness.sight_range_metres > 0.0 {
+    if sight > 0.0 {
         for (i, agent) in agents.iter_mut().enumerate() {
             if super::control::cancelled() {
                 return (vec![false; before.len()], false);
@@ -353,11 +371,9 @@ pub(super) fn update_knowledge(
                     let mut footprint = disaster;
                     footprint.center = area.center;
                     footprint.radius = area.radius;
-                    let distance = math::distance_to_point(agent.position, area.center);
                     let surface =
                         math::move_toward(area.center, agent.position, footprint.exposure_radius());
-                    if distance - footprint.exposure_radius()
-                        <= scenario.awareness.sight_range_metres
+                    if math::distance_to_point(agent.position, surface) <= sight
                         && geometry.has_line_of_sight(agent.position, surface)
                         && agent
                             .known_hazards
@@ -370,18 +386,24 @@ pub(super) fn update_knowledge(
                     }
                 }
             }
-            let visible = geometry.visible_walls(
-                agent.position,
-                scenario.awareness.sight_range_metres,
-                &agent.known_walls,
-            );
-            informed |= perception::remember(&mut agent.known_walls, &visible);
+            // Static walls cannot reveal more from an identical viewpoint.
+            // Opening revisions invalidate this cache so new sightlines are
+            // still observed immediately when a door opens or closes.
+            if agent
+                .last_wall_view
+                .is_none_or(|(position, revision, range)| {
+                    position.x != agent.position.x
+                        || position.y != agent.position.y
+                        || revision != world.revision
+                        || range != sight
+                })
+            {
+                let visible = geometry.visible_walls(agent.position, sight, &agent.known_walls);
+                informed |= perception::remember(&mut agent.known_walls, &visible);
+                agent.last_wall_view = Some((agent.position, world.revision, sight));
+            }
             for opening in scenario.doors.iter().chain(&scenario.exits) {
-                if geometry.can_see_opening(
-                    agent.position,
-                    opening,
-                    scenario.awareness.sight_range_metres,
-                ) {
+                if geometry.can_see_opening(agent.position, opening, sight) {
                     let observation = world.states[&opening.id];
                     let previous_blocked = agent
                         .knowledge
@@ -409,9 +431,8 @@ pub(super) fn update_knowledge(
                 if agent.known_emergencies.contains(&index) {
                     continue;
                 }
-                let distance = math::distance_to_point(agent.position, emergency.center);
                 let surface = math::move_toward(emergency.center, agent.position, emergency.radius);
-                if distance - emergency.radius <= scenario.awareness.sight_range_metres
+                if math::distance_to_point(agent.position, surface) <= sight
                     && geometry.has_line_of_sight(agent.position, surface)
                 {
                     informed |= agent.known_emergencies.insert(index);
@@ -427,7 +448,7 @@ pub(super) fn update_knowledge(
                     obstacle.y,
                     obstacle.width,
                     obstacle.height,
-                ) <= scenario.awareness.sight_range_metres
+                ) <= sight
                     && geometry.can_see_obstruction(agent.position, obstacle)
                 {
                     informed |= agent.known_obstructions.insert(obstacle.id.clone());
@@ -504,6 +525,7 @@ struct CachedBeliefMap<'a> {
 /// Share maps only between identical beliefs. Keep each agent's latest snapshot
 /// ahead of historical entries, while bounding approximate geometry/graph bytes.
 pub(super) struct BeliefMaps<'a> {
+    pub(super) architecture: std::sync::Arc<super::architecture::Architecture>,
     scenario: &'a BuildingScenario,
     emergencies: &'a [Emergency],
     maps: BTreeMap<Rc<BeliefKey>, CachedBeliefMap<'a>>,
@@ -519,6 +541,7 @@ pub(super) struct BeliefMaps<'a> {
 impl<'a> BeliefMaps<'a> {
     pub fn new(scenario: &'a BuildingScenario, emergencies: &'a [Emergency]) -> Self {
         Self {
+            architecture: std::sync::Arc::new(super::architecture::Architecture::new(scenario)),
             scenario,
             emergencies,
             maps: BTreeMap::new(),
@@ -530,6 +553,13 @@ impl<'a> BeliefMaps<'a> {
             max_inactive: 64,
             full_shelters: BTreeSet::new(),
         }
+    }
+
+    pub(super) fn cached_geometry(&self, agent: &Agent) -> Option<&Geometry<'a>> {
+        self.current_keys
+            .get(&agent.id)
+            .and_then(|key| self.maps.get(key.as_ref()))
+            .map(|entry| &entry.geometry)
     }
 
     /// Announce a full shelter without changing anyone's remembered geometry or hazards.
@@ -672,13 +702,111 @@ mod tests {
     use super::*;
     use crate::models::{Opening, OpeningStateChange, Point, Wall};
 
+    #[test]
+    fn production_vision_sees_distant_surfaces_but_cannot_see_through_a_wall() {
+        let mut b = scenario();
+        b.awareness.sight_range_metres = 0.01;
+        b.awareness.communication_range_metres = 0.0;
+        b.walls.push(Wall {
+            id: "screen".into(),
+            name: None,
+            start: Point { x: 15.0, y: 0.0 },
+            end: Point { x: 15.0, y: 8.0 },
+            thickness: 0.2,
+        });
+        let world = OpeningStates::new(&b);
+        let geometry = Geometry::new(&b);
+        let mut people = [at(0, 2.0, 18.0)];
+        super::update_knowledge(&mut people, &[false], &world, &geometry, |_, _, _, _, _| {});
+        assert!(
+            people[0].knowledge["left"].blocked,
+            "a positive legacy range must not cap a ray's distance"
+        );
+        assert!(
+            !people[0].knowledge.contains_key("right"),
+            "the screen still hides the other exit"
+        );
+        assert!(people[0].known_walls.contains_key("screen"));
+    }
+
+    #[test]
+    fn opening_a_door_reveals_a_new_distant_wall_to_a_stationary_observer() {
+        let mut b = scenario();
+        b.awareness.communication_range_metres = 0.0;
+        b.walls.extend([
+            Wall {
+                id: "partition".into(),
+                name: None,
+                start: Point { x: 5.0, y: 0.0 },
+                end: Point { x: 5.0, y: 20.0 },
+                thickness: 0.2,
+            },
+            Wall {
+                id: "hidden".into(),
+                name: None,
+                start: Point { x: 15.0, y: 8.0 },
+                end: Point { x: 15.0, y: 12.0 },
+                thickness: 0.2,
+            },
+        ]);
+        b.doors.push(Opening {
+            id: "door".into(),
+            name: None,
+            wall_id: "partition".into(),
+            offset: 8.0,
+            width: 4.0,
+        });
+        b.opening_events = vec![
+            OpeningStateChange {
+                step: 0,
+                opening_id: "door".into(),
+                blocked: true,
+            },
+            OpeningStateChange {
+                step: 1,
+                opening_id: "door".into(),
+                blocked: false,
+            },
+        ];
+        let mut people = [at(0, 2.0, 10.0)];
+        let mut world = OpeningStates::new(&b);
+        world.apply(0, &people, &[false]);
+        let closed = Geometry::with_blocked_openings(&b, &[], world.blocked());
+        super::update_knowledge(&mut people, &[false], &world, &closed, |_, _, _, _, _| {});
+        assert!(!people[0].known_walls.contains_key("hidden"));
+        world.apply(1, &people, &[false]);
+        let opened = Geometry::with_blocked_openings(&b, &[], world.blocked());
+        super::update_knowledge(&mut people, &[false], &world, &opened, |_, _, _, _, _| {});
+        assert!(people[0].known_walls.contains_key("hidden"));
+    }
+
+    // Bound observation only in these communication-protocol fixtures so an
+    // entire open hall does not witness the event being relayed. The production
+    // unlimited policy is covered independently below and by simulation tests.
+    fn observe_fixture(
+        agents: &mut [Agent],
+        evacuated: &[bool],
+        world: &OpeningStates<'_>,
+        geometry: &Geometry<'_>,
+        record: impl FnMut(CommunicationEventType, u32, &str, bool, Vec<u32>),
+    ) -> (Vec<bool>, bool) {
+        super::observe_and_share(
+            agents,
+            evacuated,
+            world,
+            geometry,
+            world.scenario.awareness.sight_range_metres,
+            record,
+        )
+    }
+
     fn update_knowledge(
         agents: &mut [Agent],
         evacuated: &[bool],
         world: &OpeningStates<'_>,
         geometry: &Geometry<'_>,
     ) -> (Vec<bool>, bool) {
-        super::update_knowledge(agents, evacuated, world, geometry, |_, _, _, _, _| {})
+        observe_fixture(agents, evacuated, world, geometry, |_, _, _, _, _| {})
     }
 
     fn scenario() -> BuildingScenario {
@@ -842,7 +970,7 @@ mod tests {
         step: u32,
     ) -> Vec<crate::models::CommunicationEvent> {
         let mut events = Vec::new();
-        super::update_knowledge(
+        observe_fixture(
             agents,
             evacuated,
             world,

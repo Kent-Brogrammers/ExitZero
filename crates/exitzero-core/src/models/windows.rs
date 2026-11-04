@@ -201,10 +201,89 @@ pub struct EvacuatedByRoute {
     pub emergency_window: u32,
 }
 
+/// The comparison actually used when an occupant commits to a window. These
+/// are subjective remaining-time estimates, never measured escape outcomes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WindowDecision {
+    pub step: u32,
+    pub agent_id: u32,
+    pub window_id: String,
+    pub reason: WindowDecisionReason,
+    pub estimated_window_seconds: f64,
+    pub estimated_exit_seconds: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WindowDecisionReason {
+    EstimatedFaster,
+    NoKnownSafeExit,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WindowDecisionHistory {
+    pub choices: Vec<WindowDecision>,
+    pub truncated: bool,
+}
+
+impl WindowDecisionHistory {
+    pub const MAX_CHOICES: usize = 20_000;
+
+    pub(crate) fn record(&mut self, decision: WindowDecision) {
+        // Two service updates can occur at one timestamp. Keep the final
+        // assignment for each person/tick, including an immediate reassignment.
+        if let Some(previous) = self
+            .choices
+            .iter_mut()
+            .rev()
+            .take_while(|choice| choice.step == decision.step)
+            .find(|choice| choice.agent_id == decision.agent_id)
+        {
+            *previous = decision;
+            return;
+        }
+        if self.choices.len() < Self::MAX_CHOICES {
+            self.choices.push(decision);
+        } else {
+            self.truncated = true;
+        }
+    }
+}
+
 pub(super) fn present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where
     D: serde::Deserializer<'de>,
     T: Deserialize<'de>,
 {
     T::deserialize(deserializer).map(Some)
+}
+
+#[cfg(test)]
+mod decision_tests {
+    use super::*;
+    fn choice(step: u32, window: &str) -> WindowDecision {
+        WindowDecision {
+            step,
+            agent_id: 0,
+            window_id: window.into(),
+            reason: WindowDecisionReason::EstimatedFaster,
+            estimated_window_seconds: 5.0,
+            estimated_exit_seconds: Some(20.0),
+        }
+    }
+    #[test]
+    fn assignments_are_deduplicated_per_timestamp_and_recording_is_bounded() {
+        let mut history = WindowDecisionHistory::default();
+        history.record(choice(0, "first"));
+        history.record(choice(0, "replacement"));
+        assert_eq!(history.choices.len(), 1);
+        assert_eq!(history.choices[0].window_id, "replacement");
+        for step in 1..=WindowDecisionHistory::MAX_CHOICES as u32 {
+            history.record(choice(step, "pane"));
+        }
+        assert_eq!(history.choices.len(), WindowDecisionHistory::MAX_CHOICES);
+        assert!(history.truncated);
+    }
 }

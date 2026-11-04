@@ -55,13 +55,23 @@ struct Approach {
     route: Route,
     cursor: usize,
 }
+struct Search {
+    route: Route,
+    cursor: usize,
+    since: u32,
+}
 pub(super) struct Windows<'a> {
+    decisions: crate::models::WindowDecisionHistory,
     scenario: &'a BuildingScenario,
     stations: Vec<Station<'a>>,
     approaches: Vec<Option<Approach>>,
+    searches: Vec<Option<Search>>,
+    searched_steps: Vec<u32>,
+    searched_views: Vec<Vec<Point>>,
     navigation: Option<Navigation>,
     known_windows: Vec<BTreeSet<usize>>,
     last_discovery_step: Option<u32>,
+    last_search_step: Option<u32>,
     beliefs: super::awareness::BeliefMaps<'a>,
 }
 
@@ -195,12 +205,17 @@ impl<'a> Windows<'a> {
             });
         }
         Self {
+            decisions: crate::models::WindowDecisionHistory::default(),
             scenario,
             stations,
             approaches: (0..population).map(|_| None).collect(),
+            searches: (0..population).map(|_| None).collect(),
+            searched_steps: vec![0; population],
+            searched_views: vec![vec![]; population],
             navigation: None,
             known_windows: vec![BTreeSet::new(); population],
             last_discovery_step: None,
+            last_search_step: None,
             beliefs: super::awareness::BeliefMaps::new(scenario, emergencies),
         }
     }
@@ -231,13 +246,24 @@ impl<'a> Windows<'a> {
                 .collect()
         })
     }
+
+    pub(super) fn take_decisions(&mut self) -> crate::models::WindowDecisionHistory {
+        std::mem::take(&mut self.decisions)
+    }
     pub(super) fn controls(&self, i: usize) -> bool {
+        self.approaches[i].is_some() || self.searches[i].is_some()
+    }
+    pub(super) fn searching(&self, i: usize) -> bool {
+        self.searches[i].is_some()
+    }
+    pub(super) fn using_window(&self, i: usize) -> bool {
         self.approaches[i].is_some()
     }
     /// Pursuit can catch a survivor in a service queue or during traversal.
     /// Release their slot without resetting preparation shared by other agents.
     pub(super) fn cancel(&mut self, i: usize) {
         self.approaches[i] = None;
+        self.searches[i] = None;
         for station in &mut self.stations {
             station.queue.retain(|&member| member != i);
             if station.traverser == Some(i) {
@@ -261,13 +287,25 @@ impl<'a> Windows<'a> {
             .map_or(ordinary, |s| &s.geometry)
     }
     pub(super) fn has_work(&self) -> bool {
-        self.approaches.iter().any(Option::is_some)
+        self.searches.iter().any(Option::is_some)
+            || self.approaches.iter().any(Option::is_some)
             || self.stations.iter().any(|s| {
                 matches!(
                     s.snapshot.state,
                     WindowState::Opening | WindowState::Breaking
                 )
             })
+    }
+    /// Searching must not depend on the existence or actual state of hidden panes.
+    pub(super) fn can_consider(&self) -> bool {
+        self.scenario
+            .window_escape_context
+            .as_ref()
+            .is_none_or(|c| c.floor_elevation_metres == 0.0 && c.all_agents_can_traverse)
+            && self
+                .scenario
+                .disaster
+                .is_none_or(|d| d.kind != crate::models::DisasterKind::Tornado)
     }
     pub(super) fn has_eligible(&self) -> bool {
         self.stations.iter().any(|s| s.eligible)
@@ -311,16 +349,17 @@ impl<'a> Windows<'a> {
             station.snapshot.unavailable_reason = new.snapshot.unavailable_reason;
         }
         self.navigation = None;
-        // Replan approach routes after physical opening events. Active service
-        // and FIFO membership keep their stable window/agent references.
-        for i in 0..self.approaches.len() {
-            if !self.traversing(i)
-                && self.approaches[i].as_ref().is_some_and(|a| {
-                    !self.stations[a.station].eligible
-                        || !self.stations[a.station].queue.contains(&i)
-                })
-            {
-                self.approaches[i] = None;
+        // Ordinary occupants replan only after learned information changes.
+        // The separate pursuit mode deliberately uses a known house layout.
+        if self.scenario.pursuit.is_some() {
+            for i in 0..self.approaches.len() {
+                if !self.traversing(i)
+                    && self.approaches[i]
+                        .as_ref()
+                        .is_some_and(|a| !self.stations[a.station].queue.contains(&i))
+                {
+                    self.approaches[i] = None;
+                }
             }
         }
     }
@@ -350,7 +389,7 @@ impl<'a> Windows<'a> {
                     && geometry.can_see_window(
                         agent.position,
                         pane,
-                        self.scenario.awareness.sight_range_metres,
+                        self.scenario.awareness.visibility_range(),
                     )
                 {
                     self.known_windows[i].insert(station);
@@ -396,20 +435,44 @@ impl<'a> Windows<'a> {
                 .unwrap()
                 .find_route_avoiding_danger(agent.position, geometry);
         }
+        let architecture = self.beliefs.architecture.clone();
         let (map, navigation) = self.beliefs.for_agent(agent);
-        navigation
+        let forecast = super::congestion::CrowdForecast::for_geometry(map).with_discovery(
+            self.scenario,
+            agent,
+            map,
+        );
+        let route = navigation
             .with_point_target(
                 self.scenario.windows[station].id.clone(),
                 self.stations[station].approach,
             )
-            .find_route_avoiding_danger(agent.position, map)
+            .find_safe_route_with_forecast(
+                agent.position,
+                map,
+                &forecast,
+                self.scenario.agent_radius,
+            )?;
+        architecture
+            .allows_exploration(agent.position, &route.waypoints)
+            .then_some(route)
     }
 
     fn travel_seconds(&self, agent: &Agent, waypoints: &[Point]) -> f64 {
+        let estimate = self.beliefs.cached_geometry(agent).map_or_else(
+            super::congestion::CrowdForecast::default,
+            |map| {
+                super::congestion::CrowdForecast::default().with_discovery(
+                    self.scenario,
+                    agent,
+                    map,
+                )
+            },
+        );
         navigation::route_cost(
             agent.position,
             waypoints,
-            &super::congestion::CrowdForecast::default(),
+            &estimate,
             self.scenario.agent_radius,
         ) / (super::motion::WALKING_SPEED * (1.0 - 0.75 * agent.injury))
     }
@@ -458,7 +521,13 @@ impl<'a> Windows<'a> {
             if rank.is_some() {
                 0.0
             } else {
-                self.travel_seconds(&agents[i], &route.waypoints)
+                let remaining = self.approaches[i]
+                    .as_ref()
+                    .filter(|a| a.station == station)
+                    .map_or(route.waypoints.as_slice(), |a| {
+                        &a.route.waypoints[a.cursor..]
+                    });
+                self.travel_seconds(&agents[i], remaining)
             },
             rank.unwrap_or(usize::MAX),
             i,
@@ -511,6 +580,167 @@ impl<'a> Windows<'a> {
         fallback: &[bool],
         geometry: &Geometry<'_>,
     ) {
+        self.update_inner(step, agents, evacuated, fallback, geometry, None);
+    }
+
+    fn believed_usable(&mut self, station: usize, agent: &Agent, world: &Geometry<'_>) -> bool {
+        let s = &self.stations[station];
+        if self.scenario.pursuit.is_some() {
+            return s.eligible;
+        }
+        let pane = &self.scenario.windows[station];
+        let Some(escape) = pane.emergency_escape.as_ref().filter(|e| e.enabled) else {
+            return false;
+        };
+        if !self.can_consider()
+            || !escape.exterior_available
+            || escape.clear_width_metres < 2.0 * self.scenario.agent_radius
+            || self
+                .scenario
+                .window_escape_context
+                .as_ref()
+                .is_some_and(|c| escape.clear_height_metres < c.required_clear_height_metres)
+        {
+            return false;
+        }
+        let r = self.scenario.agent_radius;
+        if [s.approach, s.landing].iter().any(|p| {
+            p.x < r || p.y < r || p.x > self.scenario.width - r || p.y > self.scenario.height - r
+        }) {
+            return false;
+        }
+        // Physical service failure is learned locally, rather than cancelling
+        // a distant person's approach when an unseen hazard changes the world.
+        if !s.eligible
+            && math::distance_to_point(agent.position, s.approach) <= 1.0
+            && world.can_see_window(
+                agent.position,
+                pane,
+                self.scenario.awareness.visibility_range(),
+            )
+        {
+            return false;
+        }
+        let map = self.beliefs.geometry_for_agent(agent);
+        map.can_stand_at(s.approach)
+            && !map.is_in_known_danger(s.approach)
+            && !map.is_in_known_danger(s.landing)
+    }
+
+    pub(super) fn choose(
+        &mut self,
+        step: u32,
+        agents: &[Agent],
+        evacuated: &[bool],
+        exit_seconds: &[f64],
+        geometry: &Geometry<'_>,
+    ) {
+        let fallback: Vec<_> = exit_seconds.iter().map(|s| !s.is_finite()).collect();
+        self.update_inner(
+            step,
+            agents,
+            evacuated,
+            &fallback,
+            geometry,
+            Some(exit_seconds),
+        );
+        let new_tick = self.last_search_step != Some(step);
+        self.last_search_step = Some(step);
+        for (i, agent) in agents.iter().enumerate() {
+            if evacuated[i] || self.approaches[i].is_some() || !self.can_consider() {
+                self.searches[i] = None;
+                continue;
+            }
+            if self.searches[i].is_some() && new_tick {
+                self.searched_steps[i] += 1;
+            }
+            // A failed search consumes real simulated time. Never search
+            // forever or use hidden window counts to decide when to give up.
+            let budget = (12.0 / self.scenario.time_step_seconds).ceil() as u32;
+            let prior_service = (8.0
+                + 4.0 * super::discovery::sample(self.scenario.seed, agent.id, 4))
+                / (1.0 - 0.75 * agent.injury);
+            if self.searched_steps[i] >= budget || prior_service + 2.0 >= exit_seconds[i] * 0.85 {
+                self.searches[i] = None;
+                continue;
+            }
+            let map = self.beliefs.geometry_for_agent(agent);
+            if let Some(search) = &mut self.searches[i] {
+                while search.cursor + 1 < search.route.waypoints.len()
+                    && math::distance_to_point(
+                        agent.position,
+                        search.route.waypoints[search.cursor],
+                    ) < 0.25
+                {
+                    search.cursor += 1;
+                }
+                let arrived = math::distance_to_point(
+                    agent.position,
+                    *search.route.waypoints.last().unwrap(),
+                ) < 0.3;
+                let valid = map.can_move(agent.position, search.route.waypoints[search.cursor])
+                    && map
+                        .avoids_known_danger(agent.position, search.route.waypoints[search.cursor]);
+                if !arrived
+                    && valid
+                    && f64::from(step.saturating_sub(search.since))
+                        * self.scenario.time_step_seconds
+                        < 3.0
+                {
+                    continue;
+                }
+                self.searched_views[i].push(*search.route.waypoints.last().unwrap());
+                if self.searched_views[i].len() > 16 {
+                    self.searched_views[i].remove(0);
+                }
+                self.searches[i] = None;
+            }
+            // Limit graph searches to twice per simulated second.
+            let interval = (0.5 / self.scenario.time_step_seconds).ceil().max(1.0) as u32;
+            if !step.is_multiple_of(interval) {
+                continue;
+            }
+            let architecture = self.beliefs.architecture.clone();
+            let (map, navigation) = self.beliefs.for_agent(agent);
+            if let Some(route) = super::discovery::search_route(
+                self.scenario,
+                agent,
+                map,
+                navigation,
+                &self.searched_views[i],
+                &architecture,
+            ) {
+                let forecast = super::congestion::CrowdForecast::for_geometry(map).with_discovery(
+                    self.scenario,
+                    agent,
+                    map,
+                );
+                let travel = navigation::route_cost(
+                    agent.position,
+                    &route.waypoints,
+                    &forecast,
+                    self.scenario.agent_radius,
+                ) / (super::motion::WALKING_SPEED * (1.0 - 0.75 * agent.injury));
+                if travel + prior_service < exit_seconds[i] * 0.85 {
+                    self.searches[i] = Some(Search {
+                        route,
+                        cursor: 0,
+                        since: step,
+                    });
+                }
+            }
+        }
+    }
+
+    fn update_inner(
+        &mut self,
+        step: u32,
+        agents: &[Agent],
+        evacuated: &[bool],
+        fallback: &[bool],
+        geometry: &Geometry<'_>,
+        exit_seconds: Option<&[f64]>,
+    ) {
         if self.stations.is_empty() {
             return;
         }
@@ -534,10 +764,15 @@ impl<'a> Windows<'a> {
                 };
             }
         }
-        // A reopened normal exit wins before traversal begins. An active crossing
-        // finishes on its current side-to-side path; it is never teleported back.
+        // Keep a commitment until the normal route becomes materially faster.
+        // An active crossing always finishes on its current side-to-side path.
         for (i, &needs_window) in fallback.iter().enumerate() {
-            if !needs_window && !self.traversing(i) {
+            let keep = exit_seconds.map_or(needs_window, |seconds| {
+                self.approaches[i].as_ref().is_some_and(|a| {
+                    self.escape_seconds(a.station, step, i, &a.route, agents) <= seconds[i] * 1.15
+                })
+            });
+            if !keep && !self.traversing(i) {
                 self.approaches[i] = None;
             }
         }
@@ -567,6 +802,7 @@ impl<'a> Windows<'a> {
             let Some(a) = &self.approaches[i] else {
                 continue;
             };
+            let station = a.station;
             let map = self.beliefs.geometry_for_agent(agent);
             let mut from = agent.position;
             let valid = a.route.waypoints[a.cursor..].iter().all(|&to| {
@@ -574,23 +810,29 @@ impl<'a> Windows<'a> {
                 from = to;
                 clear
             });
-            if !valid {
+            if !valid || !self.believed_usable(station, agent, geometry) {
                 self.cancel(i);
             }
         }
         let mut attempted = false;
         for i in 0..agents.len() {
-            if evacuated[i] || !fallback[i] || self.controls(i) {
+            if evacuated[i]
+                || (exit_seconds.is_none() && !fallback[i])
+                || self.approaches[i].is_some()
+            {
+                continue;
+            }
+            let interval = (0.5 / self.scenario.time_step_seconds).ceil().max(1.0) as u32;
+            if exit_seconds.is_some() && !step.is_multiple_of(interval) {
                 continue;
             }
             attempted = true;
             let mut best: Option<(f64, usize, Route)> = None;
-            let candidates: Vec<_> = self.known_windows[i]
-                .iter()
-                .copied()
-                .filter(|&station| self.stations[station].eligible)
-                .collect();
+            let candidates: Vec<_> = self.known_windows[i].iter().copied().collect();
             for station in candidates {
+                if !self.believed_usable(station, &agents[i], geometry) {
+                    continue;
+                }
                 if let Some(route) = self.approach_route(station, &agents[i], geometry) {
                     reachable[station] = true;
                     let seconds = self.escape_seconds(station, step, i, &route, agents);
@@ -599,7 +841,25 @@ impl<'a> Windows<'a> {
                     }
                 }
             }
-            if let Some((_, station, route)) = best {
+            if let Some((seconds, station, route)) = best
+                && exit_seconds.is_none_or(|normal| seconds + 1.0 < normal[i] * 0.85)
+            {
+                let estimated_exit_seconds = exit_seconds
+                    .map(|normal| normal[i])
+                    .filter(|seconds| seconds.is_finite());
+                self.decisions.record(crate::models::WindowDecision {
+                    step,
+                    agent_id: agents[i].id,
+                    window_id: self.scenario.windows[station].id.clone(),
+                    reason: if estimated_exit_seconds.is_some() {
+                        crate::models::WindowDecisionReason::EstimatedFaster
+                    } else {
+                        crate::models::WindowDecisionReason::NoKnownSafeExit
+                    },
+                    estimated_window_seconds: seconds,
+                    estimated_exit_seconds,
+                });
+                self.searches[i] = None;
                 self.approaches[i] = Some(Approach {
                     station,
                     route,
@@ -622,7 +882,7 @@ impl<'a> Windows<'a> {
         // Stable agent order breaks ties for arrivals on the same tick.
         // Disc collisions enforce spacing in the physical holding lane.
         let mut arrivals: Vec<_> = (0..agents.len())
-            .filter(|&i| self.controls(i) && !self.traversing(i))
+            .filter(|&i| self.approaches[i].is_some() && !self.traversing(i))
             .collect();
         arrivals.sort_by_key(|&i| agents[i].id);
         for i in arrivals {
@@ -709,6 +969,9 @@ impl<'a> Windows<'a> {
         position: Point,
         geometry: &Geometry<'_>,
     ) -> Option<Point> {
+        if let Some(search) = &self.searches[i] {
+            return Some(search.route.waypoints[search.cursor]);
+        }
         let a = self.approaches[i].as_ref()?;
         let s = &self.stations[a.station];
         if s.traverser == Some(i) {
@@ -737,6 +1000,11 @@ impl<'a> Windows<'a> {
         position: Point,
         geometry: &Geometry<'_>,
     ) -> Option<AgentPlannedPath> {
+        if let Some(search) = &self.searches[i] {
+            return Some(AgentPlannedPath::snapshot(
+                search.route.waypoints[search.cursor..].iter().copied(),
+            ));
+        }
         let approach = self.approaches[i].as_ref()?;
         let station = &self.stations[approach.station];
         if station.traverser == Some(i) {
@@ -853,12 +1121,21 @@ mod tests {
 
     #[test]
     fn windows_require_sight_or_a_local_one_hop_report() {
-        let b = layout();
+        let mut b = layout();
+        b.awareness.communication_range_metres = 3.2;
+        b.obstructions.push(crate::models::Obstruction {
+            id: "screen".into(),
+            name: None,
+            x: 8.9,
+            y: 5.8,
+            width: 0.2,
+            height: 14.2,
+        });
         let geometry = Geometry::new(&b);
         let people = [
-            informed(0, 9.0, 6.0),
-            informed(1, 8.0, 6.0),
-            informed(2, 7.0, 6.0),
+            informed(0, 9.0, 5.0),
+            informed(1, 8.0, 8.0),
+            informed(2, 7.0, 8.0),
         ];
         let mut windows = Windows::new(&b, &[], BTreeSet::from(["exit".into()]), 3, &geometry);
         assert!(windows.known_windows.iter().all(BTreeSet::is_empty));
@@ -871,6 +1148,110 @@ mod tests {
         assert!(windows.known_windows[2].is_empty());
         windows.update(1, &people, &[false; 3], &[false; 3], &geometry);
         assert!(windows.known_windows[2].contains(&0));
+    }
+
+    #[test]
+    fn a_discovered_window_competes_on_time_with_a_reachable_exit() {
+        let b = layout();
+        let geometry = Geometry::new(&b);
+        let people = [informed(0, 9.0, 6.0)];
+        let mut fast_exit = Windows::new(&b, &[], BTreeSet::new(), 1, &geometry);
+        fast_exit.choose(0, &people, &[false], &[2.0], &geometry);
+        assert!(!fast_exit.controls(0));
+        assert!(fast_exit.decisions.choices.is_empty());
+        let mut slow_exit = Windows::new(&b, &[], BTreeSet::new(), 1, &geometry);
+        slow_exit.choose(0, &people, &[false], &[60.0], &geometry);
+        assert_eq!(slow_exit.approaches[0].as_ref().unwrap().station, 0);
+        let choice = &slow_exit.decisions.choices[0];
+        assert_eq!(
+            choice.reason,
+            crate::models::WindowDecisionReason::EstimatedFaster
+        );
+        assert_eq!(choice.estimated_exit_seconds, Some(60.0));
+        assert!(choice.estimated_window_seconds < 60.0);
+        assert_eq!(choice.window_id, "near");
+        let mut fallback = Windows::new(&b, &[], BTreeSet::new(), 1, &geometry);
+        fallback.update(0, &people, &[false], &[true], &geometry);
+        assert_eq!(
+            fallback.decisions.choices[0].reason,
+            crate::models::WindowDecisionReason::NoKnownSafeExit
+        );
+        assert!(
+            fallback.decisions.choices[0]
+                .estimated_exit_seconds
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn an_unobserved_world_change_does_not_cancel_a_window_approach() {
+        let b = layout();
+        let geometry = Geometry::new(&b);
+        let people = [informed(0, 7.0, 6.0)];
+        let mut windows = Windows::new(&b, &[], BTreeSet::new(), 1, &geometry);
+        windows.known_windows[0].insert(0); // Previously received a local report.
+        windows.choose(0, &people, &[false], &[60.0], &geometry);
+        let before =
+            serde_json::to_value(&windows.approaches[0].as_ref().unwrap().route.waypoints).unwrap();
+        windows.refresh(&[], BTreeSet::from(["exit".into()]), &geometry);
+        assert!(windows.approaches[0].is_some());
+        windows.choose(1, &people, &[false], &[60.0], &geometry);
+        assert_eq!(
+            before,
+            serde_json::to_value(&windows.approaches[0].as_ref().unwrap().route.waypoints).unwrap()
+        );
+    }
+
+    #[test]
+    fn window_search_uses_beliefs_and_cannot_peek_at_hidden_panes() {
+        let mut b = layout();
+        b.obstructions.push(crate::models::Obstruction {
+            id: "screen".into(),
+            name: None,
+            x: 7.0,
+            y: 0.0,
+            width: 0.4,
+            height: 14.0,
+        });
+        let geometry = Geometry::new(&b);
+        let mut people = [informed(0, 5.0, 15.0)];
+        people[0].known_obstructions.insert("screen".into());
+        let mut hidden = Windows::new(&b, &[], BTreeSet::new(), 1, &geometry);
+        hidden.choose(0, &people, &[false], &[60.0], &geometry);
+        assert!(hidden.known_windows[0].is_empty());
+        assert!(hidden.approaches[0].is_none());
+        assert!(hidden.searches[0].is_some());
+        let mut no_panes = b.clone();
+        no_panes.windows.clear();
+        no_panes.window_escape_context = None;
+        let same_world = Geometry::new(&no_panes);
+        let mut empty = Windows::new(&no_panes, &[], BTreeSet::new(), 1, &same_world);
+        empty.choose(0, &people, &[false], &[60.0], &same_world);
+        assert_eq!(
+            serde_json::to_value(&hidden.searches[0].as_ref().unwrap().route.waypoints).unwrap(),
+            serde_json::to_value(&empty.searches[0].as_ref().unwrap().route.waypoints).unwrap()
+        );
+        assert_eq!(
+            serde_json::to_value(
+                &hidden
+                    .planned_path(0, people[0].position, &geometry)
+                    .unwrap()
+                    .waypoints
+            )
+            .unwrap(),
+            serde_json::to_value(&hidden.searches[0].as_ref().unwrap().route.waypoints).unwrap()
+        );
+
+        let mut exhausted = Windows::new(&b, &[], BTreeSet::new(), 1, &geometry);
+        exhausted.searched_steps[0] = 120;
+        exhausted.choose(0, &people, &[false], &[60.0], &geometry);
+        assert!(
+            !exhausted.controls(0),
+            "an unsuccessful search must return control to normal routing"
+        );
+        let mut quick = Windows::new(&b, &[], BTreeSet::new(), 1, &geometry);
+        quick.choose(0, &people, &[false], &[2.0], &geometry);
+        assert!(!quick.controls(0));
     }
 
     #[test]

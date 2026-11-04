@@ -13,6 +13,7 @@ import type { OptimizationEvaluation } from "./optimization";
 import ScenarioComparison from "./ScenarioComparison";
 import TrafficHeatmap from "./TrafficHeatmap";
 import CrowdingRanking from "./CrowdingRanking";
+import WindowHotspots from "./WindowHotspots";
 import {
   outcomeExplanation,
   scenarioTitle,
@@ -269,6 +270,11 @@ export default function AnalyticsDashboard({
           )}
         </section>
         <TrafficHeatmap building={building} result={result} />
+        <WindowHotspots
+          building={building}
+          result={result}
+          onViewInSimulation={onViewInSimulation}
+        />
         <CrowdingRanking
           building={building}
           result={result}

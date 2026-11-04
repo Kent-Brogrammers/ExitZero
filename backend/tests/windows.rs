@@ -227,19 +227,27 @@ fn saved_layout_exterior_directions_control_window_reachability() {
     rejected.validate().unwrap();
     assert_eq!(rejected.metrics.evacuated, 0);
     assert!(
-        rejected.frames[0]
-            .window_states
-            .as_ref()
-            .unwrap()
-            .iter()
-            .all(|window| {
-                window.state == WindowState::Intact
-                    && window.queue_agent_ids.is_empty()
-                    && window
-                        .unavailable_reason
-                        .as_deref()
-                        .is_some_and(|reason| reason.contains("exterior direction"))
+        rejected.frames.iter().all(|frame| {
+            frame.window_states.as_ref().unwrap().iter().all(|window| {
+                window.state == WindowState::Intact && window.queue_agent_ids.is_empty()
             })
+        }),
+        "an approach from the wrong side must never start service"
+    );
+    assert!(
+        rejected
+            .frames
+            .iter()
+            .any(|frame| frame
+                .window_states
+                .as_ref()
+                .unwrap()
+                .iter()
+                .any(|window| window
+                    .unavailable_reason
+                    .as_deref()
+                    .is_some_and(|reason| reason.contains("exterior direction")))),
+        "the unreachable approach must be explained after discovery"
     );
     let result = simulate(&b).unwrap();
     result.validate().unwrap();
@@ -992,7 +1000,7 @@ fn injury_speed_limits_apply_during_window_approach_and_traversal() {
 }
 
 #[test]
-fn a_reachable_normal_exit_wins_even_when_a_window_is_faster() {
+fn a_faster_discovered_window_wins_and_expensive_preparation_favors_the_exit() {
     let mut b = scenario();
     b.blocked_exit_ids.clear();
     b.exits[0].wall_id = "west".into();
@@ -1001,10 +1009,26 @@ fn a_reachable_normal_exit_wins_even_when_a_window_is_faster() {
     b.placed_occupants = serde_json::from_value(json!([{"id":"person", "x":17,"y":6}])).unwrap();
     let fast = simulate(&b).unwrap();
     fast.validate().unwrap();
+    let decision = fast
+        .analytics
+        .as_ref()
+        .unwrap()
+        .window_decisions
+        .as_ref()
+        .unwrap()
+        .choices
+        .first()
+        .unwrap();
+    assert_eq!(
+        decision.reason,
+        exitzero::models::WindowDecisionReason::EstimatedFaster
+    );
+    assert!(decision.estimated_window_seconds < decision.estimated_exit_seconds.unwrap());
+    assert_eq!(decision.window_id, "window");
     assert_eq!(fast.metrics.status, SimulationStatus::Completed);
-    assert_eq!(fast.metrics.evacuated_by_route.unwrap().normal_exit, 1);
+    assert_eq!(fast.metrics.evacuated_by_route.unwrap().emergency_window, 1);
 
-    // Preparation cost does not override the priority of a reachable normal exit.
+    // Preparation is part of the time comparison, so an expensive window loses.
     b.windows[0]
         .emergency_escape
         .as_mut()
@@ -1022,10 +1046,70 @@ fn a_reachable_normal_exit_wins_even_when_a_window_is_faster() {
 }
 
 #[test]
-fn all_normal_exits_are_searched_before_using_a_known_window() {
+fn window_choice_comparisons_roundtrip_and_reject_fabricated_history() {
     let mut b = scenario();
-    // The usual exit is blocked. The alternative is far across the building;
-    // the visible window is very close, but cannot take priority over it.
+    b.spawn_zones[0].count = 1;
+    let result = simulate(&b).unwrap();
+    result.validate().unwrap();
+    let json = serde_json::to_string(&result).unwrap();
+    let restored: exitzero::models::SimulationResult = serde_json::from_str(&json).unwrap();
+    restored.validate().unwrap();
+    assert!(
+        !restored
+            .analytics
+            .as_ref()
+            .unwrap()
+            .window_decisions
+            .as_ref()
+            .unwrap()
+            .choices
+            .is_empty()
+    );
+    for change in [
+        "agent",
+        "window",
+        "future",
+        "negative",
+        "reason",
+        "duplicate",
+    ] {
+        let mut invalid = restored.clone();
+        let end = invalid.frames.last().unwrap().step;
+        let choices = &mut invalid
+            .analytics
+            .as_mut()
+            .unwrap()
+            .window_decisions
+            .as_mut()
+            .unwrap()
+            .choices;
+        match change {
+            "agent" => choices[0].agent_id = 99999,
+            "window" => choices[0].window_id = "unknown-window".into(),
+            "future" => choices[0].step = end + 1,
+            "negative" => choices[0].estimated_window_seconds = -1.0,
+            "reason" => {
+                choices[0].reason = exitzero::models::WindowDecisionReason::EstimatedFaster;
+                choices[0].estimated_exit_seconds = None;
+            }
+            "duplicate" => choices.insert(0, choices[0].clone()),
+            _ => unreachable!(),
+        }
+        assert!(invalid.validate().is_err(), "{change}");
+    }
+    let mut without_states = restored.clone();
+    for frame in &mut without_states.frames {
+        frame.window_states = None;
+    }
+    without_states.validate().unwrap();
+    let mut legacy = restored;
+    legacy.analytics.as_mut().unwrap().window_decisions = None;
+    legacy.validate().unwrap();
+}
+
+#[test]
+fn a_known_window_can_beat_a_farther_alternative_normal_exit() {
+    let mut b = scenario();
     let mut alternative = b.exits[0].clone();
     alternative.id = "alternative-exit".into();
     alternative.wall_id = "west".into();
@@ -1036,29 +1120,35 @@ fn all_normal_exits_are_searched_before_using_a_known_window() {
     let result = simulate(&b).unwrap();
     result.validate().unwrap();
     assert_eq!(result.metrics.status, SimulationStatus::Completed);
-    assert_eq!(result.metrics.evacuated_by_route.unwrap().normal_exit, 1);
+    assert_eq!(
+        result.metrics.evacuated_by_route.unwrap().emergency_window,
+        1
+    );
     assert_eq!(
         result.analytics.as_ref().unwrap().agents[0]
-            .exit_id
-            .as_deref(),
-        Some("alternative-exit")
-    );
-    assert!(
-        result
-            .frames
-            .iter()
-            .all(|f| f.window_states.as_ref().unwrap()[0].state == WindowState::Intact)
+            .escape_route
+            .as_ref()
+            .unwrap()
+            .opening_id,
+        "window"
     );
 }
 
 #[test]
-fn an_unseen_exit_closure_does_not_trigger_a_visible_window_fallback() {
+fn an_unseen_exit_closure_does_not_change_window_decisions() {
     let mut closed = scenario();
     closed.spawn_zones.clear();
     closed.placed_occupants =
         serde_json::from_value(json!([{"id":"person", "x":17,"y":6}])).unwrap();
     closed.awareness.sight_range_metres = 1.0;
     closed.awareness.communication_range_metres = 0.0;
+    closed.walls.push(exitzero::models::Wall {
+        id: "screen".into(),
+        name: None,
+        start: exitzero::models::Point { x: 11.0, y: 2.0 },
+        end: exitzero::models::Point { x: 11.0, y: 8.0 },
+        thickness: 0.2,
+    });
     closed.max_steps = 10;
     let mut open = closed.clone();
     open.blocked_exit_ids.clear();
@@ -1071,9 +1161,76 @@ fn an_unseen_exit_closure_does_not_trigger_a_visible_window_fallback() {
             serde_json::to_value(&a.agents).unwrap(),
             serde_json::to_value(&b.agents).unwrap()
         );
-        let window = &b.window_states.as_ref().unwrap()[0];
-        assert_eq!(window.state, WindowState::Intact);
-        assert!(window.approaching_agent_ids.as_ref().unwrap().is_empty());
-        assert!(window.queue_agent_ids.is_empty());
+        assert_eq!(
+            serde_json::to_value(&a.window_states).unwrap(),
+            serde_json::to_value(&b.window_states).unwrap()
+        );
     }
+}
+
+#[test]
+fn searching_can_discover_a_window_before_committing_to_a_long_exit_route() {
+    let mut b = scenario();
+    b.seed = 4;
+    b.width = 40.0;
+    for wall in &mut b.walls {
+        for p in [&mut wall.start, &mut wall.end] {
+            if p.x == 18.0 {
+                p.x = 38.0;
+            }
+        }
+    }
+    b.blocked_exit_ids.clear();
+    b.exits[0].wall_id = "west".into();
+    b.exits[0].offset = 3.0;
+    b.spawn_zones.clear();
+    b.placed_occupants = serde_json::from_value(json!([{"id":"person", "x":34,"y":6}])).unwrap();
+    b.awareness.sight_range_metres = 0.6;
+    b.awareness.communication_range_metres = 0.0;
+    b.walls.push(exitzero::models::Wall {
+        id: "screen".into(),
+        name: None,
+        start: exitzero::models::Point { x: 36.0, y: 2.0 },
+        end: exitzero::models::Point { x: 36.0, y: 8.0 },
+        thickness: 0.2,
+    });
+    let result = simulate(&b).unwrap();
+    result.validate().unwrap();
+    assert!(
+        result.frames[0].window_states.as_ref().unwrap()[0]
+            .approaching_agent_ids
+            .as_ref()
+            .unwrap()
+            .is_empty(),
+        "an unseen window cannot be an initial target"
+    );
+    assert_eq!(result.metrics.status, SimulationStatus::Completed);
+    assert_eq!(
+        result
+            .metrics
+            .evacuated_by_route
+            .as_ref()
+            .unwrap()
+            .emergency_window,
+        1
+    );
+    let first_approach = result
+        .frames
+        .iter()
+        .find(|frame| {
+            let window = &frame.window_states.as_ref().unwrap()[0];
+            !window.approaching_agent_ids.as_ref().unwrap().is_empty()
+                || !window.queue_agent_ids.is_empty()
+                || window.traversing_agent_id.is_some()
+        })
+        .unwrap();
+    assert!(first_approach.step > 0);
+    assert!(
+        first_approach.agents[0].y > 8.0,
+        "the agent must peek around the opaque screen before targeting the pane"
+    );
+    assert_eq!(
+        serde_json::to_value(&result).unwrap(),
+        serde_json::to_value(simulate(&b).unwrap()).unwrap()
+    );
 }

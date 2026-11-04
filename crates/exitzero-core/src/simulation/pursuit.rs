@@ -590,7 +590,14 @@ mod tests {
 
     #[test]
     fn a_genuine_warning_changes_an_unseeing_survivors_exit_choice() {
-        let b = room();
+        let mut b = room();
+        b.walls.push(crate::models::Wall {
+            id: "screen".into(),
+            name: None,
+            start: Point { x: 3.0, y: 2.0 },
+            end: Point { x: 3.0, y: 4.0 },
+            thickness: 0.1,
+        });
         let geometry = Geometry::new(&b);
         let navigation = Navigation::new(&b, &geometry);
         let people = vec![
@@ -613,7 +620,7 @@ mod tests {
             0,
             &people,
             &[false, false],
-            Point { x: 2.0, y: 5.0 },
+            Point { x: 2.0, y: 3.0 },
             &settings,
             &geometry,
         );

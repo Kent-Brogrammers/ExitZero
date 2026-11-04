@@ -35,6 +35,7 @@ struct Prediction {
 
 #[derive(Default)]
 pub(super) struct CrowdForecast {
+    outlook: Option<super::discovery::Outlook>,
     pursuit_threat: Option<(Point, f64)>,
     people: Vec<Prediction>,
     disaster: Option<crate::models::Disaster>,
@@ -95,6 +96,7 @@ impl CrowdMemory {
         }
         self.tracks.retain(|_, track| track.tick == tick);
         CrowdForecast {
+            outlook: None,
             pursuit_threat: None,
             people,
             disaster: geometry.disaster,
@@ -106,6 +108,7 @@ impl CrowdMemory {
 impl CrowdForecast {
     pub(super) fn for_geometry(geometry: &Geometry<'_>) -> Self {
         Self {
+            outlook: None,
             pursuit_threat: None,
             people: vec![],
             disaster: geometry.disaster,
@@ -115,6 +118,7 @@ impl CrowdForecast {
     #[cfg(test)]
     pub(super) fn stationary(positions: &[Point]) -> Self {
         Self {
+            outlook: None,
             pursuit_threat: None,
             disaster: None,
             hazard_areas: vec![],
@@ -136,6 +140,16 @@ impl CrowdForecast {
             pursuit_threat: Some((stalker, radius)),
             ..Self::for_geometry(geometry)
         }
+    }
+
+    pub(super) fn with_discovery(
+        mut self,
+        scenario: &crate::models::BuildingScenario,
+        agent: &super::agent::Agent,
+        geometry: &Geometry<'_>,
+    ) -> Self {
+        self.outlook = Some(super::discovery::Outlook::new(scenario, agent, geometry));
+        self
     }
 
     /// Positive, additive edge costs keep graph search and waypoint shortcuts
@@ -174,7 +188,10 @@ impl CrowdForecast {
                 })
                 .sum::<f64>()
         });
-        danger_cost
+        self.outlook
+            .as_ref()
+            .map_or(0.0, |outlook| outlook.cost(start, end))
+            + danger_cost
             + self.pursuit_threat.map_or(0.0, |(stalker, distance)| {
                 occupancy_cost(start, heading, length, stalker, distance / 4.0) * 40.0
             })

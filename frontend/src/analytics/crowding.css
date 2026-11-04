@@ -2,6 +2,46 @@
   grid-column: 1 / -1;
   min-width: 0;
 }
+.analytics-grid > .window-hotspots-panel {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+.window-hotspot-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(290px, 100%), 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+.window-hotspot-card {
+  padding: 14px;
+  border: 1px solid var(--cad-border);
+  border-radius: 8px;
+  background: var(--cad-surface);
+}
+.window-hotspot-card > h3,
+.crowding-insight > h3 {
+  font-size: 13px;
+  color: var(--cad-text);
+}
+.crowding-insight {
+  margin: 12px 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--cad-border);
+}
+.window-explanation h4 {
+  margin: 12px 0 6px;
+  font-size: 13px;
+  color: var(--cad-text);
+}
+.window-explanation p {
+  margin: 8px 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--cad-muted);
+}
+.window-explanation .window-evidence {
+  color: var(--cad-text);
+}
 .crowding-cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));

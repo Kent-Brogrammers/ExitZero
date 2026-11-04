@@ -121,6 +121,12 @@
   background: var(--cad-bg);
   color: var(--cad-text);
 }
+.settings-content fieldset input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  accent-color: var(--cad-accent);
+}
 .settings-values {
   margin: 0;
 }

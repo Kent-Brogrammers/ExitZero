@@ -22,6 +22,7 @@ pub(super) fn summarize(
         })
     };
     SimulationAnalytics {
+        window_decisions: None,
         simulated_seconds,
         median_evacuation_seconds,
         total_distance_metres: agents.iter().map(|agent| agent.distance_metres).sum(),

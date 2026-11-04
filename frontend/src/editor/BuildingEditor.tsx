@@ -52,6 +52,7 @@ import {
   populateRoom,
   resizeRoomPopulation,
   roomFillZones,
+  invalidateRoomFills,
   type Room,
 } from "./roomFill";
 import { WindowProperties } from "./WindowProperties";
@@ -352,6 +353,7 @@ export function BuildingEditor({
     next: BuildingScenario,
     mergeOpenings = false,
     afterSelection?: Selection[],
+    invalidateRooms = true,
   ) {
     const edit = mergeOpenings
       ? mergeEditedOpenings(
@@ -367,6 +369,9 @@ export function BuildingEditor({
       return false;
     }
     if (edit) next = edit.building;
+    const beforeInvalidation = next.spawn_zones.length;
+    if (invalidateRooms) next = invalidateRoomFills(building, next);
+    const removedRoomFills = beforeInvalidation - next.spawn_zones.length;
     const geometryChanged = openingGeometryChanged(building, next);
     if (geometryChanged) next = classifyDoors(next);
     const problem = buildingError(next, false);
@@ -378,11 +383,18 @@ export function BuildingEditor({
     setRedo([]);
     setError("");
     setNotice(
-      edit?.replacements.size
-        ? "Openings merged · Undo restores the originals."
-        : "",
+      removedRoomFills
+        ? "Room fill removed after wall changes · Fill the updated room again. Undo restores it."
+        : edit?.replacements.size
+          ? "Openings merged · Undo restores the originals."
+          : "",
     );
-    if (afterSelection || edit?.replacements.size || geometryChanged) {
+    if (
+      afterSelection ||
+      edit?.replacements.size ||
+      geometryChanged ||
+      removedRoomFills
+    ) {
       const mapped = (afterSelection ?? selections).map((item) =>
         item.kind === "doors" || item.kind === "exits"
           ? { ...item, id: edit?.replacements.get(item.id) ?? item.id }
@@ -400,6 +412,11 @@ export function BuildingEditor({
                 }
               : item,
           )
+          .filter(
+            (item) =>
+              item.kind !== "spawn_zones" ||
+              next.spawn_zones.some((zone) => zone.id === item.id),
+          )
           .filter((v, i, all) => all.findIndex((m) => m.id === v.id) === i),
       );
     }
@@ -409,7 +426,7 @@ export function BuildingEditor({
   useImperativeHandle(editorRef, () => ({
     applyBuilding(next) {
       setGesture(null);
-      const applied = commit(next, false, []);
+      const applied = commit(next, false, [], false);
       if (applied) setPreviousView(null);
       return applied;
     },

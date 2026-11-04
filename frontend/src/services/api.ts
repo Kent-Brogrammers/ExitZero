@@ -276,6 +276,41 @@ function checkSimulation(
     ]),
     result.frames.at(-1)?.step ?? -1,
   );
+  const decisions = result.analytics?.window_decisions;
+  if (decisions) {
+    const ids = new Map(
+      result.analytics!.agents.map((agent) => [agent.id, agent]),
+    );
+    const lastStep = result.frames.at(-1)?.step ?? 0;
+    const seen = new Set<string>();
+    let previous = 0;
+    if (
+      decisions.choices.some((choice) => {
+        const key = `${choice.step}:${choice.agent_id}`;
+        const agent = ids.get(choice.agent_id);
+        const invalid =
+          choice.step < previous ||
+          choice.step > lastStep ||
+          !agent ||
+          choice.step * result.time_step_seconds >
+            agent.elapsed_seconds + 1e-6 ||
+          !building.windows?.some((window) => window.id === choice.window_id) ||
+          seen.has(key) ||
+          (choice.reason === "estimated_faster" &&
+            (choice.estimated_exit_seconds === null ||
+              choice.estimated_window_seconds >=
+                choice.estimated_exit_seconds));
+        previous = choice.step;
+        seen.add(key);
+        return invalid;
+      })
+    )
+      throw new ApiError(
+        200,
+        "invalid_response",
+        "Backend returned invalid window decision references or time estimates.",
+      );
+  }
   if (
     result.analytics?.agents.some((a) => {
       const route = a.escape_route;

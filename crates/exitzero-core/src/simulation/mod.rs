@@ -10,11 +10,13 @@ use std::{
 };
 mod agent;
 mod analytics;
+mod architecture;
 mod awareness;
 mod catastrophe;
 mod congestion;
 pub(crate) mod control;
 mod dialogue;
+mod discovery;
 pub use control::{ComputationControl, ComputationProgress};
 mod emergency;
 mod evolution;
@@ -138,32 +140,23 @@ fn run(
     }
     agent::spawn_agents(&mut agents, scenario, &geometry)?;
 
-    // Signposted evacuation guidance supplies the static wall layout. People
-    // still discover opening closures, obstructions and hazards locally.
-    let layout: perception::WallKnowledge = scenario
-        .walls
-        .iter()
-        .map(|wall| {
-            (
-                wall.id.clone(),
-                vec![perception::WallSpan {
-                    start: 0.0,
-                    end: wall.length(),
-                }],
-            )
-        })
-        .collect();
-    for agent in &mut agents {
-        agent.known_walls.clone_from(&layout);
-    }
-
     let mut beliefs = awareness::BeliefMaps::new(scenario, emergencies);
+    for agent in &mut agents {
+        agent.known_walls.clone_from(&beliefs.architecture.exterior);
+    }
     let mut routes: Vec<_> = agents
         .iter()
         .map(|agent| {
             control::checkpoint()?;
             let (map, navigation) = beliefs.for_agent(agent);
-            Ok(navigation.find_route(agent.position, map))
+            let forecast =
+                congestion::CrowdForecast::for_geometry(map).with_discovery(scenario, agent, map);
+            Ok(navigation.find_route_with_forecast(
+                agent.position,
+                map,
+                &forecast,
+                scenario.agent_radius,
+            ))
         })
         .collect::<Result<Vec<_>, SimulationError>>()?;
     let mut next_waypoint = vec![0; agents.len()];
@@ -232,8 +225,15 @@ fn run(
         agents.len(),
         &geometry,
     );
-    let mut window_fallback: Vec<_> = routes.iter().map(Option::is_none).collect();
-    windows.update(0, &agents, &evacuated, &window_fallback, &geometry);
+    let exit_seconds = expected_exit_seconds(
+        scenario,
+        &agents,
+        &evacuated,
+        &routes,
+        &next_waypoint,
+        &mut beliefs,
+    );
+    windows.choose(0, &agents, &evacuated, &exit_seconds, &geometry);
     let mut window_escapes = 0;
     let mut heatmap = heatmap::Heatmap::default();
     let initial_plans = PlannedPaths {
@@ -333,10 +333,7 @@ fn run(
                             .full_shelters
                             .contains(&route.exit_id)
                 });
-            if evacuated[i]
-                || windows.controls(i)
-                || (!changed_beliefs[i] && !changed_disaster && !shelter_full)
-            {
+            if evacuated[i] || (!changed_beliefs[i] && !changed_disaster && !shelter_full) {
                 continue;
             }
             let map = beliefs.geometry_for_agent(&agents[i]);
@@ -357,7 +354,8 @@ fn run(
             if valid && (!changed_disaster || now - last_disaster_replan[i] < 0.5) {
                 continue;
             }
-            let forecast = congestion::CrowdForecast::for_geometry(map);
+            let forecast = congestion::CrowdForecast::for_geometry(map)
+                .with_discovery(scenario, &agents[i], map);
             let current_cost = routes[i].as_ref().map(|route| {
                 navigation::route_cost(
                     agents[i].position,
@@ -385,7 +383,7 @@ fn run(
                 continue;
             }
             let (map, navigation) = beliefs.for_agent(&agents[i]);
-            let candidate = if windows.has_eligible() {
+            let candidate = if windows.can_consider() {
                 navigation.find_safe_route_with_forecast(
                     agents[i].position,
                     map,
@@ -421,44 +419,17 @@ fn run(
             routed_disaster[i] = versions;
             last_disaster_replan[i] = now;
         }
-        // Search across all known normal exits before considering windows.
-        // A longer reachable exit route still wins over a nearby window.
-        for i in 0..agents.len() {
-            control::checkpoint()?;
-            if evacuated[i] || tornado || !windows.has_eligible() {
-                window_fallback[i] = false;
-                continue;
-            }
-            if !changed_beliefs[i] && !step.is_multiple_of(retry_ticks) {
-                continue;
-            }
-            let map = beliefs.geometry_for_agent(&agents[i]);
-            let mut from = agents[i].position;
-            let safe = !windows.controls(i)
-                && routes[i].as_ref().is_some_and(|route| {
-                    !map.opening_is_unsafe(&route.exit_id)
-                        && route.waypoints[next_waypoint[i]..].iter().all(|&to| {
-                            let clear = map.can_move(from, to) && map.avoids_known_danger(from, to);
-                            from = to;
-                            clear
-                        })
-                });
-            if safe {
-                window_fallback[i] = false;
-                continue;
-            }
-            let (map, navigation) = beliefs.for_agent(&agents[i]);
-            let candidate = navigation.find_route_avoiding_danger(agents[i].position, map);
-            window_fallback[i] = candidate.is_none();
-            if let Some(route) = candidate {
-                routes[i] = Some(route);
-                next_waypoint[i] = 0;
-                statistics[i].route_found = true;
-                commitments[i].forced(now);
-            }
-        }
+        let exit_seconds = expected_exit_seconds(
+            scenario,
+            &agents,
+            &evacuated,
+            &routes,
+            &next_waypoint,
+            &mut beliefs,
+        );
+        let window_fallback: Vec<_> = exit_seconds.iter().map(|s| !s.is_finite()).collect();
         let controlled: Vec<_> = (0..agents.len()).map(|i| windows.controls(i)).collect();
-        windows.update(step, &agents, &evacuated, &window_fallback, &geometry);
+        windows.choose(step, &agents, &evacuated, &exit_seconds, &geometry);
         dialogue.observe(
             step,
             scenario,
@@ -470,7 +441,9 @@ fn run(
         for i in 0..agents.len() {
             control::checkpoint()?;
             if windows.controls(i) {
-                statistics[i].route_found = true;
+                if windows.using_window(i) {
+                    statistics[i].route_found = true;
+                }
             } else if !evacuated[i]
                 && (controlled[i] || (window_fallback[i] && routes[i].is_none()))
             {
@@ -480,10 +453,22 @@ fn run(
                 let gas = scenario
                     .disaster
                     .is_some_and(|d| d.kind == crate::models::DisasterKind::GasLeak);
-                routes[i] = if windows.has_eligible() && !gas {
-                    navigation.find_route_avoiding_danger(agents[i].position, map)
+                let forecast = congestion::CrowdForecast::for_geometry(map)
+                    .with_discovery(scenario, &agents[i], map);
+                routes[i] = if windows.can_consider() && !gas {
+                    navigation.find_safe_route_with_forecast(
+                        agents[i].position,
+                        map,
+                        &forecast,
+                        scenario.agent_radius,
+                    )
                 } else {
-                    navigation.find_route(agents[i].position, map)
+                    navigation.find_route_with_forecast(
+                        agents[i].position,
+                        map,
+                        &forecast,
+                        scenario.agent_radius,
+                    )
                 };
                 next_waypoint[i] = 0;
                 stalled_ticks[i] = 0;
@@ -524,8 +509,7 @@ fn run(
             }
             for j in i + 1..agents.len() {
                 if !evacuated[j]
-                    && math::distance_to_point(before[i], before[j])
-                        <= scenario.awareness.sight_range_metres
+                    && scenario.awareness.visibility_range() > 0.0
                     && geometry.has_line_of_sight(before[i], before[j])
                 {
                     occupants[i].push((j, before[j]));
@@ -539,7 +523,9 @@ fn run(
                     return congestion::CrowdForecast::default();
                 }
                 let map = beliefs.geometry_for_agent(&agents[i]);
-                crowd_memory[i].observe(&occupants[i], step, scenario.time_step_seconds, map)
+                crowd_memory[i]
+                    .observe(&occupants[i], step, scenario.time_step_seconds, map)
+                    .with_discovery(scenario, &agents[i], map)
             })
             .collect();
         for i in 0..agents.len() {
@@ -581,7 +567,7 @@ fn run(
                 stalled_exits[i].clear();
             }
             let candidate = alternative.or_else(|| {
-                if windows.has_eligible() {
+                if windows.can_consider() {
                     navigation.find_safe_route_with_forecast(
                         before[i],
                         map,
@@ -912,6 +898,20 @@ fn run(
                         0.05
                     } else if same_lane(i, j) && arrival_priority[j] {
                         0.95
+                    } else if !windows.controls(j)
+                        && math::distance_to_point(before[i], position)
+                            < 4.0 * scenario.agent_radius
+                        && targets[i].zip(targets[j]).is_some_and(|(a, b)| {
+                            math::distance_to_point(a, b) < 2.0 * scenario.agent_radius
+                        })
+                    {
+                        // Interior passages can serve agents heading to different exits.
+                        // Break reciprocal symmetry near a shared waypoint as well.
+                        if agents[i].id < agents[j].id {
+                            0.05
+                        } else {
+                            0.95
+                        }
                     } else {
                         0.5
                     },
@@ -1058,6 +1058,22 @@ fn run(
                 stalled_ticks[i] += 1;
             }
             if windows.controls(i) {
+                if windows.searching(i)
+                    && let Some(exit) = scenario
+                        .exits
+                        .iter()
+                        .find(|exit| geometry.at_exit(proposed[i], &exit.id))
+                {
+                    windows.cancel(i);
+                    routes[i] = Some(navigation::Route {
+                        exit_id: exit.id.clone(),
+                        risk_allowed: false,
+                        waypoints: vec![proposed[i]],
+                    });
+                    next_waypoint[i] = 0;
+                    statistics[i].route_found = true;
+                    leaving.push(i);
+                }
                 continue;
             }
             let Some(route) = routes[i].as_ref() else {
@@ -1160,7 +1176,15 @@ fn run(
         }
         // State changes at this timestamp are recorded in both live and saved
         // frames; preparation deadlines are never shifted by rendering stride.
-        windows.update(step, &agents, &evacuated, &window_fallback, &geometry);
+        let exit_seconds = expected_exit_seconds(
+            scenario,
+            &agents,
+            &evacuated,
+            &routes,
+            &next_waypoint,
+            &mut beliefs,
+        );
+        windows.choose(step, &agents, &evacuated, &exit_seconds, &geometry);
         dialogue.observe(
             step,
             scenario,
@@ -1170,7 +1194,7 @@ fn run(
             windows.snapshots(&agents).as_deref(),
         );
         for (i, statistic) in statistics.iter_mut().enumerate() {
-            if windows.controls(i) {
+            if windows.using_window(i) {
                 statistic.route_found = true;
             }
         }
@@ -1287,7 +1311,9 @@ fn run(
         ) * scenario.time_step_seconds;
         agent.waiting_seconds = f64::from(agent.waiting_steps) * scenario.time_step_seconds;
     }
-    let analytics = analytics::summarize(statistics, f64::from(step) * scenario.time_step_seconds);
+    let mut analytics =
+        analytics::summarize(statistics, f64::from(step) * scenario.time_step_seconds);
+    analytics.window_decisions = Some(windows.take_decisions());
     control::checkpoint()?;
     Ok(SimulationResult {
         congestion_samples: heatmap.total(),
@@ -1320,6 +1346,49 @@ fn run(
         agent_events: Some(dialogue.events),
         termination_reason: Some(termination_reason),
     })
+}
+
+/// Evaluate the actual remaining belief-graph route, including unknown detours
+/// and known danger. No reachability query against the physical world belongs here.
+fn expected_exit_seconds(
+    scenario: &BuildingScenario,
+    agents: &[agent::Agent],
+    evacuated: &[bool],
+    routes: &[Option<navigation::Route>],
+    cursors: &[usize],
+    beliefs: &mut awareness::BeliefMaps<'_>,
+) -> Vec<f64> {
+    agents
+        .iter()
+        .enumerate()
+        .map(|(i, agent)| {
+            if evacuated[i] {
+                return 0.0;
+            }
+            let Some(route) = &routes[i] else {
+                return f64::INFINITY;
+            };
+            let map = beliefs.geometry_for_agent(agent);
+            let mut from = agent.position;
+            if map.opening_is_unsafe(&route.exit_id)
+                || !route.waypoints[cursors[i]..].iter().all(|&to| {
+                    let safe = map.can_move(from, to) && map.avoids_known_danger(from, to);
+                    from = to;
+                    safe
+                })
+            {
+                return f64::INFINITY;
+            }
+            let forecast =
+                congestion::CrowdForecast::for_geometry(map).with_discovery(scenario, agent, map);
+            navigation::route_cost(
+                agent.position,
+                &route.waypoints[cursors[i]..],
+                &forecast,
+                scenario.agent_radius,
+            ) / (motion::WALKING_SPEED * (1.0 - 0.75 * agent.injury))
+        })
+        .collect()
 }
 
 struct PlannedPaths<'a> {

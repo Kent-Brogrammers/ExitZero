@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AgentAwareness {
+    /// Legacy wire field: zero disables vision; every positive value means
+    /// unlimited, omnidirectional line of sight. It is no longer a distance cap.
     pub sight_range_metres: f64,
     pub communication_range_metres: f64,
 }
@@ -17,6 +19,14 @@ impl Default for AgentAwareness {
 }
 
 impl AgentAwareness {
+    pub(crate) fn visibility_range(&self) -> f64 {
+        if self.sight_range_metres > 0.0 {
+            f64::INFINITY
+        } else {
+            0.0
+        }
+    }
+
     pub fn is_default(&self) -> bool {
         self == &Self::default()
     }

@@ -369,7 +369,8 @@ pub(super) fn coordinate_moves(
 }
 
 /// Validate simultaneous trajectories, including people who will leave this
-/// tick. Stopping one proposal can invalidate another, so propagate stops until
+/// tick. Prefer one accepted move when the other person can safely wait.
+/// Stopping one proposal can invalidate another, so propagate stops until
 /// every swept path is safe. Every pass stops at least one moving agent.
 pub(super) fn resolve_collisions(
     before: &[Point],
@@ -396,7 +397,30 @@ pub(super) fn resolve_collisions(
                 {
                     continue;
                 }
-                for k in [i, j] {
+                // Stable agent order breaks a simultaneous convergence tie.
+                // Retain only an existing, geometry-checked proposal; never
+                // push a body aside or bypass the full swept-disc check.
+                let stop_i = math::moving_circles_overlap(
+                    before[i],
+                    proposed[i],
+                    radius,
+                    before[j],
+                    before[j],
+                    radius,
+                );
+                let stop_j = !stop_i
+                    || math::moving_circles_overlap(
+                        before[i],
+                        before[i],
+                        radius,
+                        before[j],
+                        proposed[j],
+                        radius,
+                    );
+                for (k, stop) in [(i, stop_i), (j, stop_j)] {
+                    if !stop {
+                        continue;
+                    }
                     if math::distance_to_point(before[k], proposed[k]) > 0.0 {
                         proposed[k] = before[k];
                         changed = true;

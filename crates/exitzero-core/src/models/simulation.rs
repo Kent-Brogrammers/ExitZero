@@ -192,6 +192,13 @@ pub struct AgentStatistics {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SimulationAnalytics {
+    /// Absent in legacy recordings. Only actual assignments are recorded.
+    #[serde(
+        default,
+        deserialize_with = "super::windows::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub window_decisions: Option<super::WindowDecisionHistory>,
     pub agents: Vec<AgentStatistics>,
     pub simulated_seconds: f64,
     /// Median among evacuated occupants ONLY, including on incomplete runs.
@@ -356,6 +363,54 @@ impl SimulationResult {
                 || analytics.median_evacuation_seconds.is_some() != (self.metrics.evacuated > 0)
             {
                 return Err("invalid per-agent analytics, times, or population accounting".into());
+            }
+            if let Some(history) = &analytics.window_decisions {
+                let mut previous = 0;
+                let mut seen = std::collections::HashSet::new();
+                let last_step = self.frames.last().map_or(0, |f| f.step);
+                let elapsed: std::collections::HashMap<_, _> = analytics
+                    .agents
+                    .iter()
+                    .map(|a| (a.id, a.elapsed_seconds))
+                    .collect();
+                let windows: Option<std::collections::HashSet<_>> = self
+                    .frames
+                    .iter()
+                    .find_map(|frame| frame.window_states.as_ref())
+                    .map(|states| {
+                        states
+                            .iter()
+                            .map(|state| state.window_id.as_str())
+                            .collect()
+                    });
+                if history.choices.len() > super::WindowDecisionHistory::MAX_CHOICES
+                    || history.choices.iter().any(|choice| {
+                        let invalid = choice.step < previous
+                            || choice.step > last_step
+                            || !ids.contains(&choice.agent_id)
+                            || windows.as_ref().is_some_and(|windows| {
+                                !windows.contains(choice.window_id.as_str())
+                            })
+                            || elapsed.get(&choice.agent_id).is_none_or(|seconds| {
+                                f64::from(choice.step) * self.time_step_seconds > seconds + 1e-6
+                            })
+                            || choice.window_id.trim().is_empty()
+                            || choice.window_id.chars().count() > 64
+                            || !nonnegative(choice.estimated_window_seconds)
+                            || !seen.insert((choice.step, choice.agent_id))
+                            || match (choice.reason, choice.estimated_exit_seconds) {
+                                (super::WindowDecisionReason::EstimatedFaster, Some(exit)) => {
+                                    !nonnegative(exit) || choice.estimated_window_seconds >= exit
+                                }
+                                (super::WindowDecisionReason::NoKnownSafeExit, None) => false,
+                                _ => true,
+                            };
+                        previous = choice.step;
+                        invalid
+                    })
+                {
+                    return Err("invalid window decision history or time estimates".into());
+                }
             }
         }
         if !self.width.is_finite()

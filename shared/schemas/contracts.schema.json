@@ -1420,6 +1420,9 @@
         "total_waiting_seconds": {
           "type": "number",
           "minimum": 0
+        },
+        "window_decisions": {
+          "$ref": "#/$defs/WindowDecisionHistory"
         }
       }
     },
@@ -1548,6 +1551,7 @@
       "required": ["sight_range_metres", "communication_range_metres"],
       "properties": {
         "sight_range_metres": {
+          "description": "Legacy compatibility field: zero disables vision; any positive value enables unlimited omnidirectional line of sight. No distance cap is applied.",
           "type": "number",
           "minimum": 0,
           "maximum": 1000
@@ -2039,6 +2043,91 @@
         "speed": {
           "type": "integer",
           "enum": [1, 2, 4, 8]
+        }
+      }
+    },
+    "WindowDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "step",
+        "agent_id",
+        "window_id",
+        "reason",
+        "estimated_window_seconds",
+        "estimated_exit_seconds"
+      ],
+      "properties": {
+        "step": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100000
+        },
+        "agent_id": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "window_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "\\S"
+        },
+        "reason": {
+          "enum": ["estimated_faster", "no_known_safe_exit"]
+        },
+        "estimated_window_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "estimated_exit_seconds": {
+          "type": ["number", "null"],
+          "minimum": 0
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "reason": {
+                "const": "estimated_faster"
+              }
+            },
+            "required": ["reason"]
+          },
+          "then": {
+            "properties": {
+              "estimated_exit_seconds": {
+                "type": "number"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "estimated_exit_seconds": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ],
+      "description": "The personal remaining-time comparison actually used when committing to a window; estimates are not measured outcomes."
+    },
+    "WindowDecisionHistory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["choices", "truncated"],
+      "properties": {
+        "choices": {
+          "type": "array",
+          "maxItems": 20000,
+          "items": {
+            "$ref": "#/$defs/WindowDecision"
+          }
+        },
+        "truncated": {
+          "type": "boolean"
         }
       }
     }

@@ -6,7 +6,11 @@ import {
 } from "../utils/units";
 import { useDisplayUnits } from "../utils/useDisplayUnits";
 import { useEffect, useMemo, useRef } from "react";
-import type { BuildingScenario, SimulationResult } from "../types/simulation";
+import type {
+  BuildingScenario,
+  SimulationResult,
+  WindowDecisionHistory,
+} from "../types/simulation";
 import { drawLayout } from "../editor/draw";
 import { canvasPalette } from "../styles/canvasPalette";
 import { drawAgents } from "../simulation/drawPlayback";
@@ -21,6 +25,13 @@ import {
 import "./crowding.css";
 import { trafficBins } from "./traffic";
 import { trafficField, fieldPixels } from "./trafficField";
+import {
+  classifyWindowCrowding,
+  windowDecisionIndex,
+  windowEvidence,
+  type WindowDecisionIndex,
+} from "./windowInsights";
+import { WindowExplanation } from "./WindowHotspots";
 
 function snapshotField(building: BuildingScenario, spot: CrowdingSpot) {
   const zones = frameCrowding(spot.frame, building.width, building.height);
@@ -43,6 +54,7 @@ function Snapshot({
   field,
   peak,
   onViewInSimulation,
+  decisions,
 }: {
   building: BuildingScenario;
   spot: CrowdingSpot;
@@ -50,9 +62,20 @@ function Snapshot({
   field: ReturnType<typeof trafficField>;
   peak: number;
   onViewInSimulation?: (step: number) => void;
+  decisions: WindowDecisionIndex;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const units = useDisplayUnits();
+  const windows = useMemo(
+    () =>
+      windowEvidence(building, spot.frame, decisions, new Set(spot.agentIds)),
+    [building, spot, decisions],
+  );
+  const classification = classifyWindowCrowding(windows, spot.count);
+  const windowUsers = windows.reduce(
+    (count, window) => count + window.assigned,
+    0,
+  );
   useEffect(() => {
     const target = canvas.current;
     if (!target) return;
@@ -135,6 +158,21 @@ function Snapshot({
           Math.min(CROWD_ZONE, building.height - spot.y),
         )}
       </p>
+      {classification && (
+        <section className="crowding-insight" aria-label="Hotspot explanation">
+          <h3>{classification}</h3>
+          {windows.map((window) => (
+            <WindowExplanation key={window.windowId} evidence={window} />
+          ))}
+          {windowUsers < spot.count && (
+            <p>
+              Window users account for {windowUsers} of {spot.count} occupants
+              in this zone. Review the snapshot for conflicts between the
+              holding area and other routes.
+            </p>
+          )}
+        </section>
+      )}
       {onViewInSimulation && (
         <button
           type="button"
@@ -151,11 +189,14 @@ function Cards({
   building,
   spots,
   onViewInSimulation,
+  history,
 }: {
   building: BuildingScenario;
   spots: CrowdingSpot[];
   onViewInSimulation?: (step: number) => void;
+  history?: WindowDecisionHistory;
 }) {
+  const decisions = useMemo(() => windowDecisionIndex(history), [history]);
   const fields = useMemo(
     () => spots.map((spot) => snapshotField(building, spot)),
     [building, spots],
@@ -171,7 +212,8 @@ function Cards({
         Three busiest {formatDimensions(CROWD_ZONE, CROWD_ZONE)} zones in
         recorded frames after the first {CROWDING_WARMUP_SECONDS} seconds and
         after occupants move at least {formatLength(2)} from their starting
-        positions. Initial spawn crowds are excluded; later queues still count.
+        positions, or join a recorded window queue. Initial spawn crowds are
+        excluded; confirmed window queues still count without that movement.
         Ranked by eligible occupant count, not density or proven congestion;
         boundary zones may be smaller.
       </p>
@@ -199,6 +241,7 @@ function Cards({
               field={fields[i]!}
               peak={peak}
               onViewInSimulation={onViewInSimulation}
+              decisions={decisions}
             />
           ))}
         </div>
@@ -243,6 +286,7 @@ export default function CrowdingRanking({
       building={building}
       spots={spots}
       onViewInSimulation={onViewInSimulation}
+      history={result.analytics?.window_decisions}
     />
   );
 }

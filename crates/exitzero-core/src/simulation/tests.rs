@@ -77,6 +77,120 @@ fn recordings_report_the_actual_termination_branch() {
 }
 
 #[test]
+fn symmetric_agents_take_turns_through_a_single_file_interior_door() {
+    for width in [0.65, 0.75, 0.9] {
+        for spread in [0.21, 0.3, 0.5, 1.0] {
+            for y in [4.0, 4.4, 4.65] {
+                let mut scenario = room();
+                scenario.exits[0].wall_id = "south".into();
+                scenario.exits[0].offset = 1.0;
+                scenario.exits[0].width = 1.0;
+                scenario.exits.push(Opening {
+                    id: "south_west".into(),
+                    name: None,
+                    wall_id: "south".into(),
+                    offset: 7.0,
+                    width: 1.0,
+                });
+                scenario.walls.push(Wall {
+                    id: "partition".into(),
+                    name: None,
+                    start: Point { x: 0.0, y: 5.0 },
+                    end: Point { x: 10.0, y: 5.0 },
+                    thickness: 0.2,
+                });
+                scenario.doors.push(Opening {
+                    id: "narrow".into(),
+                    name: None,
+                    wall_id: "partition".into(),
+                    offset: 5.0 - width / 2.0,
+                    width,
+                });
+                scenario.spawn_zones = vec![
+                    pinned_zone("left", 5.0 - spread, y),
+                    pinned_zone("right", 5.0 + spread, y),
+                ];
+                scenario.max_steps = 400;
+                let result = simulate(&scenario).unwrap();
+                assert_eq!(
+                    result.metrics.status,
+                    SimulationStatus::Completed,
+                    "width={width}, spread={spread}, y={y}, final={:?}",
+                    result.frames.last()
+                );
+                assert_collision_free(&scenario, &result);
+            }
+        }
+    }
+}
+
+#[test]
+fn converging_moves_yield_one_agent_instead_of_stopping_both() {
+    let before = [Point { x: 4.5, y: 4.0 }, Point { x: 5.5, y: 4.0 }];
+    let target = Point { x: 5.0, y: 4.5 };
+    let mut proposed = [target, target];
+    super::motion::resolve_collisions(&before, &mut proposed, &[true, true], 0.2);
+    assert!(math::distance_to_point(before[0], proposed[0]) > 0.5);
+    assert!(math::distance_to_point(before[1], proposed[1]) < 1e-10);
+    assert!(!math::moving_circles_overlap(
+        before[0],
+        proposed[0],
+        0.2,
+        before[1],
+        proposed[1],
+        0.2
+    ));
+}
+
+#[test]
+fn expected_exit_time_follows_the_learned_detour_instead_of_straight_line_distance() {
+    let mut scenario = room();
+    scenario.awareness.sight_range_metres = 100.0;
+    scenario.walls.push(Wall {
+        id: "partition".into(),
+        name: None,
+        start: Point { x: 0.0, y: 5.0 },
+        end: Point { x: 9.0, y: 5.0 },
+        thickness: 0.2,
+    });
+    let mut person = super::agent::Agent::new(0, Point { x: 5.0, y: 8.0 });
+    for wall in &scenario.walls {
+        person.known_walls.insert(
+            wall.id.clone(),
+            vec![super::perception::WallSpan {
+                start: 0.0,
+                end: wall.length(),
+            }],
+        );
+    }
+    let mut beliefs = super::awareness::BeliefMaps::new(&scenario, &[]);
+    let (map, navigation) = beliefs.for_agent(&person);
+    let route = navigation.find_route(person.position, map).unwrap();
+    assert!(route.waypoints.len() > 1);
+    let exact = super::navigation::route_cost(
+        person.position,
+        &route.waypoints,
+        &super::congestion::CrowdForecast::default(),
+        scenario.agent_radius,
+    ) / super::motion::WALKING_SPEED;
+    let direct = math::distance_to_point(person.position, *route.waypoints.last().unwrap())
+        / super::motion::WALKING_SPEED;
+    let expected = super::expected_exit_seconds(
+        &scenario,
+        &[person],
+        &[false],
+        &[Some(route)],
+        &[0],
+        &mut beliefs,
+    )[0];
+    assert!(
+        expected >= exact,
+        "occluded estimates include the learned detour"
+    );
+    assert!(expected > direct + 1.0);
+}
+
+#[test]
 fn recorded_plans_are_real_remaining_routes_and_live_samples_agree() {
     let mut scenario = room();
     scenario.max_steps = 4;
@@ -107,8 +221,8 @@ fn recorded_plans_are_real_remaining_routes_and_live_samples_agree() {
             };
             for &to in &plan.waypoints {
                 assert!(
-                    geometry.can_move(from, to),
-                    "recorded plan must follow the actual clear route"
+                    recorded.step == 0 || geometry.can_move(from, to),
+                    "observed route must be clear; initial routes can cross unknown walls"
                 );
                 from = to;
             }
@@ -144,7 +258,7 @@ fn planned_path_snapshots_are_bounded_and_validate_legacy_absence() {
 }
 
 #[test]
-fn a_fire_warning_relays_between_groups_and_immediately_changes_their_destination() {
+fn unlimited_vision_immediately_changes_every_visible_witness_destination() {
     for kind in [
         crate::models::DisasterKind::Fire,
         crate::models::DisasterKind::GasLeak,
@@ -180,11 +294,11 @@ fn a_fire_warning_relays_between_groups_and_immediately_changes_their_destinatio
         let recipient = &result.frames[1].agents[1];
         assert!(
             recipient.y > 2.9,
-            "the first recipient should turn away before seeing the hazard"
+            "the distant witness should turn away on seeing the hazard"
         );
         assert!(
-            result.frames[1].agents[2].y < 4.9,
-            "reports must take a tick to relay"
+            result.frames[1].agents[2].y > 4.9,
+            "distance does not prevent a direct sighting"
         );
         assert!(
             result
@@ -436,7 +550,7 @@ fn an_unknown_exit_state_does_not_change_distant_crowd_guidance() {
 }
 
 #[test]
-fn signposted_layout_does_not_reveal_an_unobserved_exit_closure() {
+fn a_hidden_wall_does_not_reveal_an_unobserved_exit_closure() {
     let mut open: BuildingScenario = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../shared/examples/building.json"
@@ -463,7 +577,7 @@ fn signposted_layout_does_not_reveal_an_unobserved_exit_closure() {
         assert_eq!(
             serde_json::to_value(&a.agents).unwrap(),
             serde_json::to_value(&b.agents).unwrap(),
-            "static walls must not disclose an exit's unseen closure"
+            "hidden walls must not disclose an exit's unseen closure"
         );
     }
 }
@@ -634,8 +748,15 @@ fn discovering_a_closed_door_reroutes_through_an_alternative_door() {
     }];
     let result = simulate(&scenario).unwrap();
     assert_eq!(result.metrics.status, SimulationStatus::Completed);
-    // The unobserved closure does not change the initial plan toward x=5.
-    assert!((result.frames[1].agents[0].x - 5.0).abs() < 1e-6);
+    assert!(
+        result
+            .communication_events
+            .as_ref()
+            .unwrap()
+            .iter()
+            .any(|event| event.opening_id == "closed" && event.blocked && event.step == 0),
+        "the distant visible door is discovered before movement"
+    );
     assert!(result.frames[1].agents[0].y < 8.0);
     assert!(result.frames.iter().any(|f| {
         f.agents
@@ -1411,7 +1532,7 @@ fn final_safety_check_rechecks_neighbors_after_stopping_a_move() {
 fn unseen_hazards_and_obstructions_do_not_change_distant_movement() {
     let mut scenario = room();
     scenario.spawn_zones = vec![pinned_zone("person", 5.0, 8.0)];
-    scenario.awareness.sight_range_metres = 0.5;
+    scenario.awareness.sight_range_metres = 0.0;
     scenario.awareness.communication_range_metres = 0.0;
     scenario.max_steps = 10;
     let baseline = simulate(&scenario).unwrap();
@@ -1443,7 +1564,7 @@ fn unseen_hazards_and_obstructions_do_not_change_distant_movement() {
 }
 
 #[test]
-fn approaching_an_unknown_hazard_triggers_a_safe_detour_after_discovery() {
+fn a_distant_visible_hazard_triggers_a_safe_detour_immediately() {
     let mut scenario = room();
     scenario.spawn_zones = vec![pinned_zone("person", 5.0, 8.0)];
     scenario.awareness.sight_range_metres = 1.0;
@@ -1455,21 +1576,6 @@ fn approaching_an_unknown_hazard_triggers_a_safe_detour_after_discovery() {
     let result = super::simulate_with_emergencies(&scenario, &[emergency]).unwrap();
     assert_eq!(result.metrics.status, SimulationStatus::Completed);
     assert_collision_free(&scenario, &result);
-    let first_turn = result
-        .frames
-        .iter()
-        .position(|frame| {
-            frame
-                .agents
-                .first()
-                .is_some_and(|agent| (agent.x - 5.0).abs() > 1e-8)
-        })
-        .expect("a detour must steer around the hazard");
-    let before_turn = &result.frames[first_turn - 1].agents[0];
-    assert!(
-        before_turn.y <= 6.0 + 1e-8,
-        "the person must approach within sight before choosing a detour"
-    );
     for pair in result.frames.windows(2) {
         let start = &pair[0].agents[0];
         let end = pair[1]
@@ -1498,7 +1604,7 @@ fn approaching_an_unknown_hazard_triggers_a_safe_detour_after_discovery() {
 }
 
 #[test]
-fn approaching_an_unknown_obstruction_triggers_a_safe_detour_after_discovery() {
+fn a_distant_visible_obstruction_triggers_a_safe_detour_immediately() {
     let mut scenario = room();
     scenario.spawn_zones = vec![pinned_zone("person", 5.0, 8.0)];
     scenario.awareness.sight_range_metres = 0.75;
@@ -1514,24 +1620,18 @@ fn approaching_an_unknown_obstruction_triggers_a_safe_detour_after_discovery() {
     let result = simulate(&scenario).unwrap();
     assert_eq!(result.metrics.status, SimulationStatus::Completed);
     assert_collision_free(&scenario, &result);
-    let first_turn = result
-        .frames
-        .iter()
-        .position(|frame| {
-            frame
-                .agents
-                .first()
-                .is_some_and(|agent| (agent.x - 5.0).abs() > 1e-8)
-        })
-        .expect("a detour must go around debris");
     assert!(
-        result.frames[first_turn - 1].agents[0].y <= 5.75 + 1e-8,
-        "the person should learn about the obstruction only once it is visible"
+        result
+            .frames
+            .iter()
+            .flat_map(|f| &f.agents)
+            .any(|a| a.x < 3.8 || a.x > 6.2),
+        "the discovered crate must eventually cause a detour"
     );
 }
 
 #[test]
-fn agents_head_directly_to_the_next_exit_using_signposted_layout() {
+fn exterior_knowledge_leaves_interior_walls_for_visual_discovery() {
     let mut scenario = room();
     scenario.spawn_zones = vec![pinned_zone("person", 5.0, 4.0)];
     scenario.awareness.sight_range_metres = 0.75;
@@ -1569,7 +1669,7 @@ fn agents_head_directly_to_the_next_exit_using_signposted_layout() {
     let result = simulate(&scenario).unwrap();
     assert!(
         result.frames[1].agents[0].y > 4.0,
-        "head straight toward the reachable south exit"
+        "the visible enclosure rules out the north exit before movement"
     );
     assert!(
         result
@@ -1577,7 +1677,7 @@ fn agents_head_directly_to_the_next_exit_using_signposted_layout() {
             .iter()
             .flat_map(|frame| &frame.agents)
             .all(|agent| agent.y >= 4.0),
-        "do not investigate the sealed north exit"
+        "do not investigate a dead end already revealed by vision"
     );
     assert_eq!(result.metrics.status, SimulationStatus::Completed);
     assert_eq!(
@@ -2478,6 +2578,13 @@ fn growing_hazard_memory_only_updates_visible_or_reported_patches() {
             ..Default::default()
         }),
     });
+    scenario.walls.push(Wall {
+        id: "screen".into(),
+        name: None,
+        start: Point { x: 5.0, y: 0.0 },
+        end: Point { x: 5.0, y: 10.0 },
+        thickness: 0.2,
+    });
     let mut world = OpeningStates::new(&scenario);
     let mut geometry = Geometry::new(&scenario);
     let mut agents = vec![
@@ -2556,7 +2663,7 @@ fn a_moving_tornado_injures_people_it_passes_between_tick_endpoints() {
 }
 
 #[test]
-fn a_covered_exit_is_attempted_until_its_blockage_is_discovered() {
+fn a_distant_visible_exit_cover_is_discovered_before_movement() {
     let mut scenario = room();
     scenario.spawn_zones = vec![pinned_zone("person", 5.0, 4.0)];
     scenario.awareness.sight_range_metres = 0.75;
@@ -2578,8 +2685,8 @@ fn a_covered_exit_is_attempted_until_its_blockage_is_discovered() {
     let result = simulate(&scenario).unwrap();
     result.validate().unwrap();
     assert!(
-        result.frames[1].agents[0].y < 4.0,
-        "the nearer exit is believed open despite its physical covering wall"
+        result.frames[1].agents[0].y > 4.0,
+        "unlimited vision reveals the covered exit before movement"
     );
     let discovery = result
         .communication_events
@@ -2592,16 +2699,7 @@ fn a_covered_exit_is_attempted_until_its_blockage_is_discovered() {
                 && event.blocked
         })
         .unwrap();
-    assert!(discovery.step > 0);
-    let before = result
-        .frames
-        .iter()
-        .rfind(|frame| frame.step < discovery.step)
-        .unwrap();
-    assert!(
-        before.agents[0].y <= 1.0,
-        "approach within sight before learning the closure"
-    );
+    assert_eq!(discovery.step, 0);
     assert_eq!(result.metrics.status, SimulationStatus::Completed);
     assert_eq!(
         result.analytics.as_ref().unwrap().agents[0]

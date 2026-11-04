@@ -128,7 +128,7 @@ export interface BuildingScenario {
   spawn_zones: SpawnZone[];
   placed_occupants?: PlacedOccupant[];
   blocked_exit_ids: string[];
-  /** Omitted settings use 8 m sight and 3 m communication ranges. Zero disables a range. */
+  /** Defaults: unlimited line-of-sight vision and 3 m communication. */
   awareness?: AgentAwareness;
   opening_events?: OpeningStateChange[];
   obstructions: Obstruction[];
@@ -142,6 +142,7 @@ export interface BuildingScenario {
 }
 
 export interface AgentAwareness {
+  /** Legacy field: zero disables vision; positive values enable unlimited line of sight. */
   sight_range_metres: number;
   communication_range_metres: number;
 }
@@ -238,12 +239,30 @@ export interface AgentStatistics {
 }
 
 export interface SimulationAnalytics {
+  /** Actual window commitments and the estimates used then; absent in older recordings. */
+  window_decisions?: WindowDecisionHistory;
   agents: AgentStatistics[];
   simulated_seconds: number;
   /** Evacuated occupants only; null when none evacuated. */
   median_evacuation_seconds: number | null;
   total_distance_metres: number;
   total_waiting_seconds: number;
+}
+
+export interface WindowDecision {
+  step: number;
+  agent_id: number;
+  window_id: string;
+  reason: "estimated_faster" | "no_known_safe_exit";
+  estimated_window_seconds: number;
+  /** Null means no usable normal-exit estimate was available, never zero travel time. */
+  estimated_exit_seconds: number | null;
+}
+
+export interface WindowDecisionHistory {
+  choices: WindowDecision[];
+  /** Records are bounded; use only recorded comparisons if later choices were omitted. */
+  truncated: boolean;
 }
 
 export interface SimulationResult extends SimulationMetrics {

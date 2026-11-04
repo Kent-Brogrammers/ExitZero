@@ -29,6 +29,86 @@ function respond(body: unknown, status = 200) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("API integration contract", () => {
+  it("validates window-choice references, chronology and estimated comparisons", async () => {
+    const withWindow = {
+      ...building,
+      windows: [
+        { id: "pane", wall_id: building.walls[0]!.id, offset: 0, width: 1 },
+      ],
+    };
+    const choice = {
+      step: 0,
+      agent_id: 0,
+      window_id: "pane",
+      reason: "estimated_faster",
+      estimated_window_seconds: 5,
+      estimated_exit_seconds: 20,
+    };
+    const analytics = {
+      simulated_seconds: 0.1,
+      median_evacuation_seconds: 0.1,
+      total_distance_metres: 0,
+      total_waiting_seconds: 0,
+      agents: [
+        {
+          id: 0,
+          distance_metres: 0,
+          waiting_steps: 0,
+          waiting_seconds: 0,
+          elapsed_seconds: 0.1,
+          evacuation_step: 1,
+          evacuation_seconds: 0.1,
+          exit_id: building.exits[0]!.id,
+          route_found: true,
+        },
+        {
+          id: 1,
+          distance_metres: 0,
+          waiting_steps: 0,
+          waiting_seconds: 0,
+          elapsed_seconds: 0.1,
+          evacuation_step: null,
+          evacuation_seconds: null,
+          exit_id: null,
+          route_found: false,
+        },
+      ],
+      window_decisions: { choices: [choice], truncated: false },
+    };
+    const valid = { ...mock, analytics };
+    respond(valid);
+    await expect(client.simulate(withWindow)).resolves.toEqual(valid);
+    for (const bad of [
+      { ...choice, agent_id: 99 },
+      { ...choice, window_id: "not-a-window" },
+      { ...choice, step: 2 },
+      { ...choice, estimated_window_seconds: -1 },
+      { ...choice, estimated_window_seconds: 21 },
+      { ...choice, estimated_exit_seconds: null },
+      { ...choice, reason: "no_known_safe_exit" },
+    ]) {
+      respond({
+        ...valid,
+        analytics: {
+          ...analytics,
+          window_decisions: { choices: [bad], truncated: false },
+        },
+      });
+      await expect(client.simulate(withWindow)).rejects.toMatchObject({
+        code: "invalid_response",
+      });
+    }
+    respond({
+      ...valid,
+      analytics: {
+        ...analytics,
+        window_decisions: { choices: [choice, choice], truncated: false },
+      },
+    });
+    await expect(client.simulate(withWindow)).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+  });
   it("retrieves a reused job result without starting a legacy computation", async () => {
     const {
       status,

@@ -1,7 +1,7 @@
 use super::perception::{self, Occluder, WallKnowledge, WallSpan};
 use super::{Emergency, math};
 use crate::models::{BuildingScenario, Obstruction, Opening, Point, Wall};
-use std::collections::BTreeSet;
+use std::{cell::OnceCell, collections::BTreeSet, sync::Arc};
 
 // Match the opening bounds/overlap tolerance in BuildingScenario validation.
 const OPENING_EPSILON: f64 = 1e-8;
@@ -217,6 +217,7 @@ fn capsule_interval(
 }
 
 pub(super) struct Geometry<'a> {
+    visibility_occluders: OnceCell<Arc<[Occluder]>>,
     scenario: &'a BuildingScenario,
     emergencies: Vec<Emergency>,
     obstructions: Vec<&'a Obstruction>,
@@ -340,6 +341,7 @@ impl<'a> Geometry<'a> {
         observed_openings: BTreeSet<String>,
     ) -> Self {
         let mut geometry = Self {
+            visibility_occluders: OnceCell::new(),
             scenario,
             emergencies: emergencies.to_vec(),
             obstructions: scenario.obstructions.iter().collect(),
@@ -406,6 +408,7 @@ impl<'a> Geometry<'a> {
     }
 
     fn rebuild_index(&mut self) {
+        self.visibility_occluders = OnceCell::new();
         // Physical bounds contain wall thickness, but never agent radius. A
         // movement query expands its bounds; a vision query remains a ray.
         // Padding also covers the exact rectangle helpers' boundary tolerance.
@@ -450,6 +453,7 @@ impl<'a> Geometry<'a> {
         std::mem::size_of::<Self>()
             + self.solid_walls.capacity() * std::mem::size_of::<(Point, Point, f64, usize)>()
             + self.obstructions.capacity() * std::mem::size_of::<&Obstruction>()
+            + (self.solid_walls.len() + self.obstructions.len()) * std::mem::size_of::<Occluder>()
             + self.emergencies.capacity() * std::mem::size_of::<Emergency>()
             + self.hazard_areas.capacity() * std::mem::size_of::<crate::models::HazardArea>()
             + self.service_apertures.capacity() * std::mem::size_of::<Opening>()
@@ -473,6 +477,21 @@ impl<'a> Geometry<'a> {
         self.solid_walls
             .iter()
             .map(|&(start, end, half_thickness, _)| (start, end, half_thickness))
+    }
+
+    pub(super) fn visibility_occluders(&self) -> Arc<[Occluder]> {
+        Arc::clone(self.visibility_occluders.get_or_init(|| {
+            self.wall_fragments()
+                .map(|(start, end, radius)| Occluder::Capsule { start, end, radius })
+                .chain(self.obstructions().map(|o| Occluder::Rectangle {
+                    x: o.x,
+                    y: o.y,
+                    width: o.width,
+                    height: o.height,
+                }))
+                .collect::<Vec<_>>()
+                .into()
+        }))
     }
 
     pub(super) fn opening_was_observed(&self, id: &str) -> bool {
