@@ -88,6 +88,74 @@ describe("live simulation transport", () => {
     );
   });
 
+  it("delivers every backend congestion increment when frames share a network chunk", async () => {
+    const samples = [
+      { x: 1.25, y: 1.5, crowd_delay_seconds: 0.25 },
+      { x: 2.75, y: 1.5, crowd_delay_seconds: 0.5 },
+    ];
+    const recording = {
+      ...result,
+      congestion_samples: samples,
+      frames: result.frames.map((frame, index) => ({
+        ...frame,
+        congestion_samples:
+          index === 1 ? [samples[0]!] : index === 2 ? [samples[1]!] : [],
+      })),
+    };
+    const events = [
+      ...recording.frames.map((frame) => ({ type: "frame", frame })),
+      { type: "complete", result: recording },
+    ];
+    respond(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            new TextEncoder().encode(
+              events.map((event) => JSON.stringify(event)).join("\n"),
+            ),
+          );
+          controller.close();
+        },
+      }),
+    );
+    const onFrame = vi.fn();
+    await expect(client.simulateLive(building, onFrame)).resolves.toEqual(
+      recording,
+    );
+    expect(onFrame).toHaveBeenCalledTimes(recording.frames.length);
+    expect(
+      onFrame.mock.calls.flatMap(([frame]) => frame.congestion_samples),
+    ).toEqual(samples);
+  });
+
+  it.each([
+    { x: 4.01, y: 1, crowd_delay_seconds: 0.1 },
+    { x: 1, y: 3.01, crowd_delay_seconds: 0.1 },
+    { x: 1, y: 1, crowd_delay_seconds: -0.1 },
+    { x: 1, y: 1, crowd_delay_seconds: Infinity },
+  ])(
+    "rejects invalid congestion increments before delivering a live frame %#",
+    async (sample) => {
+      streamEvents([
+        {
+          type: "frame",
+          frame: { ...result.frames[0]!, congestion_samples: [] },
+        },
+        {
+          type: "frame",
+          frame: { ...result.frames[1]!, congestion_samples: [sample] },
+        },
+      ]);
+      const onFrame = vi.fn();
+      await expect(
+        client.simulateLive(building, onFrame),
+      ).rejects.toMatchObject({
+        code: "invalid_response",
+      });
+      expect(onFrame).toHaveBeenCalledOnce();
+    },
+  );
+
   describe.each(["exact-only", "mixed"])("%s occupant population", (source) => {
     function scenario(): BuildingScenario {
       const next = structuredClone(building);

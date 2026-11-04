@@ -1,0 +1,102 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentAwareness {
+    /// Legacy wire field: zero disables vision; every positive value means
+    /// unlimited, omnidirectional line of sight. It is no longer a distance cap.
+    pub sight_range_metres: f64,
+    pub communication_range_metres: f64,
+}
+
+impl Default for AgentAwareness {
+    fn default() -> Self {
+        Self {
+            sight_range_metres: 8.0,
+            communication_range_metres: 3.0,
+        }
+    }
+}
+
+impl AgentAwareness {
+    pub(crate) fn visibility_range(&self) -> f64 {
+        if self.sight_range_metres > 0.0 {
+            f64::INFINITY
+        } else {
+            0.0
+        }
+    }
+
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
+/// Runtime input for an opening's physical state; IDs may reference doors or
+/// exits. Future hazard logic can produce the same changes as this schedule.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OpeningStateChange {
+    pub step: u32,
+    pub opening_id: String,
+    pub blocked: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommunicationEventType {
+    Discovery,
+    #[default]
+    Shared,
+}
+
+/// An actual change to an agent's opening-state knowledge. Routine initial open
+/// confirmations and repeated states are omitted; IDs remain zero-based.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CommunicationEvent {
+    pub step: u32,
+    /// Earlier share-only recordings omitted the type.
+    #[serde(default)]
+    pub event_type: CommunicationEventType,
+    /// Observer for discoveries, sender for shares.
+    pub sender_id: u32,
+    pub recipient_ids: Vec<u32>,
+    pub opening_id: String,
+    pub blocked: bool,
+}
+
+/// Personal activity recorded from actual knowledge, decisions and outcomes.
+/// These do not broadcast information or change another person's beliefs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentEventKind {
+    HeadingToExit,
+    HazardDiscovered,
+    HazardSpreading,
+    Rerouting,
+    RouteUnavailable,
+    WindowApproach,
+    WindowQueue,
+    WindowOpening,
+    WindowBreaking,
+    WindowTraversal,
+    Exposure,
+    Waiting,
+    Evacuated,
+    Sheltered,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentEvent {
+    pub step: u32,
+    pub agent_id: u32,
+    pub kind: AgentEventKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub position: Option<super::Point>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hazard_kind: Option<super::DisasterKind>,
+}

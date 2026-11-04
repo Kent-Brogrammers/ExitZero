@@ -408,11 +408,30 @@
         }
       ]
     },
+    "AgentPlannedPath": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["waypoints", "continues"],
+      "properties": {
+        "waypoints": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Point" },
+          "maxItems": 16
+        },
+        "continues": { "type": "boolean" }
+      },
+      "if": {
+        "properties": { "continues": { "const": true } },
+        "required": ["continues"]
+      },
+      "then": { "properties": { "waypoints": { "minItems": 16 } } }
+    },
     "AgentPosition": {
       "type": "object",
       "additionalProperties": false,
       "required": ["id", "x", "y"],
       "properties": {
+        "planned_path": { "$ref": "#/$defs/AgentPlannedPath" },
         "id": {
           "type": "integer",
           "minimum": 0,
@@ -509,6 +528,12 @@
       "additionalProperties": false,
       "required": ["step", "agents"],
       "properties": {
+        "congestion_samples": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": { "$ref": "#/$defs/CongestionSample" },
+          "description": "Backend crowd-delay increments since the preceding frame in this saved or live stream. Initial frame is empty. Absent in legacy recordings."
+        },
         "step": {
           "type": "integer",
           "minimum": 0,
@@ -652,7 +677,8 @@
             "completed",
             "step_limit",
             "no_active_routes",
-            "movement_stagnation"
+            "movement_stagnation",
+            "all_shelters_full"
           ]
         },
         "status": {
@@ -705,6 +731,12 @@
             "$ref": "#/$defs/TrafficSample"
           },
           "maxItems": 100000
+        },
+        "congestion_samples": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": { "$ref": "#/$defs/CongestionSample" },
+          "description": "Accumulated crowd-delay person-seconds computed at every physics tick. Absent in legacy recordings."
         },
         "time_step_seconds": {
           "type": "number",
@@ -1164,6 +1196,21 @@
         }
       }
     },
+    "CongestionSample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "crowd_delay_seconds"],
+      "properties": {
+        "x": { "type": "number", "minimum": 0, "maximum": 1000 },
+        "y": { "type": "number", "minimum": 0, "maximum": 1000 },
+        "crowd_delay_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1000000000,
+          "description": "Sum of tick duration multiplied by walking-speed deficit when an occupant and a visible nearby neighbour each lose at least 20% of walking speed; an exploratory delay metric, not validated density."
+        }
+      }
+    },
     "TrafficSample": {
       "type": "object",
       "additionalProperties": false,
@@ -1373,6 +1420,9 @@
         "total_waiting_seconds": {
           "type": "number",
           "minimum": 0
+        },
+        "window_decisions": {
+          "$ref": "#/$defs/WindowDecisionHistory"
         }
       }
     },
@@ -1501,6 +1551,7 @@
       "required": ["sight_range_metres", "communication_range_metres"],
       "properties": {
         "sight_range_metres": {
+          "description": "Legacy compatibility field: zero disables vision; any positive value enables unlimited omnidirectional line of sight. No distance cap is applied.",
           "type": "number",
           "minimum": 0,
           "maximum": 1000
@@ -1992,6 +2043,91 @@
         "speed": {
           "type": "integer",
           "enum": [1, 2, 4, 8]
+        }
+      }
+    },
+    "WindowDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "step",
+        "agent_id",
+        "window_id",
+        "reason",
+        "estimated_window_seconds",
+        "estimated_exit_seconds"
+      ],
+      "properties": {
+        "step": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100000
+        },
+        "agent_id": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "window_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "\\S"
+        },
+        "reason": {
+          "enum": ["estimated_faster", "no_known_safe_exit"]
+        },
+        "estimated_window_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "estimated_exit_seconds": {
+          "type": ["number", "null"],
+          "minimum": 0
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "reason": {
+                "const": "estimated_faster"
+              }
+            },
+            "required": ["reason"]
+          },
+          "then": {
+            "properties": {
+              "estimated_exit_seconds": {
+                "type": "number"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "estimated_exit_seconds": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ],
+      "description": "The personal remaining-time comparison actually used when committing to a window; estimates are not measured outcomes."
+    },
+    "WindowDecisionHistory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["choices", "truncated"],
+      "properties": {
+        "choices": {
+          "type": "array",
+          "maxItems": 20000,
+          "items": {
+            "$ref": "#/$defs/WindowDecision"
+          }
+        },
+        "truncated": {
+          "type": "boolean"
         }
       }
     }

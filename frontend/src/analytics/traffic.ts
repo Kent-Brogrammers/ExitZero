@@ -1,4 +1,21 @@
-import type { TrafficSample } from "../types/simulation";
+import type { CongestionSample, TrafficSample } from "../types/simulation";
+
+/** Adapt backend crowd-delay weights to the shared display-only field renderer. */
+export function congestionBins(
+  samples: CongestionSample[],
+  width: number,
+  height: number,
+) {
+  return trafficBins(
+    samples.map(({ x, y, crowd_delay_seconds }) => ({
+      x,
+      y,
+      visits: crowd_delay_seconds,
+    })),
+    width,
+    height,
+  );
+}
 
 export function trafficBins(
   samples: TrafficSample[],

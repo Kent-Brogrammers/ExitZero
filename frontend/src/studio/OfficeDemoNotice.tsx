@@ -57,20 +57,22 @@ export function OfficeDemoNotice({
         </button>
       </div>
       <div className="office-demo-explanation">
-        {result && (
+        {result?.congestion_samples && (
           <span
             className="office-demo-legend"
-            aria-label="Relative recorded traffic from low to high"
+            aria-label="Relative recorded congestion from low to high"
           >
             Low <span className="office-demo-scale" aria-hidden="true" /> High
           </span>
         )}
         <span>
           {result
-            ? "Relative recorded traffic. Full Analytics shows accumulated visits."
+            ? result.congestion_samples
+              ? "Relative crowd delay. Full Analytics shows recorded congestion."
+              : "This saved recording has no congestion data. Run Simulation to measure crowd delay."
             : source === "live" && busy
               ? "Live positions from Rust. Playback and final analytics follow after the run."
-              : "Run Simulation to compute traffic for this layout. The saved office recording does not describe these edits."}
+              : "Run Simulation to measure congestion for this layout. The saved office recording does not describe these edits."}
         </span>
       </div>
     </aside>

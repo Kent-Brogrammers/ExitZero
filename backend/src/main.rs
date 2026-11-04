@@ -4,7 +4,7 @@ use std::{env, path::PathBuf};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let port: u16 = env::var("PORT")
-        .unwrap_or_else(|_| "3001".into())
+        .unwrap_or_else(|_| "0".into())
         .parse()
         .map_err(|_| "PORT must be a valid port number")?;
     let app = match env::var_os("EXITZERO_FRONTEND_DIR") {

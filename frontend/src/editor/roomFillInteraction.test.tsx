@@ -8,6 +8,7 @@ import { BuildingEditor } from "./BuildingEditor";
 import { DRAFTING_STORAGE_KEY } from "./drafting";
 import { canvasView } from "./geometry";
 import { spawnContains } from "./spawnGeometry";
+import { toFeet } from "../utils/units";
 
 vi.mock("./draw", () => ({ drawLayout: vi.fn() }));
 
@@ -187,6 +188,37 @@ it.each([
       expect(spawnContains(filled, { x: 10, y: 6 })).toBe(false);
       expect(latest.doors).toHaveLength(1);
       expect(latest.exits).toHaveLength(0);
+      const divider = latest.walls.find(
+        (wall) => wall.start.x === 7 && wall.end.x === 7,
+      )!;
+      const selected = host.querySelector<HTMLSelectElement>(
+        '[aria-label="Selected element"]',
+      )!;
+      await act(async () => {
+        selected.value = `walls:${divider.id}`;
+        selected.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      const thickness = [...host.querySelectorAll("label")]
+        .find((label) => label.textContent?.startsWith("Thickness"))!
+        .querySelector("input")!;
+      await act(async () => {
+        thickness.value = String(toFeet(divider.thickness + 0.05));
+        thickness.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+      });
+      expect(latest.spawn_zones.map((zone) => zone.id)).toEqual([
+        "right-spawn",
+      ]);
+      expect(host.textContent).toContain(
+        "Room fill removed after wall changes",
+      );
+      await click("Undo");
+      expect(latest.spawn_zones.some((zone) => zone.id === filled.id)).toBe(
+        true,
+      );
+      await click("Redo");
+      expect(latest.spawn_zones.map((zone) => zone.id)).toEqual([
+        "right-spawn",
+      ]);
     } finally {
       await act(async () => root.unmount());
       host.remove();

@@ -152,6 +152,97 @@
   width: 100%;
   height: 100%;
 }
+.playback-canvas-wrap canvas[data-world-canvas] {
+  cursor: pointer;
+}
+.agent-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--cad-muted);
+  font-size: var(--text-small);
+  flex-shrink: 0;
+}
+.agent-picker select {
+  max-width: 155px;
+  border-color: var(--cad-border);
+}
+.agent-inspector {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 8;
+  width: min(310px, calc(100% - 24px));
+  max-height: calc(100% - 24px);
+  display: flex;
+  flex-direction: column;
+  padding: 14px;
+  background: var(--cad-inspector);
+  border: 1px solid var(--cad-border);
+  border-radius: var(--radius-control);
+  box-shadow: 0 8px 24px #0004;
+}
+.agent-inspector .control-popover-heading {
+  flex-shrink: 0;
+}
+.agent-inspector-body {
+  min-height: 0;
+  overflow-y: auto;
+}
+.agent-inspector h4 {
+  margin: 14px 0 4px;
+  font-size: var(--text-small);
+  font-weight: 500;
+}
+.agent-inspector .note,
+.agent-inspector-name,
+.agent-inspector-events {
+  font-size: var(--text-small);
+  line-height: 1.6;
+  color: var(--cad-muted);
+}
+.agent-inspector-name {
+  margin: 0;
+}
+.agent-path-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 12px;
+  font-size: var(--text-small);
+  color: var(--cad-muted);
+}
+.agent-path-key span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.agent-path-key span::before {
+  content: "";
+  width: 22px;
+  border-top: 2px dashed var(--cad-accent);
+}
+.agent-path-key .agent-path-planned::before {
+  border-top-style: solid;
+  border-top-color: var(--cad-success);
+}
+.agent-inspector .summary-values > div {
+  padding: 5px 0;
+}
+.agent-inspector-events {
+  list-style: none;
+  padding: 0;
+}
+.agent-inspector-events li {
+  padding: 8px 0;
+  border-top: 1px solid var(--cad-border);
+}
+.agent-inspector-events p {
+  margin: 3px 0 0;
+}
+.agent-inspector-events time {
+  font-family: var(--font-mono);
+}
 .simulation-panel .canvas-caption {
   display: none;
 }
@@ -234,6 +325,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px 18px;
+  flex-wrap: wrap;
   margin-top: 8px;
 }
 .playback-readout {

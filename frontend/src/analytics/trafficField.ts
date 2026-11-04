@@ -1,5 +1,10 @@
 import { trafficBins } from "./traffic";
 
+/** Fixed visual reference in locally smoothed crowd-delay person-seconds.
+ * Two stopped occupants waiting ten seconds contribute twenty person-seconds.
+ */
+export const CONGESTION_RED_REFERENCE_SECONDS = 20;
+
 /** Smooth a visit field for display only. The source visit totals are unchanged. */
 export function trafficField(
   data: ReturnType<typeof trafficBins>,
@@ -46,7 +51,7 @@ export function fieldPixels(field: ReturnType<typeof trafficField>) {
   ];
   if (!field.peak) return pixels;
   for (let i = 0; i < field.values.length; i++) {
-    const normalized = field.values[i]! / field.peak;
+    const normalized = Math.min(1, Math.max(0, field.values[i]! / field.peak));
     if (normalized < 0.015) continue;
     const position = Math.pow(normalized, 0.65) * (stops.length - 1);
     const index = Math.min(stops.length - 2, Math.floor(position));
@@ -58,4 +63,16 @@ export function fieldPixels(field: ReturnType<typeof trafficField>) {
     pixels[i * 4 + 3] = Math.round(220 * Math.min(1, normalized * 5));
   }
   return pixels;
+}
+
+/** Display accumulated backend delay on the same scale in every view.
+ * Quiet time must not erase a queue, and redraws must not add waiting time.
+ */
+export function congestionPixels(
+  field: ReturnType<typeof trafficField>,
+  elapsedSeconds: number,
+) {
+  if (!Number.isFinite(elapsedSeconds) || elapsedSeconds <= 0)
+    return new Uint8ClampedArray(field.values.length * 4);
+  return fieldPixels({ ...field, peak: CONGESTION_RED_REFERENCE_SECONDS });
 }

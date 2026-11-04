@@ -29,6 +29,19 @@ const frames: AnimationFrame[] = [
     ],
   },
 ];
+it("holds the recorded plan until the next sample and restores it on rewind", () => {
+  const first = { waypoints: [{ x: 4, y: 1 }], continues: false };
+  const next = { waypoints: [{ x: 3, y: 4 }], continues: false };
+  const samples: AnimationFrame[] = [
+    { step: 0, agents: [{ id: 0, x: 1, y: 1, planned_path: first }] },
+    { step: 10, agents: [{ id: 0, x: 2, y: 1, planned_path: next }] },
+  ];
+  const sample = createFrameSampler(empty, samples, 0.1);
+  expect(sample(0.5)!.agents[0]!.planned_path).toEqual(first);
+  expect(sample(1)!.agents[0]!.planned_path).toEqual(next);
+  expect(sample(0)!.agents[0]!.planned_path).toEqual(first);
+});
+
 const barrier: BuildingScenario = {
   ...empty,
   walls: [

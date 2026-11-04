@@ -6,6 +6,19 @@ export interface CrowdingSpot {
   y: number;
   count: number;
   frame: AnimationFrame;
+  agentIds: number[];
+  queuedCount: number;
+}
+
+function queuedAgents(frame: AnimationFrame) {
+  return new Set(
+    (frame.window_states ?? []).flatMap((window) => [
+      ...window.queue_agent_ids,
+      ...(window.traversing_agent_id === null
+        ? []
+        : [window.traversing_agent_id]),
+    ]),
+  );
 }
 export function frameCrowding(
   frame: AnimationFrame,
@@ -13,6 +26,7 @@ export function frameCrowding(
   height: number,
 ): CrowdingSpot[] {
   const zones = new Map<string, CrowdingSpot>();
+  const queued = queuedAgents(frame);
   for (const agent of frame.agents) {
     if (
       ![agent.x, agent.y].every(Number.isFinite) ||
@@ -33,8 +47,17 @@ export function frameCrowding(
         Math.floor(agent.y / CROWD_ZONE),
       ) * CROWD_ZONE;
     const key = `${x},${y}`;
-    const zone = zones.get(key) ?? { x, y, count: 0, frame };
+    const zone = zones.get(key) ?? {
+      x,
+      y,
+      count: 0,
+      frame,
+      agentIds: [],
+      queuedCount: 0,
+    };
     zone.count++;
+    zone.agentIds.push(agent.id);
+    if (queued.has(agent.id)) zone.queuedCount++;
     zones.set(key, zone);
   }
   return [...zones.values()];
@@ -66,16 +89,17 @@ export function createCrowdingTracker(
         lastStep = -1;
       }
       if (frame && frame.step > lastStep) {
+        const queued = queuedAgents(frame);
         const agents = frame.agents.filter((agent) => {
           if (![agent.x, agent.y].every(Number.isFinite)) return false;
           const start = starts.get(agent.id);
           if (!start) {
             starts.set(agent.id, { x: agent.x, y: agent.y });
-            return false;
+            return queued.has(agent.id);
           }
           if (Math.hypot(agent.x - start.x, agent.y - start.y) >= CROWD_ZONE)
             moved.add(agent.id);
-          return moved.has(agent.id);
+          return moved.has(agent.id) || queued.has(agent.id);
         });
         // Use the same eligible occupants for both ranks and snapshot heatmaps.
         const rankedFrame = {
@@ -87,7 +111,14 @@ export function createCrowdingTracker(
         };
         for (const spot of frameCrowding(rankedFrame, width, height)) {
           const key = `${spot.x},${spot.y}`;
-          if (spot.count > (peaks.get(key)?.count ?? 0)) peaks.set(key, spot);
+          const previous = peaks.get(key);
+          if (
+            !previous ||
+            spot.count > previous.count ||
+            (spot.count === previous.count &&
+              spot.queuedCount > previous.queuedCount)
+          )
+            peaks.set(key, spot);
         }
         lastStep = frame.step;
       }

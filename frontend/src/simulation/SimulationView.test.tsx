@@ -201,7 +201,7 @@ describe("live first run and recorded review", () => {
     expect(visible).toContain("Remaining (final)</dt><dd>0");
     expect(visible).toContain('Status (final)</dt><dd role="status">Completed');
     for (const extra of [
-      "Recorded traffic trails",
+      "Recorded congestion",
       "Simulation step",
       "Recorded occupants",
       rejectedWindow.unavailable_reason!,

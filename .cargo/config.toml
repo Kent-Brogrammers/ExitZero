@@ -1,0 +1,4 @@
+[build]
+# Keep local builds from starting one compiler per CPU on memory-limited machines.
+# CARGO_BUILD_JOBS or cargo --jobs can override this when more RAM is available.
+jobs = 1

@@ -6,7 +6,7 @@ use axum::{
     routing::{get, post},
 };
 use serde::Serialize;
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{AllowOrigin, CorsLayer};
 
 use crate::{
     models::{
@@ -47,16 +47,28 @@ fn router_with_pool(pool: super::execution::ExecutionPool) -> Router {
         .merge(super::jobs::router(pool))
         .layer(
             CorsLayer::new()
-                .allow_origin([
-                    HeaderValue::from_static("http://localhost:5173"),
-                    HeaderValue::from_static("http://127.0.0.1:5173"),
-                ])
+                .allow_origin(AllowOrigin::predicate(|origin, _| local_origin(origin)))
                 .allow_methods([Method::GET, Method::POST])
                 .allow_headers([
                     axum::http::header::CONTENT_TYPE,
                     axum::http::HeaderName::from_static("x-computation-id"),
                 ]),
         )
+}
+
+fn local_origin(origin: &HeaderValue) -> bool {
+    let Some(authority) = origin.to_str().ok().and_then(|s| s.strip_prefix("http://")) else {
+        return false;
+    };
+    ["localhost", "127.0.0.1", "[::1]"].iter().any(|host| {
+        authority == *host
+            || authority
+                .strip_prefix(host)
+                .and_then(|suffix| suffix.strip_prefix(':'))
+                .filter(|port| !port.is_empty() && port.bytes().all(|c| c.is_ascii_digit()))
+                .and_then(|port| port.parse::<u16>().ok())
+                .is_some_and(|port| port != 0)
+    })
 }
 
 #[derive(Serialize)]

@@ -276,6 +276,41 @@ function checkSimulation(
     ]),
     result.frames.at(-1)?.step ?? -1,
   );
+  const decisions = result.analytics?.window_decisions;
+  if (decisions) {
+    const ids = new Map(
+      result.analytics!.agents.map((agent) => [agent.id, agent]),
+    );
+    const lastStep = result.frames.at(-1)?.step ?? 0;
+    const seen = new Set<string>();
+    let previous = 0;
+    if (
+      decisions.choices.some((choice) => {
+        const key = `${choice.step}:${choice.agent_id}`;
+        const agent = ids.get(choice.agent_id);
+        const invalid =
+          choice.step < previous ||
+          choice.step > lastStep ||
+          !agent ||
+          choice.step * result.time_step_seconds >
+            agent.elapsed_seconds + 1e-6 ||
+          !building.windows?.some((window) => window.id === choice.window_id) ||
+          seen.has(key) ||
+          (choice.reason === "estimated_faster" &&
+            (choice.estimated_exit_seconds === null ||
+              choice.estimated_window_seconds >=
+                choice.estimated_exit_seconds));
+        previous = choice.step;
+        seen.add(key);
+        return invalid;
+      })
+    )
+      throw new ApiError(
+        200,
+        "invalid_response",
+        "Backend returned invalid window decision references or time estimates.",
+      );
+  }
   if (
     result.analytics?.agents.some((a) => {
       const route = a.escape_route;
@@ -316,10 +351,12 @@ function checkSimulation(
     result.traffic_samples.some(
       (sample) => sample.x > result.width || sample.y > result.height,
     ) ||
+    result.congestion_samples?.some((sample) => !inBounds(sample)) ||
     result.frames.some(
       (frame, index) =>
         (index > 0 && frame.step <= result.frames[index - 1]!.step) ||
         frame.agents.length > result.total_population ||
+        frame.congestion_samples?.some((sample) => !inBounds(sample)) ||
         new Set(frame.agents.map((agent) => agent.id)).size !==
           frame.agents.length ||
         frame.disaster_state?.areas.some(
@@ -329,7 +366,12 @@ function checkSimulation(
             area.revision > frame.step,
         ) ||
         frame.agents.some(
-          (agent) => agent.x > result.width || agent.y > result.height,
+          (agent) =>
+            agent.x > result.width ||
+            agent.y > result.height ||
+            agent.planned_path?.waypoints.some(
+              (point) => point.x > result.width || point.y > result.height,
+            ),
         ),
       // Queue/service membership must reference occupants present at that timestamp.
     ) ||
@@ -338,7 +380,7 @@ function checkSimulation(
     throw new ApiError(
       200,
       "invalid_response",
-      "Backend returned invalid traffic or animation frames.",
+      "Backend returned invalid heatmap samples or animation frames.",
     );
   return result;
 }
@@ -717,6 +759,9 @@ export function createApiClient(
           frame.step > building.max_steps ||
           ids.size !== frame.agents.length ||
           !validWindowStates(frame) ||
+          frame.congestion_samples?.some(
+            (sample) => sample.x > building.width || sample.y > building.height,
+          ) ||
           (frame.window_states?.some(
             (s) => !building.windows?.some((w) => w.id === s.window_id),
           ) ??
@@ -725,6 +770,10 @@ export function createApiClient(
             (agent) =>
               agent.x > building.width ||
               agent.y > building.height ||
+              agent.planned_path?.waypoints.some(
+                (point) =>
+                  point.x > building.width || point.y > building.height,
+              ) ||
               (previousIds !== null && !previousIds.has(agent.id)),
           )
         ) {

@@ -128,7 +128,7 @@ export interface BuildingScenario {
   spawn_zones: SpawnZone[];
   placed_occupants?: PlacedOccupant[];
   blocked_exit_ids: string[];
-  /** Omitted settings use 8 m sight and 3 m communication ranges. Zero disables a range. */
+  /** Defaults: unlimited line-of-sight vision and 3 m communication. */
   awareness?: AgentAwareness;
   opening_events?: OpeningStateChange[];
   obstructions: Obstruction[];
@@ -142,6 +142,7 @@ export interface BuildingScenario {
 }
 
 export interface AgentAwareness {
+  /** Legacy field: zero disables vision; positive values enable unlimited line of sight. */
   sight_range_metres: number;
   communication_range_metres: number;
 }
@@ -166,15 +167,25 @@ export interface SimulationMetrics {
   evacuated_by_route?: { normal_exit: number; emergency_window: number };
 }
 
+/** Actual remaining route at this sample; capped at 16 waypoints per occupant. */
+export interface AgentPlannedPath {
+  waypoints: Point[];
+  continues: boolean;
+}
+
 export interface AgentPosition extends Point {
   id: number;
   injury?: number;
+  /** Missing in older recordings; empty waypoints mean no current plan. */
+  planned_path?: AgentPlannedPath;
 }
 
 export interface AnimationFrame {
   pursuit?: PursuitFrame;
   step: number;
   agents: AgentPosition[];
+  /** Backend crowd-delay increments since the preceding frame in this stream. */
+  congestion_samples?: CongestionSample[];
   /** Physical state at this time; absent in older recordings. */
   blocked_opening_ids?: string[];
   window_states?: WindowFrameState[];
@@ -228,6 +239,8 @@ export interface AgentStatistics {
 }
 
 export interface SimulationAnalytics {
+  /** Actual window commitments and the estimates used then; absent in older recordings. */
+  window_decisions?: WindowDecisionHistory;
   agents: AgentStatistics[];
   simulated_seconds: number;
   /** Evacuated occupants only; null when none evacuated. */
@@ -236,9 +249,29 @@ export interface SimulationAnalytics {
   total_waiting_seconds: number;
 }
 
+export interface WindowDecision {
+  step: number;
+  agent_id: number;
+  window_id: string;
+  reason: "estimated_faster" | "no_known_safe_exit";
+  estimated_window_seconds: number;
+  /** Null means no usable normal-exit estimate was available, never zero travel time. */
+  estimated_exit_seconds: number | null;
+}
+
+export interface WindowDecisionHistory {
+  choices: WindowDecision[];
+  /** Records are bounded; use only recorded comparisons if later choices were omitted. */
+  truncated: boolean;
+}
+
 export interface SimulationResult extends SimulationMetrics {
   termination_reason?:
-    "completed" | "step_limit" | "no_active_routes" | "movement_stagnation";
+    | "completed"
+    | "step_limit"
+    | "no_active_routes"
+    | "movement_stagnation"
+    | "all_shelters_full";
   /** Absent in older saved results and synthetic fixtures. */
   analytics?: SimulationAnalytics;
   /** Actual opening discoveries and accepted shares; absent in older recordings. */
@@ -248,6 +281,8 @@ export interface SimulationResult extends SimulationMetrics {
   frames: AnimationFrame[];
   /** Weighted world positions representing accumulated traffic, not density. */
   traffic_samples: TrafficSample[];
+  /** Crowd-delay person-seconds over every physics tick; absent in older results. */
+  congestion_samples?: CongestionSample[];
   time_step_seconds: number;
   width: number;
   height: number;
@@ -296,6 +331,8 @@ export type SimulationStreamEvent =
 
 /** A running simulation has no outcome or known duration yet. */
 export interface LiveSimulation {
+  /** Every delivered backend delay increment accumulated before React batching. */
+  congestion_samples?: CongestionSample[];
   /** Recent raw observations used for transient canvas effects. */
   effect_events?: ChatEvent[];
   frame: AnimationFrame | null;
@@ -394,6 +431,11 @@ export interface ApiErrorResponse {
 
 export interface TrafficSample extends Point {
   visits: number;
+}
+
+export interface CongestionSample extends Point {
+  /** Sum of seconds × speed deficit for occupants with a visibly slowed neighbour. */
+  crowd_delay_seconds: number;
 }
 export interface ComputationCancellationResponse {
   status: "cancelling";

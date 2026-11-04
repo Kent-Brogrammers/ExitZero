@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { trafficCells, trafficBins } from "./traffic";
+import { congestionBins, trafficCells, trafficBins } from "./traffic";
+
+it("renders fractional backend delay weights without converting them into visit counts", () => {
+  const samples = [
+    { x: 1.01, y: 2.01, crowd_delay_seconds: 0.15 },
+    { x: 1.1, y: 2.1, crowd_delay_seconds: 0.25 },
+    { x: 3, y: 3, crowd_delay_seconds: 0 },
+    { x: 3, y: 3, crowd_delay_seconds: -1 },
+  ];
+  expect(congestionBins(samples, 30, 20).bins).toEqual([
+    { x: 1, y: 2, visits: 0.4 },
+  ]);
+});
 
 describe("world-coordinate weighted traffic", () => {
   it("adds visits rather than counting samples, preserving their coordinate orientation", () => {

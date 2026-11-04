@@ -215,50 +215,57 @@ export function StudioSettings({
                 <h3>Simulation preferences</h3>
                 <fieldset disabled={busy}>
                   <legend>Agent awareness</legend>
-                  {(
-                    [
-                      [
-                        "sight_range_metres",
-                        `Sight range (${lengthUnit()})`,
-                        8,
-                      ],
-                      [
-                        "communication_range_metres",
-                        `Communication range (${lengthUnit()})`,
-                        3,
-                      ],
-                    ] as const
-                  ).map(([key, label, fallback]) => (
-                    <label key={key}>
-                      {label}
-                      <LengthInput
-                        min={0}
-                        max={1000}
-                        value={building.awareness?.[key] ?? fallback}
-                        onValue={(value) => {
-                          if (
-                            !Number.isFinite(value) ||
-                            value < 0 ||
-                            value > 1000
-                          )
-                            return;
-                          onChange({
-                            ...building,
-                            awareness: {
-                              sight_range_metres: 8,
-                              communication_range_metres: 3,
-                              ...building.awareness,
-                              [key]: value,
-                            },
-                          });
-                        }}
-                      />
-                    </label>
-                  ))}
+                  <label>
+                    Vision — unlimited line of sight
+                    <input
+                      type="checkbox"
+                      checked={
+                        (building.awareness?.sight_range_metres ?? 8) > 0
+                      }
+                      onChange={(event) =>
+                        onChange({
+                          ...building,
+                          awareness: {
+                            sight_range_metres: event.target.checked ? 8 : 0,
+                            communication_range_metres:
+                              building.awareness?.communication_range_metres ??
+                              3,
+                          },
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Communication range ({lengthUnit()})
+                    <LengthInput
+                      min={0}
+                      max={1000}
+                      value={
+                        building.awareness?.communication_range_metres ?? 3
+                      }
+                      onValue={(value) => {
+                        if (
+                          !Number.isFinite(value) ||
+                          value < 0 ||
+                          value > 1000
+                        )
+                          return;
+                        onChange({
+                          ...building,
+                          awareness: {
+                            sight_range_metres: 8,
+                            ...building.awareness,
+                            communication_range_metres: value,
+                          },
+                        });
+                      }}
+                    />
+                  </label>
                   <p className="note">
-                    Agents assume exits are open until they see or hear
-                    otherwise. Walls block sight and communication. Set
-                    communication to 0 to disable sharing.
+                    Agents know exterior walls and exit locations. Vision has no
+                    distance limit; walls and furniture block it. Interior
+                    walls, windows, and passage states are discovered by sight
+                    or reports. Set communication to 0 to disable sharing.
                   </p>
                 </fieldset>
               </section>

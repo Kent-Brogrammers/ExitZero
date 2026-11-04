@@ -75,9 +75,9 @@ fn step_zero_door_blocking_enforces_real_collision_and_records_actual_reports() 
         && event.opening_id == "door"
         && event.blocked));
     assert!(events.iter().any(|event| event.step == 0
-        && event.event_type == CommunicationEventType::Shared
-        && event.sender_id == 0
-        && event.recipient_ids == [1]
+        && event.event_type == CommunicationEventType::Discovery
+        && event.sender_id == 1
+        && event.recipient_ids.is_empty()
         && event.opening_id == "door"
         && event.blocked));
 

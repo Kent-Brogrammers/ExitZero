@@ -15,6 +15,31 @@ const validateSimulation = ajv.getSchema<SimulationResult>(
 )!;
 
 describe("shared continuous geometry schemas", () => {
+  it("accepts optional bounded planned routes and rejects malformed snapshots", () => {
+    const validate = ajv.getSchema(`${contracts.$id}#/$defs/AgentPosition`)!;
+    const agent = { id: 0, x: 1, y: 1 };
+    expect(validate(agent)).toBe(true);
+    expect(
+      validate({ ...agent, planned_path: { waypoints: [], continues: false } }),
+    ).toBe(true);
+    expect(
+      validate({
+        ...agent,
+        planned_path: { waypoints: [{ x: 2, y: 3 }], continues: false },
+      }),
+    ).toBe(true);
+    for (const planned_path of [
+      null,
+      { waypoints: [], continues: true },
+      { waypoints: [{ x: NaN, y: 3 }], continues: false },
+      { waypoints: [{ x: 2, y: 3 }] },
+      {
+        waypoints: Array.from({ length: 17 }, () => ({ x: 2, y: 3 })),
+        continues: true,
+      },
+    ])
+      expect(validate({ ...agent, planned_path })).toBe(false);
+  });
   it("validates the shared 30 × 20 metre example", () => {
     const typedBuilding: BuildingScenario = building;
     expect(
@@ -66,6 +91,70 @@ describe("shared continuous geometry schemas", () => {
       ajv.errorsText(validateSimulation.errors),
     ).toBe(true);
     expect(mock.frames[0]!.agents[0]!.x % 1).not.toBe(0);
+  });
+  it("accepts the shelter capacity stopping reason in results and live completion events", () => {
+    const recording: SimulationResult = {
+      ...mock,
+      status: "incomplete",
+      termination_reason: "all_shelters_full",
+      total_population: 3,
+      evacuated: 0,
+      sheltered: 2,
+      remaining: 1,
+      trapped: 0,
+      clearance_steps: null,
+    };
+    expect(
+      validateSimulation(recording),
+      ajv.errorsText(validateSimulation.errors),
+    ).toBe(true);
+    const validateStream = ajv.getSchema(
+      `${contracts.$id}#/$defs/SimulationStreamEvent`,
+    )!;
+    expect(validateStream({ type: "complete", result: recording })).toBe(true);
+  });
+  it("accepts optional congestion totals and per-frame delay increments without changing legacy recordings", () => {
+    const sample = { x: 2.75, y: 1.5, crowd_delay_seconds: 0.075 };
+    for (const congestion_samples of [[], [sample]]) {
+      const recording: SimulationResult = {
+        ...mock,
+        status: "incomplete",
+        congestion_samples,
+        frames: mock.frames.map((frame, index) => ({
+          ...frame,
+          congestion_samples: index === 0 ? [] : congestion_samples,
+        })),
+      };
+      expect(
+        validateSimulation(recording),
+        ajv.errorsText(validateSimulation.errors),
+      ).toBe(true);
+    }
+    expect(validateSimulation(mock)).toBe(true);
+    expect("congestion_samples" in mock).toBe(false);
+  });
+  it.each([
+    { x: 1, y: 1, crowd_delay_seconds: -0.1 },
+    { x: 1, y: 1, crowd_delay_seconds: NaN },
+    { x: 1, y: 1, crowd_delay_seconds: Infinity },
+    { x: NaN, y: 1, crowd_delay_seconds: 1 },
+    { x: 1, y: Infinity, crowd_delay_seconds: 1 },
+    { x: -1, y: 1, crowd_delay_seconds: 1 },
+    { x: 1, y: 1, crowd_delay_seconds: "1" },
+    { x: 1, y: 1, visits: 1 },
+  ])("rejects malformed congestion source samples %#", (sample) => {
+    expect(validateSimulation({ ...mock, congestion_samples: [sample] })).toBe(
+      false,
+    );
+    expect(
+      validateSimulation({
+        ...mock,
+        frames: mock.frames.map((frame) => ({
+          ...frame,
+          congestion_samples: [sample],
+        })),
+      }),
+    ).toBe(false);
   });
   it("rejects legacy cells, non-finite coordinates, unsafe seeds, and missing references", () => {
     for (const invalid of [
