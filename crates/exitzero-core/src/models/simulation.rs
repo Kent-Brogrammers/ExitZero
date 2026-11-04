@@ -1,0 +1,667 @@
+use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SimulationStatus {
+    Completed,
+    Incomplete,
+    Timeout,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SimulationMetrics {
+    pub status: SimulationStatus,
+    pub total_population: u32,
+    pub evacuated: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub sheltered: u32,
+    /// Trapped is a subset of remaining, not an additional population category.
+    pub trapped: u32,
+    pub remaining: u32,
+    pub clearance_steps: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evacuated_by_route: Option<super::EvacuatedByRoute>,
+}
+
+impl SimulationMetrics {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.evacuated_by_route.as_ref().is_some_and(|counts| {
+            u64::from(counts.normal_exit) + u64::from(counts.emergency_window)
+                != u64::from(self.evacuated)
+        }) {
+            return Err("escape route counts must sum to evacuated".into());
+        }
+        if self.clearance_steps.is_some_and(|steps| steps > 100_000) {
+            return Err("clearance_steps must be at most 100000".into());
+        }
+        if self.total_population == 0
+            || self.total_population > 10_000
+            || u64::from(self.evacuated) + u64::from(self.sheltered) + u64::from(self.remaining)
+                != u64::from(self.total_population)
+            || self.trapped > self.remaining
+        {
+            return Err("invalid population totals; trapped must be a subset of remaining".into());
+        }
+        match self.status {
+            SimulationStatus::Completed
+                if self.remaining != 0 || self.clearance_steps.is_none() =>
+            {
+                Err("completed results require zero remaining and a clearance time".into())
+            }
+            SimulationStatus::Incomplete | SimulationStatus::Timeout
+                if self.remaining == 0 || self.clearance_steps.is_some() =>
+            {
+                Err(
+                    "unfinished results require remaining occupants and null clearance_steps"
+                        .into(),
+                )
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// Greater means worse: un-evacuated population, then trapped, then clearance.
+    /// Missing clearance is worse than any measured clearance, never treated as zero.
+    pub fn compare_severity(&self, other: &Self) -> Ordering {
+        (
+            self.remaining,
+            self.trapped,
+            self.clearance_steps.unwrap_or(u32::MAX),
+        )
+            .cmp(&(
+                other.remaining,
+                other.trapped,
+                other.clearance_steps.unwrap_or(u32::MAX),
+            ))
+    }
+}
+
+/// Bounded lookahead from the engine's actual route, not a predicted trajectory.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentPlannedPath {
+    pub waypoints: Vec<super::Point>,
+    pub continues: bool,
+}
+
+impl AgentPlannedPath {
+    pub const MAX_WAYPOINTS: usize = 16;
+
+    pub fn snapshot(points: impl IntoIterator<Item = super::Point>) -> Self {
+        let mut waypoints: Vec<_> = points.into_iter().take(Self::MAX_WAYPOINTS + 1).collect();
+        let continues = waypoints.len() > Self::MAX_WAYPOINTS;
+        waypoints.truncate(Self::MAX_WAYPOINTS);
+        Self {
+            waypoints,
+            continues,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentPosition {
+    pub id: u32,
+    pub x: f64,
+    pub y: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub injury: Option<f64>,
+    /// Omitted in older recordings; an empty waypoint list means no current plan.
+    #[serde(
+        default,
+        deserialize_with = "super::windows::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub planned_path: Option<AgentPlannedPath>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AnimationFrame {
+    /// Crowd-delay increments since the previous frame in this stream.
+    /// Absent in legacy recordings; an empty array means no new delay.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub congestion_samples: Option<Vec<CongestionSample>>,
+    #[serde(
+        default,
+        deserialize_with = "super::windows::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub pursuit: Option<super::PursuitFrame>,
+    pub step: u32,
+    pub agents: Vec<AgentPosition>,
+    /// Physical state at this frame; absent in legacy recordings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocked_opening_ids: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_states: Option<Vec<super::WindowFrameState>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sheltered: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disaster_state: Option<super::DisasterState>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TrafficSample {
+    pub x: f64,
+    pub y: f64,
+    pub visits: u32,
+}
+
+/// Observed crowd-delay person-seconds for materially slowed occupants with a
+/// visibly slowed neighbor. This is illustrative delay, not validated density.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CongestionSample {
+    pub x: f64,
+    pub y: f64,
+    pub crowd_delay_seconds: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentStatistics {
+    /// Same stable ID used in animation frames.
+    pub id: u32,
+    /// Actual accepted movement, including detours; never inferred from frames.
+    pub distance_metres: f64,
+    /// Full ticks where a proposed movement was rejected by collision checks.
+    /// Agents without a route do not accumulate waiting time.
+    pub waiting_steps: u32,
+    pub waiting_seconds: f64,
+    /// Time until evacuation, or until the run ended for remaining occupants.
+    pub elapsed_seconds: f64,
+    pub evacuation_step: Option<u32>,
+    pub evacuation_seconds: Option<f64>,
+    /// Successful exit ID, null for occupants that did not evacuate.
+    pub exit_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub escape_route: Option<super::EscapeRoute>,
+    /// False means the sampled navigation graph found no route, not proven trapped.
+    pub route_found: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shelter: Option<super::ShelterArrival>,
+    #[serde(default, skip_serializing_if = "is_zero_f64")]
+    pub injury: f64,
+    #[serde(default, skip_serializing_if = "is_zero_f64")]
+    pub exposure_seconds: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SimulationAnalytics {
+    /// Absent in legacy recordings. Only actual assignments are recorded.
+    #[serde(
+        default,
+        deserialize_with = "super::windows::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub window_decisions: Option<super::WindowDecisionHistory>,
+    pub agents: Vec<AgentStatistics>,
+    pub simulated_seconds: f64,
+    /// Median among evacuated occupants ONLY, including on incomplete runs.
+    /// Null when nobody evacuated; never treat remaining occupants as zero time.
+    pub median_evacuation_seconds: Option<f64>,
+    pub total_distance_metres: f64,
+    pub total_waiting_seconds: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SimulationResult {
+    /// Whole-run congestion integrated at every physics tick. Legacy recordings
+    /// omit this rather than substituting traffic counts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub congestion_samples: Option<Vec<CongestionSample>>,
+    #[serde(flatten)]
+    pub metrics: SimulationMetrics,
+    pub frames: Vec<AnimationFrame>,
+    pub traffic_samples: Vec<TrafficSample>,
+    pub width: f64,
+    pub height: f64,
+    pub time_step_seconds: f64,
+    /// Optional for compatibility with older saved results and synthetic fixtures.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub analytics: Option<SimulationAnalytics>,
+    /// None for legacy recordings; Some([]) means no new opening information.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub communication_events: Option<Vec<super::CommunicationEvent>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_events: Option<Vec<super::AgentEvent>>,
+    /// Absent in legacy recordings. This records the actual stopping branch,
+    /// not an inferred cause of individual occupant outcomes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub termination_reason: Option<TerminationReason>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TerminationReason {
+    Completed,
+    StepLimit,
+    NoActiveRoutes,
+    MovementStagnation,
+    AllSheltersFull,
+}
+
+impl SimulationResult {
+    fn in_bounds(&self, x: f64, y: f64) -> bool {
+        x.is_finite()
+            && y.is_finite()
+            && x >= 0.0
+            && y >= 0.0
+            && x <= self.width
+            && y <= self.height
+    }
+
+    fn validate_congestion(&self, samples: Option<&[CongestionSample]>) -> Result<(), String> {
+        if let Some(samples) = samples
+            && (samples.len() > 100_000
+                || samples.iter().any(|sample| {
+                    !self.in_bounds(sample.x, sample.y)
+                        || !sample.crowd_delay_seconds.is_finite()
+                        || sample.crowd_delay_seconds < 0.0
+                        || sample.crowd_delay_seconds > 1_000_000_000.0
+                }))
+        {
+            return Err("invalid continuous congestion samples".into());
+        }
+        Ok(())
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        self.metrics.validate()?;
+        if let Some(analytics) = &self.analytics {
+            if let Some(counts) = &self.metrics.evacuated_by_route {
+                let window_count = analytics
+                    .agents
+                    .iter()
+                    .filter(|a| {
+                        a.escape_route
+                            .as_ref()
+                            .is_some_and(|r| r.kind == super::EscapeRouteKind::EmergencyWindow)
+                    })
+                    .count() as u32;
+                if window_count != counts.emergency_window {
+                    return Err("escape route totals disagree with per-agent outcomes".into());
+                }
+            }
+            let nonnegative = |value: f64| value.is_finite() && value >= 0.0;
+            let mut ids = std::collections::HashSet::new();
+            if analytics.agents.len() != self.metrics.total_population as usize
+                || !nonnegative(analytics.simulated_seconds)
+                || !nonnegative(analytics.total_distance_metres)
+                || !nonnegative(analytics.total_waiting_seconds)
+                || analytics
+                    .median_evacuation_seconds
+                    .is_some_and(|value| !nonnegative(value))
+                || analytics.agents.iter().any(|agent| {
+                    let did_evacuate = agent.evacuation_step.is_some();
+                    !ids.insert(agent.id)
+                        || !agent.injury.is_finite()
+                        || !(0.0..=1.0).contains(&agent.injury)
+                        || !nonnegative(agent.exposure_seconds)
+                        || agent.exposure_seconds > agent.elapsed_seconds + 1e-6
+                        || agent.shelter.as_ref().is_some_and(|s| {
+                            did_evacuate
+                                || s.id.is_empty()
+                                || s.step > 100_000
+                                || !nonnegative(s.seconds)
+                                || (s.seconds - agent.elapsed_seconds).abs() > 1e-6
+                                || (s.seconds - f64::from(s.step) * self.time_step_seconds).abs()
+                                    > 1e-6
+                        })
+                        || !nonnegative(agent.distance_metres)
+                        || !nonnegative(agent.waiting_seconds)
+                        || !nonnegative(agent.elapsed_seconds)
+                        || agent.waiting_seconds > agent.elapsed_seconds + 1e-6
+                        || agent.elapsed_seconds > analytics.simulated_seconds + 1e-6
+                        || agent.waiting_steps > 100_000
+                        || (agent.waiting_seconds
+                            - f64::from(agent.waiting_steps) * self.time_step_seconds)
+                            .abs()
+                            > 1e-6
+                        || agent
+                            .evacuation_step
+                            .is_some_and(|step| step > 100_000 || !agent.route_found)
+                        || agent.evacuation_seconds.is_some_and(|value| {
+                            !nonnegative(value) || (value - agent.elapsed_seconds).abs() > 1e-6
+                        })
+                        || did_evacuate != agent.evacuation_seconds.is_some()
+                        || did_evacuate != (agent.exit_id.is_some() || agent.escape_route.is_some())
+                        || agent.escape_route.as_ref().is_some_and(|route| {
+                            route.opening_id.trim().is_empty()
+                                || match route.kind {
+                                    super::EscapeRouteKind::NormalExit => {
+                                        agent.exit_id.as_ref() != Some(&route.opening_id)
+                                    }
+                                    super::EscapeRouteKind::EmergencyWindow => {
+                                        agent.exit_id.is_some()
+                                    }
+                                }
+                        })
+                        || agent
+                            .evacuation_step
+                            .zip(agent.evacuation_seconds)
+                            .is_some_and(|(step, seconds)| {
+                                (seconds - f64::from(step) * self.time_step_seconds).abs() > 1e-6
+                            })
+                })
+                || analytics
+                    .agents
+                    .iter()
+                    .filter(|agent| agent.evacuation_step.is_some())
+                    .count()
+                    != self.metrics.evacuated as usize
+                || analytics
+                    .agents
+                    .iter()
+                    .filter(|agent| agent.shelter.is_some())
+                    .count()
+                    != self.metrics.sheltered as usize
+                || analytics.median_evacuation_seconds.is_some() != (self.metrics.evacuated > 0)
+            {
+                return Err("invalid per-agent analytics, times, or population accounting".into());
+            }
+            if let Some(history) = &analytics.window_decisions {
+                let mut previous = 0;
+                let mut seen = std::collections::HashSet::new();
+                let last_step = self.frames.last().map_or(0, |f| f.step);
+                let elapsed: std::collections::HashMap<_, _> = analytics
+                    .agents
+                    .iter()
+                    .map(|a| (a.id, a.elapsed_seconds))
+                    .collect();
+                let windows: Option<std::collections::HashSet<_>> = self
+                    .frames
+                    .iter()
+                    .find_map(|frame| frame.window_states.as_ref())
+                    .map(|states| {
+                        states
+                            .iter()
+                            .map(|state| state.window_id.as_str())
+                            .collect()
+                    });
+                if history.choices.len() > super::WindowDecisionHistory::MAX_CHOICES
+                    || history.choices.iter().any(|choice| {
+                        let invalid = choice.step < previous
+                            || choice.step > last_step
+                            || !ids.contains(&choice.agent_id)
+                            || windows.as_ref().is_some_and(|windows| {
+                                !windows.contains(choice.window_id.as_str())
+                            })
+                            || elapsed.get(&choice.agent_id).is_none_or(|seconds| {
+                                f64::from(choice.step) * self.time_step_seconds > seconds + 1e-6
+                            })
+                            || choice.window_id.trim().is_empty()
+                            || choice.window_id.chars().count() > 64
+                            || !nonnegative(choice.estimated_window_seconds)
+                            || !seen.insert((choice.step, choice.agent_id))
+                            || match (choice.reason, choice.estimated_exit_seconds) {
+                                (super::WindowDecisionReason::EstimatedFaster, Some(exit)) => {
+                                    !nonnegative(exit) || choice.estimated_window_seconds >= exit
+                                }
+                                (super::WindowDecisionReason::NoKnownSafeExit, None) => false,
+                                _ => true,
+                            };
+                        previous = choice.step;
+                        invalid
+                    })
+                {
+                    return Err("invalid window decision history or time estimates".into());
+                }
+            }
+        }
+        if !self.width.is_finite()
+            || self.width <= 0.0
+            || self.width > 1000.0
+            || !self.height.is_finite()
+            || self.height <= 0.0
+            || self.height > 1000.0
+            || !self.time_step_seconds.is_finite()
+            || self.time_step_seconds <= 0.0
+            || self.time_step_seconds > 1.0
+            || self.traffic_samples.len() > 100_000
+            || self
+                .traffic_samples
+                .iter()
+                .any(|sample| !self.in_bounds(sample.x, sample.y))
+        {
+            return Err("invalid workspace, time step, or continuous traffic samples".into());
+        }
+        self.validate_congestion(self.congestion_samples.as_deref())?;
+        let mut previous_step = None;
+        let pursuit_mode = self.frames.first().is_some_and(|f| f.pursuit.is_some());
+        let mut previous_caught = std::collections::HashMap::new();
+        let mut previous_escaped = 0;
+        let mut previous_pursuit = None;
+        for frame in &self.frames {
+            self.validate_congestion(frame.congestion_samples.as_deref())?;
+            if frame.pursuit.is_some() != pursuit_mode {
+                return Err("pursuit state must be present consistently in the recording".into());
+            }
+            if let Some(pursuit) = &frame.pursuit {
+                pursuit.validate_recording(
+                    frame.step,
+                    self.metrics.total_population,
+                    self.width,
+                    self.height,
+                    previous_pursuit,
+                )?;
+                previous_pursuit = Some(pursuit);
+                let records: std::collections::HashMap<_, _> = pursuit
+                    .caught
+                    .iter()
+                    .map(|c| (c.agent_id, c.step))
+                    .collect();
+                let caught: std::collections::HashSet<_> =
+                    pursuit.caught.iter().map(|c| c.agent_id).collect();
+                if !self.in_bounds(pursuit.stalker.x, pursuit.stalker.y)
+                    || previous_caught
+                        .iter()
+                        .any(|(id, step)| records.get(id) != Some(step))
+                    || pursuit.escaped < previous_escaped
+                    || caught.len() != pursuit.caught.len()
+                    || pursuit
+                        .caught
+                        .iter()
+                        .any(|c| c.agent_id >= self.metrics.total_population || c.step > frame.step)
+                    || frame
+                        .agents
+                        .iter()
+                        .any(|a| a.id >= self.metrics.total_population || caught.contains(&a.id))
+                    || u64::from(pursuit.escaped) + caught.len() as u64 + frame.agents.len() as u64
+                        != u64::from(self.metrics.total_population)
+                {
+                    return Err(
+                        "invalid pursuit actor, capture records or survivor accounting".into(),
+                    );
+                }
+                previous_caught = records;
+                previous_escaped = pursuit.escaped;
+            }
+            if frame.step > 100_000 || previous_step.is_some_and(|step| step >= frame.step) {
+                return Err("frame steps must be at most 100000 and strictly increasing".into());
+            }
+            previous_step = Some(frame.step);
+            if let Some(state) = &frame.disaster_state {
+                let mut area_ids = std::collections::HashSet::new();
+                if state.areas.is_empty()
+                    || state.areas.len() > 64
+                    || state.areas.iter().any(|area| {
+                        !area_ids.insert(area.id)
+                            || area.revision > frame.step
+                            || !self.in_bounds(area.center.x, area.center.y)
+                            || !area.radius.is_finite()
+                            || area.radius <= 0.0
+                            || area.radius > 1000.0
+                    })
+                {
+                    return Err("invalid disaster footprint in animation frame".into());
+                }
+            }
+            let mut ids = std::collections::HashSet::new();
+            if frame.agents.len() > self.metrics.total_population as usize
+                || frame.agents.iter().any(|agent| {
+                    !self.in_bounds(agent.x, agent.y)
+                        || !ids.insert(agent.id)
+                        || agent.injury.is_some_and(|injury| {
+                            !injury.is_finite() || !(0.0..=1.0).contains(&injury)
+                        })
+                        || agent.planned_path.as_ref().is_some_and(|path| {
+                            path.waypoints.len() > AgentPlannedPath::MAX_WAYPOINTS
+                                || path.continues
+                                    && path.waypoints.len() != AgentPlannedPath::MAX_WAYPOINTS
+                                || path
+                                    .waypoints
+                                    .iter()
+                                    .any(|point| !self.in_bounds(point.x, point.y))
+                        })
+                })
+            {
+                return Err("frames must contain unique agents with finite positions within building bounds".into());
+            }
+            if let Some(states) = &frame.window_states {
+                let mut windows = std::collections::HashSet::new();
+                let mut participants = std::collections::HashSet::new();
+                if states.len() > 100
+                    || states.iter().any(|s| {
+                        !windows.insert(&s.window_id)
+                            || s.window_id.trim().is_empty()
+                            || s.window_id.chars().count() > 64
+                            || s.unavailable_reason.as_ref().is_some_and(|reason| {
+                                reason.trim().is_empty() || reason.chars().count() > 240
+                            })
+                            || s.approaching_agent_ids
+                                .as_ref()
+                                .is_some_and(|ids| ids.len() > 10_000)
+                            || matches!(
+                                s.state,
+                                super::WindowState::Opening | super::WindowState::Breaking
+                            ) && s.preparation_ready_step.is_none()
+                            || s.state == super::WindowState::Intact
+                                && s.preparation_ready_step.is_some()
+                            || s.traversing_agent_id.is_some()
+                                != s.traversal_earliest_finish_step.is_some()
+                            || s.traversing_agent_id.is_some()
+                                && !matches!(
+                                    s.state,
+                                    super::WindowState::Open | super::WindowState::Broken
+                                )
+                            || s.approaching_agent_ids
+                                .iter()
+                                .flatten()
+                                .chain(s.queue_agent_ids.iter())
+                                .chain(s.traversing_agent_id.iter())
+                                .any(|id| !ids.contains(id) || !participants.insert(*id))
+                    })
+                {
+                    return Err("invalid window state or queue membership in frame".into());
+                }
+            }
+        }
+        if let Some(events) = &self.agent_events {
+            let ids: std::collections::HashSet<_> = self
+                .frames
+                .first()
+                .into_iter()
+                .flat_map(|f| f.agents.iter().map(|a| a.id))
+                .chain(
+                    self.analytics
+                        .iter()
+                        .flat_map(|a| a.agents.iter().map(|a| a.id)),
+                )
+                .collect();
+            let last = self.frames.last().map_or(0, |f| f.step);
+            let mut previous = 0;
+            let mut seen = std::collections::HashSet::new();
+            for event in events {
+                use super::AgentEventKind::*;
+                let needs_subject = matches!(
+                    event.kind,
+                    HeadingToExit
+                        | Rerouting
+                        | WindowApproach
+                        | WindowQueue
+                        | WindowOpening
+                        | WindowBreaking
+                        | WindowTraversal
+                        | Evacuated
+                        | Sheltered
+                );
+                if event.step < previous
+                    || event.step > last
+                    || !ids.contains(&event.agent_id)
+                    || event
+                        .subject_id
+                        .as_ref()
+                        .is_some_and(|id| id.trim().is_empty() || id.chars().count() > 64)
+                    || needs_subject && event.subject_id.is_none()
+                    || matches!(event.kind, HazardDiscovered | HazardSpreading)
+                        && event.position.is_none()
+                    || event.position.is_some_and(|p| !self.in_bounds(p.x, p.y))
+                    || !seen.insert((event.step, event.kind, event.agent_id, &event.subject_id))
+                {
+                    return Err("invalid agent activity event time, subject or source".into());
+                }
+                previous = event.step;
+            }
+        }
+        if pursuit_mode && previous_escaped != self.metrics.evacuated {
+            return Err("pursuit escapes disagree with final metrics".into());
+        }
+        if let Some(events) = &self.communication_events {
+            let ids: std::collections::HashSet<_> = self
+                .frames
+                .first()
+                .into_iter()
+                .flat_map(|f| f.agents.iter().map(|a| a.id))
+                .chain(
+                    self.analytics
+                        .iter()
+                        .flat_map(|a| a.agents.iter().map(|a| a.id)),
+                )
+                .collect();
+            let last_step = self.frames.last().map(|f| f.step);
+            let mut seen = std::collections::HashSet::new();
+            let mut previous = 0;
+            for event in events {
+                let recipients: std::collections::HashSet<_> =
+                    event.recipient_ids.iter().copied().collect();
+                if event.step > 100_000
+                    || event.step < previous
+                    || last_step.is_none_or(|step| event.step > step)
+                    || !ids.contains(&event.sender_id)
+                    || event.opening_id.trim().is_empty()
+                    || event.opening_id.chars().count() > 64
+                    || match event.event_type {
+                        super::CommunicationEventType::Discovery => !recipients.is_empty(),
+                        super::CommunicationEventType::Shared => recipients.is_empty(),
+                    }
+                    || recipients.len() > 10000
+                    || recipients.len() != event.recipient_ids.len()
+                    || recipients.contains(&event.sender_id)
+                    || recipients.iter().any(|id| !ids.contains(id))
+                    || !seen.insert((
+                        event.step,
+                        event.event_type,
+                        event.sender_id,
+                        &event.opening_id,
+                    ))
+                {
+                    return Err("invalid communication event time, source or recipients".into());
+                }
+                previous = event.step;
+            }
+        }
+        Ok(())
+    }
+}
+
+fn is_zero_u32(value: &u32) -> bool {
+    *value == 0
+}
+fn is_zero_f64(value: &f64) -> bool {
+    *value == 0.0
+}

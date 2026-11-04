@@ -209,16 +209,19 @@ mod tests {
     async fn abandoned_request_stops_actual_work_and_releases_worker_capacity() {
         let pool = ExecutionPool::new(1, 1);
         let ticks = Arc::new(AtomicUsize::new(0));
+        let building =
+            serde_json::from_str(include_str!("../../../shared/examples/building.json")).unwrap();
         let task = tokio::spawn({
             let pool = pool.clone();
             let ticks = ticks.clone();
             async move {
-                pool.run(None, move || -> Result<(), SimulationError> {
-                    loop {
-                        crate::simulation::control::checkpoint()?;
+                pool.run(None, move || {
+                    crate::simulation::simulate_live(&building, &mut |_| {
                         ticks.fetch_add(1, Ordering::Relaxed);
                         std::thread::sleep(Duration::from_millis(1));
-                    }
+                        true
+                    })
+                    .map(|_| ())
                 })
                 .await
             }

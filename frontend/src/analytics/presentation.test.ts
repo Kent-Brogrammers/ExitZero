@@ -7,6 +7,26 @@ import {
 import { syntheticStressResult } from "./stressFixture";
 
 describe("result explanations", () => {
+  it("explains capacity exhaustion with an unsheltered count and no full clearance", () => {
+    const explanation = outcomeExplanation(
+      {
+        ...syntheticStressResult.baseline,
+        status: "incomplete",
+        total_population: 3,
+        evacuated: 0,
+        sheltered: 2,
+        remaining: 1,
+        trapped: 0,
+        clearance_steps: null,
+      },
+      "all_shelters_full",
+    );
+    expect(explanation).toContain(
+      "All tornado shelters reached their maximum capacity",
+    );
+    expect(explanation).toContain("Unsheltered occupants remaining: 1");
+    expect(explanation).toContain("No complete clearance was measured");
+  });
   it("uses recorded stopping reasons without inferring deaths or proven entrapment", () => {
     const incomplete = {
       ...syntheticStressResult.baseline,

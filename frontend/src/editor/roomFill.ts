@@ -1,4 +1,9 @@
-import type { BuildingScenario, Point, SpawnZone } from "../types/simulation";
+import type {
+  BuildingScenario,
+  Point,
+  SpawnZone,
+  Wall,
+} from "../types/simulation";
 import { buildingError, project } from "./geometry";
 import { nextObjectName } from "./names";
 import { buildingFaces } from "./topology";
@@ -9,6 +14,7 @@ import {
   spawnContains,
   spawnRing,
   spawnZonesOverlap,
+  segmentsCross,
 } from "./spawnGeometry";
 import type { Bounds } from "./selection";
 export interface Room {
@@ -83,6 +89,96 @@ export function roomFillZones(
   return group
     ? building.spawn_zones.filter((z) => roomFillGroup(z.id) === group)
     : [];
+}
+
+/** Wall edits invalidate retained automatic room fills; manual spawns remain independent. */
+export function invalidateRoomFills(
+  before: BuildingScenario,
+  next: BuildingScenario,
+): BuildingScenario {
+  const oldWalls = new Map(before.walls.map((w) => [w.id, w]));
+  const newWalls = new Map(next.walls.map((w) => [w.id, w]));
+  const changed: Wall[] = [];
+  for (const id of new Set([...oldWalls.keys(), ...newWalls.keys()])) {
+    const old = oldWalls.get(id),
+      current = newWalls.get(id);
+    if (!old || !current) {
+      changed.push((old ?? current)!);
+      continue;
+    }
+    const dx = old.end.x - old.start.x,
+      dy = old.end.y - old.start.y;
+    const length = Math.hypot(dx, dy);
+    const collinear = (p: Point) =>
+      Math.abs((p.x - old.start.x) * dy - (p.y - old.start.y) * dx) <=
+      1e-8 * length;
+    if (
+      length > 0 &&
+      old.thickness === current.thickness &&
+      collinear(current.start) &&
+      collinear(current.end)
+    ) {
+      // A shortened/extended wall changes only its end portions, not every
+      // room bordering the unchanged span of that same wall.
+      const at = (p: Point) =>
+        ((p.x - old.start.x) * dx + (p.y - old.start.y) * dy) / length;
+      const [lo, hi] = [at(current.start), at(current.end)].sort(
+        (a, b) => a - b,
+      );
+      const points = [...new Set([0, length, lo!, hi!])].sort((a, b) => a - b);
+      for (let i = 1; i < points.length; i++) {
+        const a = points[i - 1]!,
+          b = points[i]!,
+          middle = (a + b) / 2;
+        if (
+          (middle >= 0 && middle <= length) === (middle >= lo! && middle <= hi!)
+        )
+          continue;
+        const point = (t: number) => ({
+          x: old.start.x + (t * dx) / length,
+          y: old.start.y + (t * dy) / length,
+        });
+        changed.push({ ...old, start: point(a), end: point(b) });
+      }
+    } else changed.push(old, current);
+  }
+  if (!changed.length) return next;
+  const invalid = new Set<string>();
+  for (const zone of before.spawn_zones) {
+    const group = roomFillGroup(zone.id);
+    if (!group) continue;
+    const rings = [spawnRing(zone), ...(zone.holes ?? [])];
+    if (
+      changed.some(
+        (wall) =>
+          spawnContains(zone, wall.start) ||
+          spawnContains(zone, wall.end) ||
+          rings.some((ring) =>
+            ring.some((a, i) => {
+              const b = ring[(i + 1) % ring.length]!;
+              return (
+                segmentsCross(a, b, wall.start, wall.end) ||
+                Math.min(
+                  segmentDistance(a, wall.start, wall.end),
+                  segmentDistance(b, wall.start, wall.end),
+                  segmentDistance(wall.start, a, b),
+                  segmentDistance(wall.end, a, b),
+                ) <=
+                  wall.thickness / 2 + 1e-6
+              );
+            }),
+          ),
+      )
+    )
+      invalid.add(group);
+  }
+  if (!invalid.size) return next;
+  return {
+    ...next,
+    spawn_zones: next.spawn_zones.filter(
+      (zone) => !invalid.has(roomFillGroup(zone.id) ?? ""),
+    ),
+  };
 }
 
 /** One persisted polygon per room. This conservative floor-space sample only estimates an editable population limit. */

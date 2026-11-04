@@ -2,7 +2,7 @@ import { createAgentEffects } from "./agentEffects";
 import type { BuildingScenario, SimulationResult } from "../types/simulation";
 import { canvasPalette } from "../styles/canvasPalette";
 import { drawLayout } from "../editor/draw";
-import { trafficField, fieldPixels } from "../analytics/trafficField";
+import { trafficField, congestionPixels } from "../analytics/trafficField";
 import { createPlaybackRenderer, drawAgents } from "./drawPlayback";
 import { createFrameSampler } from "./interpolation";
 import { createRecordedTrails } from "./recordedTrails";
@@ -29,15 +29,6 @@ export function createExportRenderer(
     ...(result.agent_events ?? []),
   ]);
   const trails = createRecordedTrails(result);
-  const peak = options.includeHeatmap
-    ? trafficField(
-        trails(result.frames.length - 1),
-        result.width,
-        result.height,
-        0.6,
-      ).peak
-    : 0;
-  trails(0);
   const layer = canvas.ownerDocument.createElement("canvas");
   let lastIndex = -1;
   return (seconds: number) => {
@@ -64,7 +55,12 @@ export function createExportRenderer(
       const context = layer.getContext("2d");
       if (!context) throw new Error("The export Canvas is unavailable.");
       const pixels = context.createImageData(field.columns, field.rows);
-      pixels.data.set(fieldPixels({ ...field, peak }));
+      pixels.data.set(
+        congestionPixels(
+          field,
+          (result.frames[index]?.step ?? 0) * result.time_step_seconds,
+        ),
+      );
       context.putImageData(pixels, 0, 0);
       lastIndex = index;
     }

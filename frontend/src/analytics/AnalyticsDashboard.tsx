@@ -13,6 +13,7 @@ import type { OptimizationEvaluation } from "./optimization";
 import ScenarioComparison from "./ScenarioComparison";
 import TrafficHeatmap from "./TrafficHeatmap";
 import CrowdingRanking from "./CrowdingRanking";
+import WindowHotspots from "./WindowHotspots";
 import {
   outcomeExplanation,
   scenarioTitle,
@@ -257,8 +258,8 @@ export default function AnalyticsDashboard({
               <PopulationChart metrics={metrics} />
               {result && stressResult && (
                 <p className="note">
-                  Population and traffic use the simulation run; comparisons use
-                  the computed stress-test baseline.
+                  Population and congestion use the simulation run; comparisons
+                  use the computed stress-test baseline.
                 </p>
               )}
             </>
@@ -269,6 +270,11 @@ export default function AnalyticsDashboard({
           )}
         </section>
         <TrafficHeatmap building={building} result={result} />
+        <WindowHotspots
+          building={building}
+          result={result}
+          onViewInSimulation={onViewInSimulation}
+        />
         <CrowdingRanking
           building={building}
           result={result}

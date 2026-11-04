@@ -5,8 +5,12 @@ import type { BuildingScenario, SimulationResult } from "../types/simulation";
 import { drawLayout } from "../editor/draw";
 import { canvasPalette } from "../styles/canvasPalette";
 import { useStudioTheme } from "../styles/appearance";
-import { trafficBins } from "./traffic";
-import { trafficField, fieldPixels } from "./trafficField";
+import { congestionBins } from "./traffic";
+import {
+  trafficField,
+  congestionPixels,
+  CONGESTION_RED_REFERENCE_SECONDS,
+} from "./trafficField";
 
 export default function TrafficHeatmap({
   building,
@@ -20,9 +24,14 @@ export default function TrafficHeatmap({
   const units = useDisplayUnits();
   const [visible, setVisible] = useState(true);
   const [smoothing, setSmoothing] = useState(0.6);
-  const traffic = result
-    ? trafficBins(result.traffic_samples, result.width, result.height)
+  const traffic = result?.congestion_samples
+    ? congestionBins(result.congestion_samples, result.width, result.height)
     : null;
+  const elapsedSeconds = result
+    ? (result.analytics?.simulated_seconds ??
+      (result.frames.at(-1)?.step ?? 0) * result.time_step_seconds)
+    : 0;
+  const peakDelay = traffic?.max ?? 0;
   const matches =
     !!building &&
     !!result &&
@@ -30,9 +39,9 @@ export default function TrafficHeatmap({
     building.height === result.height;
   useEffect(() => {
     const target = canvas.current;
-    if (!target || !building || !result || !matches) return;
-    const data = trafficBins(
-      result.traffic_samples,
+    if (!target || !building || !result?.congestion_samples || !matches) return;
+    const data = congestionBins(
+      result.congestion_samples,
       result.width,
       result.height,
     );
@@ -43,7 +52,7 @@ export default function TrafficHeatmap({
     const layerContext = layer.getContext("2d");
     if (layerContext) {
       const pixels = layerContext.createImageData(field.columns, field.rows);
-      pixels.data.set(fieldPixels(field));
+      pixels.data.set(congestionPixels(field, elapsedSeconds));
       layerContext.putImageData(pixels, 0, 0);
     }
     const redraw = () =>
@@ -79,36 +88,49 @@ export default function TrafficHeatmap({
       observer.disconnect();
       window.removeEventListener("resize", redraw);
     };
-  }, [building, result, visible, matches, smoothing, theme, units]);
+  }, [
+    building,
+    result,
+    visible,
+    matches,
+    smoothing,
+    theme,
+    units,
+    elapsedSeconds,
+  ]);
   return (
-    <section
-      className="panel traffic-panel"
-      aria-label="Accumulated traffic heatmap"
-    >
+    <section className="panel traffic-panel" aria-label="Congestion heatmap">
       <div className="panel-heading">
-        <h2>Accumulated traffic</h2>
+        <h2>Accumulated congestion</h2>
         <label>
           <input
             type="checkbox"
             checked={visible}
             onChange={(event) => setVisible(event.target.checked)}
           />{" "}
-          Show traffic
+          Show congestion
         </label>
       </div>
       {!result ? (
         <p className="note">
-          Run a simulation to see traffic on its floor plan. Stress-test
-          summaries do not include traffic samples.
+          Run a simulation to see congestion on its floor plan. Stress-test
+          summaries do not include congestion samples.
+        </p>
+      ) : result.congestion_samples === undefined ? (
+        <p className="note">
+          Congestion data is unavailable for this recording. Rerun the
+          simulation to measure crowd delay.
         </p>
       ) : !matches ? (
         <p className="note">
-          A matching floor plan is required to display traffic.
+          A matching floor plan is required to display congestion.
         </p>
       ) : (
         <>
           <div className="traffic-tools">
-            <span className="traffic-mode">COMPUTED TRAFFIC · SMOOTH VIEW</span>
+            <span className="traffic-mode">
+              ACCUMULATED CONGESTION · SMOOTH VIEW
+            </span>
             <label>
               Smoothing{" "}
               <input
@@ -118,7 +140,7 @@ export default function TrafficHeatmap({
                 step="0.05"
                 value={smoothing}
                 onChange={(event) => setSmoothing(Number(event.target.value))}
-                aria-label="Traffic smoothing radius"
+                aria-label="Congestion smoothing radius"
                 aria-valuetext={formatLength(smoothing, 2)}
               />{" "}
               {formatLength(smoothing, 2)}
@@ -128,28 +150,36 @@ export default function TrafficHeatmap({
             ref={canvas}
             className="traffic-canvas"
             role="img"
-            aria-label={`Traffic from the standalone simulation on a ${formatDimensions(result.width, result.height)} floor plan. Maximum ${traffic?.max ?? 0} visits per spatial bin.`}
+            aria-label={`Accumulated congestion from the standalone simulation on a ${formatDimensions(result.width, result.height)} floor plan. Maximum ${peakDelay.toFixed(2)} crowd-delay person-seconds per spatial bin over ${elapsedSeconds.toFixed(2)} simulated seconds.`}
           />
           {traffic?.max ? (
             <div className="traffic-legend">
-              <span>Lower intensity</span>
+              <span>0</span>
               <span className="traffic-gradient" aria-hidden="true" />
-              <span>Higher intensity</span>
+              <span>
+                {CONGESTION_RED_REFERENCE_SECONDS}+ crowd-delay person-seconds
+              </span>
               <span className="traffic-peak">
-                Peak source bin: {traffic.max} visits
+                Peak source bin: {peakDelay.toFixed(2)} crowd-delay
+                person-seconds
               </span>
             </div>
           ) : (
-            <p className="note">No positive traffic samples were returned.</p>
+            <p className="note">No crowd delay was recorded.</p>
           )}
           <div className="note traffic-explanation">
             <p>
-              Computed visits, smoothed for display. Color may extend beyond
-              recorded paths; it does not predict movement through walls. Source
-              counts are unchanged (
-              {traffic ? formatLength(traffic.size, 2) : "—"} bins). Colors are
-              relative to this run, not density or measured congestion. Scenario
-              selection does not change this map.
+              Accumulated crowd delay: at least two nearby people must slow down
+              together to contribute. Two people stopped for ten seconds add
+              twenty person-seconds; two moving at half speed add ten. Larger
+              queues and longer waits add more heat, while freely moving traffic
+              adds none. Quiet time preserves recorded delay. Colors use a fixed
+              scale across runs, reaching red at{" "}
+              {CONGESTION_RED_REFERENCE_SECONDS} crowd-delay person-seconds in
+              the smoothed area. Smoothing can extend color across walls. This
+              is an exploratory slowdown indicator; the color reference is not a
+              safety threshold or a density measure. Scenario selection does not
+              change this map.
             </p>
           </div>
         </>

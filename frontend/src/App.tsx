@@ -2,6 +2,7 @@ import { halloweenPreset } from "./editor/presets";
 import { useDisplayUnits } from "./utils/useDisplayUnits";
 import type { ReplayTarget } from "./simulation/replayTarget";
 import { appendChat } from "./simulation/communication";
+import { createLiveCongestion } from "./simulation/liveTraffic";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import example from "../../shared/examples/building.json";
 import defaultOffice from "./editor/presets/corporate-office.json";
@@ -533,11 +534,20 @@ export default function App() {
         });
         setMessage("Starting live simulation…");
         navigate("simulation");
+        const accumulateCongestion = createLiveCongestion(
+          scenario.width,
+          scenario.height,
+        );
         const recording = await api.simulateLive(
           scenario,
           (frame) => {
             if (!controller.signal.aborted) {
-              setLive((previous) => ({ ...previous, frame }));
+              const congestion_samples = accumulateCongestion(frame);
+              setLive((previous) => ({
+                ...previous,
+                frame,
+                congestion_samples,
+              }));
               setMessage("");
             }
           },

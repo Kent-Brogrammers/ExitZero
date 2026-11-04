@@ -12,18 +12,13 @@ To start both servers from the repository root:
 ./dev.sh
 ```
 
-The script installs frontend dependencies if `node_modules` is missing. Press Ctrl+C to stop both servers; if either server exits, the other stops too. The backend development profile optimizes the app crate while retaining debug symbols and incremental compilation; dependencies keep their usual development settings.
+The script installs frontend dependencies if `node_modules` is missing. Both servers choose available ports automatically. Wait for **ExitZero ready**, then open the printed **App** URL; **API** and **Proxy** show the health-check URLs. The frontend is connected to that run's backend automatically, so multiple copies can run together. Press Ctrl+C to stop both servers; if either server exits, the other stops too. The workspace development profile optimizes the web host and shared simulation crate while retaining debug symbols and incremental compilation; other dependencies keep their usual development settings.
 
-To measure compute time independently of the live view's real-time pacing, run `cargo run --manifest-path backend/Cargo.toml --locked --example benchmark_simulation` from the repository root. This runs the checked-in example with 30 occupants three times. Pass an output JSON path after `--` to save the first result for before/after comparison.
+Local Rust builds default to one compiler job to reduce peak RAM use. The checked-in VS Code settings also disable Rust Analyzer's startup cache priming, limit analysis to two worker threads and 64 cached syntax trees, and exclude generated directories from file watching. Reload the VS Code window after receiving these settings. On a machine with more available memory, `CARGO_BUILD_JOBS=2 ./dev.sh` allows two compiler jobs; build parallelism is independent of the simulator's runtime behavior.
 
-To run them separately, in one terminal:
+To measure compute time independently of the live view's real-time pacing, run `cargo run --locked -p exitzero --example benchmark_simulation` from the repository root. This runs the checked-in example with 30 occupants three times. Pass an output JSON path after `--` to save the first result for before/after comparison.
 
-```sh
-cd backend
-cargo run --locked
-```
-
-In another:
+You can also start the same pair of servers from `frontend/`:
 
 ```sh
 cd frontend
@@ -31,20 +26,28 @@ npm ci
 npm run dev
 ```
 
-Open [http://127.0.0.1:5173](http://127.0.0.1:5173). The header should show **Backend online**. If the backend starts later, use **Retry**.
+Open the printed **App** URL. Settings should show **Backend online**. To preview a production build locally, run `npm run build` followed by `npm run preview` in `frontend/`; preview also starts and connects a backend using available ports.
 
 **Run simulation** opens a live first run at normal speed. The **Speed** button cycles through 1×, 2×, 4× and 8× while the backend continues running the same physics ticks. **Cancel run** stops the stream and keeps its last frame visible; cancelled runs do not produce a completed recording. The view shows elapsed simulation time and occupant counts without a predicted finish time. When the run ends, the recorded timeline opens at the end; rewind, step, or replay to review what happened.
 
-Evacuation runs stop after 15 simulated seconds without meaningful occupant movement (at least 0.1 m displacement), even if hazards keep spreading or awareness keeps changing. Successful evacuation or shelter arrival resets the timer. Active window preparation and timed traversal pause this timeout; merely being assigned to a window does not. Runs stopped this way are incomplete, retain the occupants still inside as `remaining`, and record `movement_stagnation` without a full-clearance time.
+Agents that make no meaningful progress for two simulated seconds actively
+replan and try other known exits, bypassing the normal congestion commitment.
+The run does not stop for inactivity while an exit route, local escape path, or
+window approach remains available; `max_steps` still bounds every run. Once no
+such option remains, 15 seconds without meaningful movement (at least 0.1 m) or
+successful arrival ends the incomplete run as `movement_stagnation`, with the
+occupants still inside counted as `remaining` and no full-clearance time.
 
-Under **Settings → Agent awareness**, adjust sight range (default 8 m) and communication/yelling range (default 3 m). These settings are saved with the building. A range of 0 disables that behavior. Agents start with exit locations and assume doors and exits are open, including initially blocked exits. Their route maps do not start with the complete wall layout. They learn an opening's state by seeing it or receiving a nearby person's report.
+Under **Settings → Agent awareness**, enable **Vision — unlimited line of sight** and adjust communication/yelling range (default 3 m). Vision casts in every direction without a distance cap; walls, closed doors, opaque glazing, and furniture hide what is behind them. Agents start knowing only the exterior wall outline and exit locations, and assume exits are open until their state is seen or reported. Interior walls, blocked passages, obstructions, hazards, and windows enter each person's private map through observation or nearby reports. Existing JSON stays compatible: `sight_range_metres: 0` disables vision; every positive legacy value now enables unlimited sight. Communication still has a distance limit, and 0 disables sharing.
 
-Wall memory records only observed portions within sight range and clear sight lines. Seeing a sliver does not reveal the wall's hidden extent or endpoints, and separate visible patches do not fill an occluded gap. These fragments accumulate as people move; yelling shares the same observed fragments. Near occlusion boundaries, uncertain portions below a centimetre may be omitted rather than revealing hidden material. Route graphs use only remembered fragments and are rebuilt when new knowledge invalidates the current route or an opening changes.
+Click an occupant during a live run or playback to inspect their position, injury, last reported destination, and recent activity. Injury labels match the occupant colors: **Healthy** up to 0.01, **Injured** above 0.01 and below 0.5, and **Severely Injured** from 0.5. Missing injury on a present occupant means zero, matching the engine's compact frames. **Inspect agent** also selects occupants by number, including those who have left a recording. The canvas draws sampled travelled movement in dashed blue and the engine's current desired route in solid green. Travelled paths run through the playhead; live trails begin at selection and keep up to 2,000 samples. Gaps and travelled joins crossing barriers are omitted. Desired paths reflect the agent's knowledge at that sample and may change when hazards or blockages are discovered. Snapshots carry at most 16 remaining waypoints and flag any continuation to bound recording size. Older recordings show desired routes as unavailable; rerun to capture them. Completed recordings additionally show full-run distance, collision waiting, exposure, evacuation, and shelter statistics when recorded. Press Escape or close the inspector to dismiss it.
+
+Exterior knowledge is derived from the enclosing wall outlines, including angled and concave shapes; internal partitions are not included. Interior wall perception records only visible portions and shares those fragments. Occluded portions stay unknown; remembered corners supply tentative exploration waypoints. Actual collision checks always enforce the physical layout.
 
 Rectangular obstructions and circular emergency zones also enter each person's route map only after discovery. Visibility uses the nearest surface of an obstruction or hazard, so a large hazard can be noticed without seeing its centre. Yelling requires both range and a clear path: walls, closed doors, and obstructions block reports. Reports travel one hop per physics tick, and newer opening-state reports supersede stale ones. Dijkstra searches each person's belief map again when new information changes it. Actual collision checks always enforce the real world, even for an unseen blockage.
 
 A visible portion of a door or exit is enough to learn its open/closed state;
-its midpoint need not be visible or within sight range. Fire/gas reports include
+its midpoint need not be visible. Fire/gas reports include
 the observed footprint and its revision. Recipients rule out exits covered by
 that known danger and immediately replan an affected route, even before seeing
 the opening themselves. Unknown hazards and unseen growth remain unknown.
@@ -59,9 +62,9 @@ A congestion detour must remain materially better across repeated assessments be
 
 Exit routes target the usable span of each opening, with agent-radius and wall-thickness clearance at the jambs. People can approach different positions across a wide exit and evacuate side by side. Arrival is counted when an agent's centre reaches that span; narrow exits still require people to yield through ordinary crowd avoidance and collision checks. The exit plane applies equally to openings in horizontal, vertical, and angled walls, approached from either side.
 
-Choose **Emergency scenario** in the editor: baseline evacuation, fire, gas leak, or tornado. Use **Place hazard on plan** to position its origin and adjust the radius. The darker core and outer exposure ring are shown on the plan. Fire closes doors and exits whose openings intersect the exposure area, including at the start of a run. Gas leaves passages open: agents prefer routes clear of known gas or usable escape windows, then attempt a hazardous exit route if those options are unavailable. Exposure still accumulates injury and slows movement. Fire models a heat/smoke exposure area; gas uses a wider exposure footprint and a lower injury rate. Newly configured catastrophes enable spread or movement by default. Expand **Spread settings** or **Tornado movement settings** to tune the behavior or switch it off. Older layouts without dynamics retain their fixed footprints until enabled.
+Open **Scenario** in the editor and choose baseline evacuation, fire, gas leak, or tornado. Choose **Place hazard on plan**, then click the plan to place it with default parameters. Double-click the placed hazard to edit its radius and spread or movement settings; **Edit parameters** in the scenario picker also opens these controls. The darker core and outer exposure ring are shown on the plan. Fire closes doors and exits only when the darker burning core touches their opening, including at the start of a run. The lighter exposure ring remains walkable: it adds routing cost and injury, but does not rule out an exit or turn a route into a dead end. Agents avoid the burning core with body clearance and can take a detour through the outer ring. Gas leaves passages open: agents compare safe exit routes with discovered escape windows, and can search for unknown windows when that appears quicker. They attempt a hazardous exit route if those options are unavailable. Exposure still accumulates injury and slows movement. Fire models a heat/smoke exposure area; gas uses a wider exposure footprint and a lower injury rate. Newly configured catastrophes enable spread or movement by default. Expand **Spread settings** or **Tornado movement settings** to tune the behavior or switch it off. Older layouts without dynamics retain their fixed footprints until enabled.
 
-For a tornado, draw one or more **Tornado zones** outside the impact/exposure area. They are walkable shelter destinations, not obstacles. Select a zone and set **Maximum occupants** in Properties (1–10,000 people). Each zone's optional `max_occupants` defaults to 50, including in older layouts, and is preserved in saved JSON. The alarm directs people toward these zones rather than exits and announces when a shelter fills, triggering routes toward other available shelters. Admission follows deterministic agent order for simultaneous arrivals and never exceeds a shelter's maximum. If accessible shelter capacity is insufficient, the run remains incomplete with unsheltered occupants counted as remaining and no full-clearance time. Arrival is recorded as sheltered, separately from evacuated; population totals include both. Admission abstracts entry into safety rather than simulating people's positions inside the shelter; the configured maximum is not a validated capacity derived from floor area.
+For a tornado, draw one or more **Tornado zones** outside the impact/exposure area. They are walkable shelter destinations, not obstacles. Select a zone and set **Maximum occupants** in Properties (1–10,000 people). Each zone's optional `max_occupants` defaults to 50, including in older layouts, and is preserved in saved JSON. The alarm directs people toward these zones rather than exits and announces when a shelter fills, triggering routes toward other available shelters. Admission follows deterministic agent order for simultaneous arrivals and never exceeds a shelter's maximum. As soon as every shelter reaches its maximum, the run stops with `all_shelters_full`, even if people are still moving. If everyone has reached shelter, completion takes precedence. Otherwise the run is incomplete, with unsheltered occupants counted as remaining and no full-clearance time. A shelter with unused capacity does not trigger this stop; ordinary termination conditions still apply if it cannot be reached. Arrival is recorded as sheltered, separately from evacuated; population totals include both. Admission abstracts entry into safety rather than simulating people's positions inside the shelter; the configured maximum is not a validated capacity derived from floor area.
 
 The alarm sounds at the start of the run. Occupants know which response to take and know destination locations, but do not start with the hazard location. They discover danger through sight, physical exposure, or a nearby person's report, using the same visibility and one-hop communication rules as blocked openings. Discovered hazards add strong routing penalties and detour waypoints. Hazard footprints remain traversable so someone already inside can escape. Exposure is integrated over accepted movement and waiting time; injury accumulates gradually, lowers walking speed, and is displayed in orange/red. There are no deaths in this version. Injury levels and rates are illustrative simulation parameters, not medical or building-safety predictions.
 
@@ -69,7 +72,7 @@ The Rust `simulate_with_emergencies` entry point still supports its original sta
 
 Fire ignites connected patches along the exposed edges of areas already burning. Each new patch overlaps existing fire but starts on fresh ground, rather than being hidden inside the source. Seeded branching and uneven patch growth make the fire spread outward from its reached areas. Controls set growth rate, ignition interval, maximum patch count, and maximum patch radius.
 
-Gas stays a single cloud at its original position. Its radius grows at the configured metres per second until the maximum cloud radius; it never spawns extra patches. Older gas layouts with multi-patch settings remain readable, but those branching controls are ignored. Fire examines all current frontiers in all directions, favors nearby wall surfaces, and periodically fills inward. Each pod respects Maximum patch radius; neighboring cores limit further growth to avoid piling up in the same area. New cores remain connected to existing fire, and their centres cannot jump across a solid wall, though open doorways can carry spread. These are illustrative geometric rules, not fuel, airflow, or combustion physics. Both hazards are clipped to workspace extents for display. Overlapping fire patches contribute the strongest exposure rather than multiplying injury by patch count.
+Gas stays a single cloud at its original position. Its radius grows at the configured metres per second until the maximum cloud radius; it never spawns extra patches. Older gas layouts with multi-patch settings remain readable, but those branching controls are ignored. Fire examines all current frontiers in all directions, favors nearby wall surfaces, and periodically fills inward. Reachable doors, exits, and windows provide explicit spread directions so narrow openings are not missed by angular sampling. Explicitly blocked doors/exits stop spread; window apertures allow fire regardless of occupant escape settings. This fire-specific rule does not open windows for occupant movement. Each pod respects Maximum patch radius; neighboring cores limit further growth to avoid piling up in the same area. New cores remain connected to existing fire, and their centres cannot jump across a solid wall. These are illustrative geometric rules, not fuel, airflow, or combustion physics. Both hazards are clipped to workspace extents for display. Overlapping fire patches contribute the strongest exposure rather than multiplying injury by patch count.
 
 Tornado controls set travel speed, maximum turning speed, direction-change interval, and extra shelter clearance. A seeded wandering heading turns gradually; steering and braking avoid workspace edges and every tornado zone. Swept movement checks keep the full exposure radius, occupant body margin, and configured extra clearance outside shelters, including between physics ticks. The initial tornado location must also meet that clearance. The scenario random seed controls both repeatable hazards and occupant placement.
 
@@ -89,13 +92,15 @@ Building JSON can schedule runtime changes before the catastrophe system supplie
 
 These are optional fields on the existing `BuildingScenario`, not a separate request. Events reference door or exit IDs, are ordered by step, and occur before `max_steps`. Changes take effect at tick boundaries; a closure waits until occupants clear the opening rather than creating a wall inside them. Actual states are recorded in each frame's `blocked_opening_ids`, so live viewing and rewind display closures and reopenings at the corresponding time. Older recordings without this field retain their original layout behavior.
 
-The API binds to `127.0.0.1:3001`. Vite proxies `/api` to it and requires port `5173` to be available. The frontend defaults to `/api`; override its public API base URL when needed:
+The Rust server binds to an OS-assigned port when `PORT` is unset or `0`. Vite prefers `5173` for dev and `4173` for preview, then automatically tries another available port if occupied. These preferences preserve existing browser-local layouts when possible; layouts and preferences belong to their browser origin, including the port. The launcher connects `/api` to the backend it actually started, without a shared port file or preselected-port race. Set `PORT` for an explicitly fixed backend port, or `FRONTEND_PORT` for a different frontend preference. `FRONTEND_PORT=0 ./dev.sh` requests an OS-assigned frontend port too.
+
+To reuse a separately running backend, start it with `cargo run --locked -p exitzero --bin exitzero`, then copy its printed port into the frontend command:
 
 ```sh
-VITE_API_BASE_URL=http://127.0.0.1:3001/api npm run dev
+EXITZERO_BACKEND_URL='http://127.0.0.1:<backend-port>' npm run dev
 ```
 
-For production builds, provide that variable to `npm run build` instead; Vite embeds it at build time. `npm run preview` serves the built frontend and does not use the development proxy, so use a direct API base URL and configure backend CORS for your chosen preview origin before testing that mode. The initial CORS allowlist covers only `http://localhost:5173` and `http://127.0.0.1:5173`.
+`EXITZERO_BACKEND_URL` is a launcher/proxy setting and does not enter the browser bundle. The frontend uses relative `/api` URLs by default. For a deliberately separate public API, set `VITE_API_BASE_URL` when running dev or building; Vite embeds that override into the bundle. Direct backend CORS allows HTTP loopback origins (`localhost`, `127.0.0.1`, and `[::1]`) on any valid port. Production hosting continues to honor its supplied `PORT` and serve the frontend and API together.
 
 ## Exact occupant placement
 
@@ -129,7 +134,7 @@ commands or frontend service are needed.
 The image builds both apps, then runs only a stripped release Rust binary and the
 static frontend as a non-root user. Axum serves the site, assets, navigation
 fallback, API, and live NDJSON streams on the same origin. It binds to `0.0.0.0`
-using Render's `PORT` (image default `10000`; local Rust fallback `3001`). Keep
+using Render's `PORT` (image default `10000`; an unset local port is automatic). Keep
 `VITE_API_BASE_URL=/api`, which is set during the image build. The image sets
 `EXITZERO_FRONTEND_DIR=/app/frontend` and one compute worker to limit concurrent
 simulation memory use on a 512 MB instance. Large populations, long recordings,
@@ -162,12 +167,15 @@ frontend/src/
   services/            Developer 4: typed API client and integration tests
   types/               Shared TypeScript contracts and schema tests
   App.tsx              Shared dashboard integration
-backend/src/
-  api/                 Shared Axum routes and error mapping
+crates/exitzero-core/src/
   models/              Shared Rust contracts and validation
   simulation/          Connor: simulation engine
   stress_testing/      Nick: scenario generation and evaluation
   optimization/        Nick: candidate layout comparison
+backend/src/
+  api/                 Shared Axum routes and error mapping
+  lib.rs               Core compatibility re-exports and API module
+  main.rs              Web server executable
 backend/tests/         API and contract integration tests
 shared/
   schemas/             JSON Schema definitions for requests and responses
@@ -176,7 +184,13 @@ shared/
 
 Keep implementation changes inside your workstream. Review changes to `models/`, `types/`, schemas, examples, dependencies, and `App.tsx` together. Use branches such as `[name]/building-editor`, `[name]/simulation-engine`, `[name]/stress-testing`, and `[name]/analytics-integration`.
 
-The dependency direction is `api → feature modules → models`. Stress testing and optimization can call `simulation::simulate(&BuildingScenario) -> Result<SimulationResult, SimulationError>`. The simulation module does not depend on either feature module.
+Rust packages share the root Cargo workspace, `Cargo.lock`, and `target/` directory. `exitzero-core` contains the reusable computation and canonical Rust models; the `exitzero` package in `backend/` hosts the existing web API. Its compatibility re-exports preserve existing `exitzero::models` and `exitzero::simulation` imports. New Rust hosts can depend directly on `exitzero-core` and import `exitzero_core`.
+
+The dependency direction is `web API → core feature modules → core models`. Stress testing and optimization call `simulation::simulate(&BuildingScenario) -> Result<SimulationResult, SimulationError>` directly. The simulation module does not depend on either feature module. Core simulation functions run synchronously without an HTTP server; live pacing and worker admission remain in the web host.
+
+The extraction preserves the existing simulation loop and contracts. The proposed stateful `step()` API, navigation-library evaluation, and future desktop integration are documented in [the shared simulation library guide](docs/shared-simulation-library.md).
+
+The [agent modifiers blueprint](docs/agent-modifiers-blueprint.md) proposes composable movement and decision-making modifiers, including scared and limited-mobility presets, for later implementation.
 
 ## API
 
@@ -193,21 +207,21 @@ Errors have the shape `{"error":{"code":"validation_error","message":"..."}}`. I
 
 The studio uses `POST /api/simulate/live` with a `BuildingScenario` body. Its `application/x-ndjson` response emits `SimulationStreamEvent` objects, one per line: `{type: "frame", frame}` during computation, followed by `{type: "complete", result}` containing the ordinary `SimulationResult` and recording. Errors after streaming starts use `{type: "error", error: {code, message}}`. New dialogue is streamed as `{type: "chat", communication_events, agent_events}` after its corresponding frame. Frames are paced by their simulated timestamps; disconnecting cancels the worker. Clients can supply an optional `?run_id=<unique ID>` (1–64 letters, digits, hyphens or underscores). During that run, `POST /api/simulate/live/{run_id}/speed` accepts and returns `LiveSpeedControl`: `{speed: 1 | 2 | 4 | 8}`. Speed changes affect wall-clock pacing, preserving physics time steps and simulated metrics; completed or disconnected runs release their controls. The batch `/api/simulate` endpoint remains available to integrations.
 
-From the repository root, with both servers running:
+From the repository root, with both servers running, substitute the printed App URL:
 
 ```sh
-curl http://127.0.0.1:3001/api/health
-curl http://127.0.0.1:5173/api/health
-curl -i http://127.0.0.1:3001/api/simulate \
+app_url='http://127.0.0.1:<app-port>'
+curl "$app_url/api/health"
+curl -i "$app_url/api/simulate" \
   -H 'Content-Type: application/json' \
   --data-binary @shared/examples/building.json
 ```
 
-The first two return the same health JSON; the last returns `200` with computed metrics, animation frames, weighted traffic samples, and per-agent analytics.
+The health check returns the service's health JSON; simulation returns `200` with computed metrics, animation frames, weighted traffic samples, and per-agent analytics.
 
 ## Contracts
 
-`shared/schemas/contracts.schema.json` uses JSON Schema draft 7. Its root validates a building; `$defs` contains every named API contract. Rust types live in `backend/src/models/`; matching TypeScript interfaces live in `frontend/src/types/simulation.ts`. Shared fixture tests exercise the same JSON on both sides. Keep all three contract representations in sync.
+`shared/schemas/contracts.schema.json` uses JSON Schema draft 7. Its root validates a building; `$defs` contains every named API contract. Rust types live in `crates/exitzero-core/src/models/`; matching TypeScript interfaces live in `frontend/src/types/simulation.ts`. Shared fixture tests exercise the same JSON on both sides. Keep all three contract representations in sync.
 
 - Geometry uses finite, continuous metre coordinates: origin at the top left, x right, y down. Workspace extents are in `(0, 1000]` metres. There is no navigation grid or cell snapping. Element IDs are globally unique, nonblank strings of at most 64 characters.
 - Walls have `id`, `start: {x, y}`, `end: {x, y}`, and `thickness`. They can run at any angle, must be at least 0.1 m long, and have thickness in `(0, 2]` m. Endpoints lie within the workspace; the visible wall stroke extends half its thickness on each side of the centreline.
@@ -218,7 +232,9 @@ The first two return the same health JSON; the last returns `200` with computed 
 - `seed` is a nonnegative JavaScript-safe integer (at most `9007199254740991`); `max_steps` is 1–100,000. `time_step_seconds` is in `(0, 1]` and gives simulated time per frame step. Stress tests and optimization accept budgets of 1–100 scenarios/candidates. Limits are 500 walls, 1,000 doors, 1,000 exits, 100 spawn zones, and 100 obstructions.
 - JSON Schema validates shapes and numeric ranges, including draft layouts with no exits or occupants. The editor also checks geometric relationships. Rust computation validation requires at least one exit and one spawn zone and checks bounds, references, opening overlap, spawn areas, and obstruction geometry. The schema alone is insufficient for running a layout.
 - `evacuated + remaining = total_population`; `trapped` is a subset of `remaining`. `completed` requires zero remaining and non-null `clearance_steps`. `incomplete` and `timeout` require positive remaining and null clearance. Never interpret missing clearance as zero.
-- Frames contain `step` and `agents: [{id, x, y}]`, with continuous agent positions. Steps strictly increase and agent IDs are unique per frame. Playback can interpolate positions between frames using `time_step_seconds`. `traffic_samples: [{x, y, visits}]` is a sparse collection of weighted world positions representing accumulated traffic, not instantaneous density; analytics can render these as a smooth heatmap. Result dimensions are metre extents.
+- Frames contain `step` and `agents: [{id, x, y}]`, with continuous agent positions. Steps strictly increase and agent IDs are unique per frame. Playback can interpolate positions between frames using `time_step_seconds`. Result dimensions are metre extents. `traffic_samples: [{x, y, visits}]` retains legacy accumulated traffic counts.
+- Congestion heatmaps use optional `congestion_samples: [{x, y, crowd_delay_seconds}]`. Rust integrates every physics tick: an active occupant and at least one visible active neighbor within `max(1 metre, 4 * agent_radius)` must each lose at least 20% of walking speed before their actual `tick_seconds * clamp(1 - accepted_speed / walking_speed, 0, 1)` deficits contribute. Contributions sum across people and time, in crowd-delay person-seconds: larger simultaneous backlogs and longer waits add more heat. A lone stalled occupant beside freely moving traffic produces none. Analytics, live viewing, playback, and export display accumulated crowd delay on a fixed scale from 0 to 20 crowd-delay person-seconds (red at 20 or more), without rescaling to each recording’s peak or dividing by the run duration. Two stopped occupants waiting ten seconds contribute twenty person-seconds; two occupants moving at half walking speed over the same interval contribute ten. Larger queues and longer waits add more heat, and subsequent quiet time preserves recorded delay. Playback uses only the samples through the displayed recorded frame; pauses, playback speed, and seeking never add delay. This color reference is an illustrative display choice, not a safety threshold. Smoothing does not change raw totals; initial acceleration, injury, and other factors can still cause coincident slowdown, so this is an exploratory delay indicator rather than validated density or a measured cause of delay. Earlier recordings retain their original recorded measurements.
+- A result's congestion samples cover the whole run. Each saved/live frame carries only increments since the previous frame in its own stream, starting empty at step zero. Playback and exports accumulate those increments, including the intervals between sampled frames. Live viewing accumulates every delivered increment before UI rendering. Older recordings without this field show congestion as unavailable; visits are never substituted for delay.
 - Stress results contain baseline metrics and scenario IDs, descriptions, additional blocker modifications, metrics, rank, and severity. Rank 1 is worst; ties may share a rank. Compare remaining occupants first, trapped occupants second, then clearance steps (null sorts worse than measured clearance). The shared `compare_severity` helper encodes that order. Severity labels are exploratory heuristics; incomplete runs remain distinct from measured full clearances.
 
 ## Halloween — The Pursuit
@@ -241,6 +257,7 @@ The example is a 30×20 m workspace with angled and straight walls, two exits, t
 - Choose **Walls → Straight wall** and drag at any angle. Rectangle and ellipse perimeters are alongside it; freehand is under **Advanced**. Configure independent endpoint and grid snapping in **View**.
 - Choose **Openings → Door** or **Window** and click near a wall. A door with an enclosed room on one side and exterior space on the other automatically becomes an exit. Close the wall perimeter first; the workspace edge does not define the exterior. Interior doors remain doors, and wall/opening edits refresh classifications while preserving IDs and blocked states. Adjust width and offset in Properties.
 - Under **People**, choose **Draw Polygon** and click corners, then click the first corner or press Enter to finish. Escape cancels. **Draw Zone** draws rectangles; **Fill Room** creates one polygon matching the room boundary, with holes for enclosed inner rooms. **Place occupant** sets an exact position. Select a region to edit its count, move it, or scale its bounds. Furniture and walls remain excluded by Rust placement checks.
+- Editing, deleting, or adding walls that affect an automatic room fill removes that fill. Use **Fill Room** again for the updated room, or Undo to restore the original walls and fill together. Manual spawn zones and unaffected room fills remain in place.
 - **Objects** contains rectangular blockers and furniture styles. All furniture, including chairs, blocks its full rectangle; symbol styles last this session.
 - **Insert → Stair area** draws a walkable single-floor marker. **Tornado shelter zone** is available there when the selected scenario is Tornado; existing zones remain editable in other modes.
 - **View** groups grid visibility/spacing, snapping, measurement labels, drawing-area size, and fullscreen.
@@ -249,7 +266,7 @@ The example is a 30×20 m workspace with angled and straight walls, two exits, t
 - **Undo/Redo** restores up to 50 edits. Canvas keyboard shortcuts: Delete/Backspace removes the selection, Escape cancels a gesture/selection, and Ctrl/Cmd+Z undoes (Shift redoes).
 - **File → New Layout** creates an empty draft. File also provides named browser saves, saved layouts, template saving, JSON import/export, and DXF import. **Load example building** remains on the welcome screen. JSON imports must be under 2 MB; export keeps a portable backup. Draft layouts can be saved before exits and occupants are added.
 
-API requests use the current edited layout. Computation buttons remain disabled until it has exits, occupants, and valid geometry. Run Simulation records actual movement; Analytics shows its metrics and a world-coordinate heatmap weighted by accumulated visits. Stress Test compares independently modified layouts against its own baseline.
+API requests use the current edited layout. Computation buttons remain disabled until it has exits, occupants, and valid geometry. Run Simulation records actual movement; Analytics shows its metrics and a world-coordinate heatmap of accumulated crowd delay. Stress Test compares independently modified layouts against its own baseline.
 
 Optimize evaluates a bounded set of valid door/exit widenings. Compare the ranked metrics and preview candidate geometry before applying a layout. Applying clears previous simulation/stress results; Run Simulation then measures the applied layout. The comparison retains the original optimization baseline. An empty candidate list means no strict improvement was found within the budget.
 
@@ -258,11 +275,10 @@ Optimize evaluates a bounded set of valid door/exit widenings. Compare the ranke
 ## Verify
 
 ```sh
-cd backend
-cargo fmt --check
-cargo clippy --locked --all-targets -- -D warnings
-cargo test --locked
-cargo build --locked
+cargo fmt --all --check
+cargo clippy --workspace --locked --all-targets -- -D warnings
+cargo test --workspace --locked
+cargo build --release --locked -p exitzero --bin exitzero
 ```
 
 In `frontend/`:
@@ -271,7 +287,9 @@ In `frontend/`:
 npm run verify
 ```
 
-This checks formatting, ESLint, mocked API/schema tests, strict TypeScript, and the production build. `npm run typecheck`, `npm test`, and `npm run lint` also run separately. Format changes with `cargo fmt` and `npm run format`. Commit `Cargo.lock` and `package-lock.json` for reproducible installs. Build outputs and installed dependencies are ignored.
+With Rust installed and the frontend built, `npm run test:startup` also checks automatic ports, simultaneous instances, API/streaming proxies, preview, and process cleanup.
+
+This checks formatting, ESLint, mocked API/schema tests, strict TypeScript, and the production build. `npm run typecheck`, `npm test`, and `npm run lint` also run separately. Format changes with `cargo fmt --all` and `npm run format`. Commit the root `Cargo.lock` and frontend `package-lock.json` for reproducible installs. Build outputs and installed dependencies are ignored. Rust verification must include `--workspace` so that core unit tests run alongside the web host's integration tests; `cargo test --locked -p exitzero-core` can also test the core directly without a server.
 
 ## Simulation analytics handoff
 
@@ -281,6 +299,9 @@ Real simulation responses include optional `analytics` (older saved results and 
 - `evacuation_step`, `evacuation_seconds`, and successful `exit_id` are null for occupants that did not evacuate. `elapsed_seconds` stops at evacuation or at the end of the run. Simulated seconds use `step * time_step_seconds`, not server runtime.
 - `waiting_steps` counts ticks where collision checks rejected the proposed movement; `waiting_seconds` converts those ticks to seconds. Waiting can be caused by another agent or static geometry. An occupant with no route does not accumulate collision waiting. `route_found` reflects the most recent route search using that agent's opening knowledge; false describes failure of the sampled navigation graph, not proof of entrapment.
 - `median_evacuation_seconds` summarizes **evacuated occupants only**, including on incomplete runs; it is null if nobody evacuated. Display it alongside evacuated/remaining counts. `simulated_seconds`, `total_distance_metres`, and `total_waiting_seconds` provide run totals. These counters are not inferred from animation frames or traffic samples.
+- Optional `analytics.window_decisions` records each actual window commitment: agent/window IDs, step, the estimated remaining window time (including existing reservations and service), the estimated normal-exit time, and `estimated_faster` or `no_known_safe_exit`. A null exit estimate means no usable safe exit estimate was found in the current plan. These are personal estimates at choice time, not measured outcomes. Recording retains up to 20,000 choices and sets `truncated` if later choices were omitted; older recordings can omit the field.
+
+**Why people gathered at windows** shows up to six largest recorded window queues, including queues near spawn positions that ordinary crowding filters would miss. It explains faster-window preferences separately from the absence of a usable exit plan, identifies preparation or serial traversal, and offers exit-access, sightline, furniture, and holding-area experiments. The same explanations appear on relevant peak-crowding snapshots. Association uses recorded queue/approach membership, never proximity to a window. Mixed areas identify window users sharing space with other occupants. Comparisons come from the latest recorded choice at or before the snapshot; missing or truncated comparisons remain unknown. Peak crowding still ranks occupant counts, with confirmed queues preferred for equal counts, and includes confirmed window queues after warmup even if they moved less than 2 m. Queue snapshots and accumulated heatmap delay remain distinct measures.
 
 The analytics team can use these fields for distance/wait distributions and evacuation-time charts without changing simulation logic. Stress-test responses currently retain their existing aggregate metric contract; adding per-scenario analytics requires coordination with that workstream.
 
@@ -309,16 +330,40 @@ height. Explicit context settings override these defaults. The inspector's initi
 are editable modeling examples, **not validated safety estimates**. Glazing is
 opaque; ordinary/disabled windows remain solid.
 
-Agents try fallback windows when every normal exit is physically blocked, or
-when their own learned layout and danger reports yield no normal route avoiding
-fire/gas. A gas barrier can trigger fallback while the exit itself stays open.
-Each occupant first searches for a normal detour; people with a clear exit route
-continue using it while cut-off groups try eligible windows. Failed sampled
-navigation justifies trying another escape option, not classifying people as
-trapped. Window approach routing also avoids hazard footprints, allowing someone
-already exposed to move outward. In this fallback phase, the model still uses
-global window locations and actual geometry; it does not model individual window
-discovery, hesitation, climbing ability differences or multiple floors.
+Agents know exterior wall outlines and exit locations initially. Interior walls,
+doors, obstructions, hazards, and windows must be discovered. They compare expected exit travel time with the
+approach and service time of discovered usable windows. Seeing any visible part of a window reveals it; nearby people can share that discovery one hop per tick under
+the ordinary communication rules. Unseen windows never become escape targets.
+Window approach paths use the same learned obstacle map as normal navigation;
+physical collision checks still enforce unseen objects.
+
+Expected travel follows the remaining personal graph route, including known
+turns and hazards. Occluded route segments carry a spatially varying detour estimate
+seeded by scenario and occupant, rather than assuming straight-line travel.
+These estimates do not read hidden geometry or invent actual movement. The same
+seed reproduces decisions; discovering a blockage changes the personal graph.
+
+In ground-floor escape scenarios (including the default assumptions), occupants may search for unknown
+windows if a viewing detour plus an uncertain preparation/traversal allowance
+appears at least 15% quicker than their current exit plan. Search goals come
+from occluded interior corners and tentative floor inside the enclosing wall
+outline, never hidden window coordinates or counts. Already visible floor and
+blank exterior walls are not search goals. Searches cannot cut across outdoor
+space between concave wings. An open sketch with no enclosed outline does not
+invent a building boundary from the workspace edges. Searching consumes simulated time, is limited to 12 s
+per occupant, and returns to normal navigation if unsuccessful. A material time
+saving is also required to choose a discovered window; queued occupants keep
+some commitment to avoid oscillating. These are illustrative behavior assumptions,
+not calibrated human decision or timing models.
+
+Among discovered usable windows, occupants compare estimated finish times,
+including the approach, remaining preparation, active traversal, and each person
+already queued or assigned and approaching. Earlier assignments reserve expected
+service before their occupants physically arrive, so a nearby busy window can
+lose to a farther free one. Timing accounts for each occupant's injury speed cap.
+These estimates simplify future arrivals and delays; they are not validated queue
+predictions. Failed sampled navigation justifies another escape option, not
+classifying people as trapped.
 
 Exterior side is the sign of `(-dy/L, dx/L)` from the parent wall's start/end.
 The user must identify the exterior; workspace boundaries do not establish it.
@@ -330,9 +375,9 @@ checks the entire crossing against walls, obstructions and hazards. Leave drawin
 space outside exterior walls. Usable width creates a centered aperture with jamb
 clearance; no intact wall can be bypassed.
 
-Agents queue by arrival at the holding lane, then stable ID for ties in a tick.
-Collision-checked staging positions extend inward along the wall normal, reserving
-the service lane for its FIFO head. Tight layouts without staging space can still
+Agents join a holding lane with collision-checked staging positions extending
+inward along the wall normal. Service takes the queued person closest to the
+approach, with stable ID for ties, so a person farther back cannot block the front. Tight layouts without staging space can still
 stall or time out; the engine never moves occupants through barriers to clear a
 queue. Preparation runs once per window:
 intact → opening → open, or intact → breaking → broken. Preparation takes
@@ -340,13 +385,13 @@ intact → opening → open, or intact → breaking → broken. Preparation take
 traverses at a time, for at least `ceil(traversal_seconds / time_step_seconds)` ticks,
 also respecting the walking speed cap, whole-body movement checks and occupant
 collisions. Actual delays can therefore be longer. Service time is not counted
-as collision waiting. A reopened normal exit releases queued/approaching agents;
-an active crossing finishes rather than jumping back. Started preparation is
+as collision waiting. A reopened normal exit releases queued/approaching agents
+when a safe normal route is known again; an active crossing finishes rather than jumping back. Started preparation is
 shared and continues while the run is active.
 
 The prepared aperture is reserved for its authorized traverser. General walking
 and perception retain the opaque wall model at windows, including prepared ones;
-glass transparency and individual discovery are future modeling work. At least
+glass transparency remains future modeling work. At least
 one normal exit remains required by building validation.
 
 Fire or gas closing the last normal exit also activates fallback. Window service

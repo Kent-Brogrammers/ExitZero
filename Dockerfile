@@ -10,15 +10,17 @@ ENV VITE_API_BASE_URL=/api
 RUN npm run build
 
 FROM rust:1.99.1-slim-bookworm AS backend-build
-WORKDIR /build/backend
-COPY backend/Cargo.toml backend/Cargo.lock ./
-COPY backend/src/ ./src/
+WORKDIR /build
+COPY Cargo.toml Cargo.lock ./
+COPY backend/Cargo.toml ./backend/Cargo.toml
+COPY backend/src/ ./backend/src/
+COPY crates/exitzero-core/ ./crates/exitzero-core/
 ENV CARGO_PROFILE_RELEASE_STRIP=symbols
-RUN cargo build --release --locked --bin exitzero
+RUN cargo build --release --locked -p exitzero --bin exitzero
 
 FROM debian:bookworm-slim AS runtime
 WORKDIR /app
-COPY --from=backend-build /build/backend/target/release/exitzero /usr/local/bin/exitzero
+COPY --from=backend-build /build/target/release/exitzero /usr/local/bin/exitzero
 COPY --from=frontend-build /build/frontend/dist/ /app/frontend/
 ENV PORT=10000 \
     EXITZERO_FRONTEND_DIR=/app/frontend \

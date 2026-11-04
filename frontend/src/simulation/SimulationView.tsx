@@ -4,6 +4,7 @@ import { useDisplayUnits } from "../utils/useDisplayUnits";
 import { snapshotFrameIndex, type ReplayTarget } from "./replayTarget";
 import {
   useEffect,
+  useCallback,
   useMemo,
   useRef,
   useState,
@@ -20,7 +21,11 @@ import { createPlaybackRenderer, drawAgents } from "./drawPlayback";
 import { drawLayout } from "../editor/draw";
 import { CanvasScale } from "../editor/CanvasScale";
 import { canvasPalette } from "../styles/canvasPalette";
-import { trafficField, fieldPixels } from "../analytics/trafficField";
+import {
+  trafficField,
+  congestionPixels,
+  CONGESTION_RED_REFERENCE_SECONDS,
+} from "../analytics/trafficField";
 import { createRecordedTrails } from "./recordedTrails";
 import { frameIndexAtTime } from "./playback";
 import { useStudioTheme } from "../styles/appearance";
@@ -39,6 +44,8 @@ import {
 } from "./displayOptions";
 import { RecordingExport } from "./ExportRecording";
 import { PursuitMetrics } from "./PursuitMetrics";
+import { AgentInspector, AgentPicker } from "./AgentInspector";
+import { agentTrail, drawAgentInspection, pickAgent } from "./agentInspection";
 import "./SimulationView.css";
 
 interface SimulationViewProps {
@@ -85,6 +92,32 @@ function Playback({
     result !== null &&
     (result.width !== building.width || result.height !== building.height);
   const recording = mismatch ? null : result;
+  const [selection, setSelection] = useState<{
+    source: SimulationResult | null;
+    id: number | null;
+  }>({ source: null, id: null });
+  const selectedId = selection.source === recording ? selection.id : null;
+  const selectAgent = useCallback(
+    (id: number | null) => setSelection({ source: recording, id }),
+    [recording],
+  );
+  const trail = useMemo(
+    () =>
+      recording && selectedId !== null
+        ? agentTrail(building, recording.frames, selectedId)
+        : [],
+    [building, recording, selectedId],
+  );
+  const agentIds = useMemo(
+    () =>
+      [
+        ...new Set([
+          ...(recording?.frames[0]?.agents.map((agent) => agent.id) ?? []),
+          ...(recording?.analytics?.agents.map((agent) => agent.id) ?? []),
+        ]),
+      ].sort((a, b) => a - b),
+    [recording],
+  );
   const player = useMemo(() => {
     const playback = createPlayback(recording);
     // A real run has already been watched live. Begin its review at the end.
@@ -150,15 +183,6 @@ function Playback({
       recording && displayOptions.showTraffic
         ? createRecordedTrails(recording)
         : null;
-    const finalData =
-      recording && trailSampler
-        ? trailSampler(recording.frames.length - 1)
-        : null;
-    const finalPeak =
-      finalData && recording
-        ? trafficField(finalData, recording.width, recording.height, 0.6).peak
-        : 0;
-    trailSampler?.(0);
     const layer = document.createElement("canvas");
     let lastIndex = -1;
     const redraw = () => {
@@ -168,6 +192,15 @@ function Playback({
       if (!recording || !trailSampler) {
         render(agents, ratio, showAgentNumbers);
         effects(element, building, agents, time, ratio);
+        drawAgentInspection(
+          element,
+          building,
+          agents,
+          selectedId,
+          trail,
+          time / (recording?.time_step_seconds ?? 1),
+          palette,
+        );
         return;
       }
       const index = frameIndexAtTime(
@@ -187,7 +220,13 @@ function Playback({
         const ctx = layer.getContext("2d");
         if (ctx) {
           const pixels = ctx.createImageData(field.columns, field.rows);
-          pixels.data.set(fieldPixels({ ...field, peak: finalPeak }));
+          pixels.data.set(
+            congestionPixels(
+              field,
+              (recording.frames[index]?.step ?? 0) *
+                recording.time_step_seconds,
+            ),
+          );
           ctx.putImageData(pixels, 0, 0);
         }
         lastIndex = index;
@@ -218,6 +257,15 @@ function Playback({
       );
       drawAgents(element, building, agents, ratio, palette, showAgentNumbers);
       effects(element, building, agents, time, ratio);
+      drawAgentInspection(
+        element,
+        building,
+        agents,
+        selectedId,
+        trail,
+        time / recording.time_step_seconds,
+        palette,
+      );
     };
     const unsubscribe = player.subscribeRender(redraw);
     redraw();
@@ -239,6 +287,8 @@ function Playback({
     showAgentNumbers,
     displayOptions,
     active,
+    selectedId,
+    trail,
   ]);
 
   const status = state.playing
@@ -256,6 +306,18 @@ function Playback({
     >
       <div className="playback-stage">
         <div className="canvas-wrap playback-canvas-wrap">
+          {selectedId !== null && (
+            <AgentInspector
+              id={selectedId}
+              building={building}
+              frame={frame}
+              result={recording}
+              onClose={() => {
+                selectAgent(null);
+                canvas.current?.focus({ preventScroll: true });
+              }}
+            />
+          )}
           {showAgentChat && (
             <AgentChat
               building={building}
@@ -271,9 +333,23 @@ function Playback({
             height={800}
             role="img"
             tabIndex={0}
+            title="Click an occupant to inspect their statistics and sampled path"
+            onClick={(event) => {
+              if (!active) return;
+              selectAgent(
+                pickAgent(
+                  event.currentTarget,
+                  building,
+                  sample(player.getTime()),
+                  { x: event.clientX, y: event.clientY },
+                  showAgentNumbers,
+                ),
+              );
+            }}
             aria-keyshortcuts="Space ArrowLeft ArrowRight Home End"
             onKeyDown={(event) => {
               if (!active || !frame) return;
+              if (event.key === "Escape") selectAgent(null);
               if (
                 [" ", "ArrowLeft", "ArrowRight", "Home", "End"].includes(
                   event.key,
@@ -410,6 +486,11 @@ function Playback({
             </div>
           </div>
           <div className="playback-bottomline">
+            <AgentPicker
+              ids={agentIds}
+              selected={selectedId}
+              onSelect={selectAgent}
+            />
             <dl className="playback-readout">
               <div>
                 <dt>Elapsed time</dt>
@@ -573,15 +654,13 @@ function Playback({
                 </section>
                 <section
                   className="simulation-detail-section"
-                  aria-label="Recorded traffic trails"
+                  aria-label="Recorded congestion"
                 >
-                  <h4>Recorded traffic trails</h4>
+                  <h4>Recorded congestion</h4>
                   <p className="note">
-                    Accumulates sampled positions as playback advances. Pause
-                    freezes trails; reset clears them; seeking rebuilds them.
-                    Colors use a fixed scale for this recording. These
-                    observations are not the backend's full accumulated traffic
-                    totals.
+                    {recording.congestion_samples === undefined
+                      ? "Congestion data is unavailable for this recording. Rerun the simulation to measure crowd delay."
+                      : `Accumulates crowd delay through this point in simulated time. Larger queues and longer waits add more heat; freely moving traffic adds none. Colors use the same fixed scale across runs: red means ${CONGESTION_RED_REFERENCE_SECONDS}+ crowd-delay person-seconds in the smoothed area. Pause freezes the map; seeking rebuilds it.`}
                   </p>
                 </section>
               </SimulationDetails>
@@ -746,7 +825,7 @@ export function SimulationView({
                       })
                     }
                   />
-                  Show traffic overlay
+                  Show congestion overlay
                 </label>
                 <label>
                   <input

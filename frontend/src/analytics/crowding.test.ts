@@ -60,4 +60,24 @@ describe("crowding after movement", () => {
     expect(tracker.getSnapshot().map((s) => s.count)).toEqual([3, 1]);
     expect(frameCrowding(frame(2, [20]), 20, 20)[0]!.x).toBe(18);
   });
+  it("prefers a confirmed queue over an equally large earlier approach", () => {
+    const tracker = createCrowdingTracker(20, 20);
+    tracker.add(frame(0, [1, 1.2]));
+    tracker.add(frame(3, [5, 5.2]));
+    tracker.add({
+      ...frame(4, [5, 5.2]),
+      window_states: [
+        {
+          window_id: "pane",
+          state: "breaking",
+          preparation_ready_step: 8,
+          queue_agent_ids: [0, 1],
+          traversing_agent_id: null,
+          traversal_earliest_finish_step: null,
+        },
+      ],
+    });
+    expect(tracker.getSnapshot()[0]!.frame.step).toBe(4);
+    expect(tracker.getSnapshot()[0]!.queuedCount).toBe(2);
+  });
 });

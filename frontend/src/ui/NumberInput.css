@@ -1,0 +1,62 @@
+.number-input {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+  width: 100%;
+}
+.editor-panel .number-field > .number-input {
+  flex: 0 0 110px;
+  width: 110px;
+}
+.number-input > input[type="number"].number-input-field {
+  width: 100%;
+  min-width: 0;
+  padding-inline-end: 32px;
+  appearance: textfield;
+}
+.number-input-field::-webkit-inner-spin-button,
+.number-input-field::-webkit-outer-spin-button {
+  appearance: none;
+  margin: 0;
+}
+.number-input-steppers {
+  position: absolute;
+  inset: 1px 1px 1px auto;
+  display: flex;
+  flex-direction: column;
+  width: 26px;
+  border-left: 1px solid var(--cad-border);
+}
+.number-input .number-input-step {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: var(--cad-muted);
+  background: transparent;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+.number-input .number-input-step + .number-input-step {
+  border-top: 1px solid var(--cad-border);
+}
+.number-input-step::before {
+  content: "+";
+}
+.number-input-step:last-child::before {
+  content: "−";
+}
+.number-input .number-input-step:hover:not(:disabled) {
+  color: var(--cad-text);
+  background: var(--cad-hover);
+}
+.number-input .number-input-step:disabled {
+  opacity: 0.4;
+  cursor: default;
+}

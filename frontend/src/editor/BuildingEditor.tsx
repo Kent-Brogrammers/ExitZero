@@ -52,6 +52,7 @@ import {
   populateRoom,
   resizeRoomPopulation,
   roomFillZones,
+  invalidateRoomFills,
   type Room,
 } from "./roomFill";
 import { WindowProperties } from "./WindowProperties";
@@ -228,6 +229,7 @@ export function BuildingEditor({
   const [selections, setSelections] = useState<Selection[]>([]);
   const selected = selections.at(-1) ?? null;
   const [propertiesOpen, setPropertiesOpen] = useState(false);
+  const [hazardSettingsOpen, setHazardSettingsOpen] = useState(false);
   const [spawnPolygon, setSpawnPolygon] = useState<Point[]>([]);
   const [polygonHover, setPolygonHover] = useState<Point | null>(null);
   const [gesture, setGesture] = useState<Gesture | null>(null);
@@ -351,6 +353,7 @@ export function BuildingEditor({
     next: BuildingScenario,
     mergeOpenings = false,
     afterSelection?: Selection[],
+    invalidateRooms = true,
   ) {
     const edit = mergeOpenings
       ? mergeEditedOpenings(
@@ -366,6 +369,9 @@ export function BuildingEditor({
       return false;
     }
     if (edit) next = edit.building;
+    const beforeInvalidation = next.spawn_zones.length;
+    if (invalidateRooms) next = invalidateRoomFills(building, next);
+    const removedRoomFills = beforeInvalidation - next.spawn_zones.length;
     const geometryChanged = openingGeometryChanged(building, next);
     if (geometryChanged) next = classifyDoors(next);
     const problem = buildingError(next, false);
@@ -377,11 +383,18 @@ export function BuildingEditor({
     setRedo([]);
     setError("");
     setNotice(
-      edit?.replacements.size
-        ? "Openings merged · Undo restores the originals."
-        : "",
+      removedRoomFills
+        ? "Room fill removed after wall changes · Fill the updated room again. Undo restores it."
+        : edit?.replacements.size
+          ? "Openings merged · Undo restores the originals."
+          : "",
     );
-    if (afterSelection || edit?.replacements.size || geometryChanged) {
+    if (
+      afterSelection ||
+      edit?.replacements.size ||
+      geometryChanged ||
+      removedRoomFills
+    ) {
       const mapped = (afterSelection ?? selections).map((item) =>
         item.kind === "doors" || item.kind === "exits"
           ? { ...item, id: edit?.replacements.get(item.id) ?? item.id }
@@ -399,6 +412,11 @@ export function BuildingEditor({
                 }
               : item,
           )
+          .filter(
+            (item) =>
+              item.kind !== "spawn_zones" ||
+              next.spawn_zones.some((zone) => zone.id === item.id),
+          )
           .filter((v, i, all) => all.findIndex((m) => m.id === v.id) === i),
       );
     }
@@ -408,7 +426,7 @@ export function BuildingEditor({
   useImperativeHandle(editorRef, () => ({
     applyBuilding(next) {
       setGesture(null);
-      const applied = commit(next, false, []);
+      const applied = commit(next, false, [], false);
       if (applied) setPreviousView(null);
       return applied;
     },
@@ -1150,11 +1168,13 @@ export function BuildingEditor({
       return;
     }
     if (tool === "hazard" && building.disaster) {
-      commit({
+      const placed = commit({
         ...extendForPoints(building, point),
         disaster: { ...building.disaster, center: point },
       });
-      setNotice("Hazard location updated. Agents discover it during the run.");
+      if (!placed) return;
+      changeTool("select");
+      setNotice("Hazard placed · Double-click it to edit parameters.");
       return;
     }
     if (tool === "wall-freehand") {
@@ -1786,6 +1806,8 @@ export function BuildingEditor({
               scenarioControls={
                 <DisasterControls
                   building={building}
+                  editHazard={hazardSettingsOpen && !disabled}
+                  onEditClose={() => setHazardSettingsOpen(false)}
                   onChange={(next) => {
                     const applied = commit(next);
                     if (
@@ -2021,6 +2043,7 @@ export function BuildingEditor({
                 onContextMenu={(event) => event.preventDefault()}
                 onDoubleClick={(event) => {
                   if (
+                    disabled ||
                     panMode ||
                     spaceDown ||
                     event.shiftKey ||
@@ -2028,7 +2051,18 @@ export function BuildingEditor({
                     event.metaKey
                   )
                     return;
-                  const target = hit(world(event));
+                  const point = world(event);
+                  if (
+                    building.disaster &&
+                    (tool === "select" || tool === "hazard") &&
+                    distance(point, building.disaster.center) <=
+                      Math.max(tolerance(), building.disaster.radius)
+                  ) {
+                    setHazardSettingsOpen(true);
+                    setError("");
+                    return;
+                  }
+                  const target = hit(point);
                   if (target && tool !== "wall-freehand") {
                     if (!selections.some((s) => s.id === target.id))
                       selectElement(target);
@@ -2427,7 +2461,8 @@ export function BuildingEditor({
                     />
                     <p className="note">
                       When full, people head to another available shelter. If no
-                      shelter has room, they remain unsheltered.
+                      shelter has room, the run stops with the remaining people
+                      unsheltered.
                     </p>
                   </>
                 )}

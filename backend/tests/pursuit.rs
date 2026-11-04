@@ -13,13 +13,14 @@ fn house() -> BuildingScenario {
 #[test]
 fn real_recording_contains_first_sighting_grouped_warning_and_later_relay() {
     let mut b: BuildingScenario = serde_json::from_value(serde_json::json!({
-        "width":8,"height":6,"walls":[{"id":"east","start":{"x":8,"y":0},"end":{"x":8,"y":6},"thickness":0.1}],
+        "width":8,"height":6,"walls":[{"id":"east","start":{"x":8,"y":0},"end":{"x":8,"y":6},"thickness":0.1},
+            {"id":"screen","start":{"x":2,"y":0},"end":{"x":2,"y":2.6},"thickness":0.1}],
         "doors":[],"exits":[{"id":"out","wall_id":"east","offset":0.4,"width":4}],
         "spawn_zones":[],"obstructions":[],"blocked_exit_ids":[],"seed":31,"agent_radius":0.2,"time_step_seconds":0.1,"max_steps":30,
         "awareness":{"sight_range_metres":1.1,"communication_range_metres":2.25},
         "pursuit":{"stalker_start":{"x":0.1,"y":1},"stalker_speed":0.1,"survivor_speed":1.3,"capture_radius":0.45,"avoidance_radius":2}
     })).unwrap();
-    for (i, (x, y)) in [(1.0, 1.0), (2.8, 1.0), (3.0, 1.8), (5.0, 1.0)]
+    for (i, (x, y)) in [(1.0, 3.0), (3.0, 3.0), (3.1, 3.5), (5.1, 3.0)]
         .into_iter()
         .enumerate()
     {

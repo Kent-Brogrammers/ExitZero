@@ -9,6 +9,7 @@ import {
   resizeRoomPopulation,
   roomContains,
   roomFillZones,
+  invalidateRoomFills,
 } from "./roomFill";
 
 function perimeter(points: Point[], prefix = "wall"): Wall[] {
@@ -52,6 +53,50 @@ function fixture(): BuildingScenario {
 }
 
 describe("room fill as a single spawn polygon", () => {
+  it("removes only affected room fills on boundary edits, cuts, or deletion, preserving manual spawns", () => {
+    const original = fixture();
+    const filled = populateRoom(
+      original,
+      detectRoom(original, { x: 2, y: 2 }),
+      3,
+      "left",
+    ).building;
+    const both = populateRoom(
+      filled,
+      detectRoom(filled, { x: 9, y: 2 }),
+      3,
+      "right",
+    ).building;
+    const manual = { id: "manual", x: 2, y: 7, width: 1, height: 1, count: 1 };
+    const before = { ...both, spawn_zones: [...both.spawn_zones, manual] };
+    for (const mode of ["move", "delete", "thickness", "cut"] as const) {
+      const next = structuredClone(before);
+      const leftWall = next.walls.find((w) => w.id === "wall-3")!;
+      if (mode === "move") leftWall.start.x += 0.2;
+      if (mode === "delete")
+        next.walls = next.walls.filter((w) => w.id !== leftWall.id);
+      if (mode === "thickness") leftWall.thickness += 0.1;
+      if (mode === "cut")
+        next.walls.push({
+          id: "cut",
+          start: { x: 3, y: 1 },
+          end: { x: 3, y: 11 },
+          thickness: 0.2,
+        });
+      const changed = invalidateRoomFills(before, next);
+      expect(
+        changed.spawn_zones.map((z) => z.id),
+        mode,
+      ).toEqual(["roomfill_right_0", "manual"]);
+    }
+    const renamed = structuredClone(before);
+    renamed.walls[0]!.name = "New name";
+    expect(invalidateRoomFills(before, renamed)).toBe(renamed);
+    const divided = structuredClone(before);
+    divided.walls.find((w) => w.id === "divider")!.start.x += 0.2;
+    expect(invalidateRoomFills(before, divided).spawn_zones).toEqual([manual]);
+    expect(before.spawn_zones).toHaveLength(3);
+  });
   it("fills only the selected hand-drawn room when a divider touches the wall footprint", () => {
     const b = fixture();
     b.walls.find((wall) => wall.id === "divider")!.start.y += 0.03;

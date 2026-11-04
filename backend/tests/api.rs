@@ -145,21 +145,22 @@ fn building() -> Value {
 
 #[tokio::test]
 async fn recorded_chat_reaches_api_as_actual_discovery_grouped_share_and_later_relay() {
-    // Tiny spawn areas make the sight/range relationships deterministic. This
+    // Tiny spawn areas and a real screen isolate witnesses and relays. This
     // tests the real simulator and HTTP serialization, not a message fixture.
     let mut scenario = json!({
         "width":20,"height":12,
-        "walls":[{"id":"north","start":{"x":0,"y":0},"end":{"x":20,"y":0},"thickness":0.2}],
+        "walls":[{"id":"north","start":{"x":0,"y":0},"end":{"x":20,"y":0},"thickness":0.2},
+            {"id":"screen","start":{"x":3.2,"y":0},"end":{"x":3.2,"y":2.8},"thickness":0.1}],
         "doors":[],
         "exits":[
             {"id":"left","wall_id":"north","offset":1,"width":2},
             {"id":"right","wall_id":"north","offset":17,"width":2}
         ],
         "spawn_zones":[
-            {"id":"a","x":1.9,"y":0.9,"width":0.2,"height":0.2,"count":1},
-            {"id":"b","x":1.9,"y":2.9,"width":0.2,"height":0.2,"count":1},
-            {"id":"c","x":2.9,"y":2.4,"width":0.2,"height":0.2,"count":1},
-            {"id":"d","x":1.9,"y":4.9,"width":0.2,"height":0.2,"count":1}
+            {"id":"a","x":1.9,"y":2.9,"width":0.2,"height":0.2,"count":1},
+            {"id":"b","x":3.9,"y":2.9,"width":0.2,"height":0.2,"count":1},
+            {"id":"c","x":3.9,"y":3.4,"width":0.2,"height":0.2,"count":1},
+            {"id":"d","x":5.9,"y":2.9,"width":0.2,"height":0.2,"count":1}
         ],
         "blocked_exit_ids":["left"],"obstructions":[],"agent_radius":0.1,
         "time_step_seconds":0.1,"seed":42,"max_steps":500,
@@ -311,8 +312,15 @@ async fn malformed_json_and_missing_content_type_have_structured_errors() {
 }
 
 #[tokio::test]
-async fn cors_allows_both_documented_vite_origins() {
-    for origin in ["http://localhost:5173", "http://127.0.0.1:5173"] {
+async fn cors_allows_loopback_origins_on_any_valid_port() {
+    for origin in [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:43521",
+        "http://127.0.0.1:60817",
+        "http://[::1]:60123",
+        "http://localhost",
+    ] {
         let request = Request::builder()
             .method("OPTIONS")
             .uri("/api/simulate")
@@ -324,6 +332,41 @@ async fn cors_allows_both_documented_vite_origins() {
         let response = router().oneshot(request).await.unwrap();
         assert!(response.status().is_success());
         assert_eq!(response.headers()["access-control-allow-origin"], origin);
+    }
+}
+
+#[tokio::test]
+async fn cors_does_not_allow_remote_or_malformed_origins() {
+    for origin in [
+        "http://example.com:5173",
+        "http://localhost.evil.example:43521",
+        "http://127.0.0.1.evil.example:43521",
+        "http://localhost:0",
+        "http://localhost:65536",
+        "http://localhost:not-a-port",
+        "http://localhost:1234/path",
+        "http://localhost:1234?query",
+        "null",
+    ] {
+        let response = router()
+            .oneshot(
+                Request::builder()
+                    .method("OPTIONS")
+                    .uri("/api/simulate")
+                    .header("origin", origin)
+                    .header("access-control-request-method", "POST")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .is_none(),
+            "{origin}"
+        );
     }
 }
 
