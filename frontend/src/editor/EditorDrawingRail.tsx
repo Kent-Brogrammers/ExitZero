@@ -11,6 +11,8 @@ interface EditorDrawingRailProps {
   onTool: (tool: EditorTool) => void;
   onOpenPanel: () => void;
   historyControls?: ReactNode;
+  onOccupantLayout?: () => void;
+  canPopulateObject?: boolean;
 }
 const content = (icon: string, label: string) => (
   <>
@@ -25,6 +27,8 @@ export function EditorDrawingRail({
   onTool,
   onOpenPanel,
   historyControls,
+  onOccupantLayout,
+  canPopulateObject,
 }: EditorDrawingRailProps) {
   const choice = (
     value: EditorTool,
@@ -186,6 +190,27 @@ export function EditorDrawingRail({
               "Click an exact starting position",
               "spawn",
               close,
+            )}
+            {onOccupantLayout && (
+              <button
+                type="button"
+                className="shape-choice"
+                disabled={!canPopulateObject}
+                onClick={() => {
+                  close();
+                  onOccupantLayout();
+                }}
+              >
+                <ToolIcon name="spawn" />
+                <span>
+                  Around selected object…
+                  <small>
+                    {canPopulateObject
+                      ? "Preview people around a table or desk"
+                      : "Select one rectangular object, table or desk first"}
+                  </small>
+                </span>
+              </button>
             )}
           </>
         )}
