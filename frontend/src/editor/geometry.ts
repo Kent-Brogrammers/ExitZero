@@ -119,6 +119,46 @@ function intersects(wall: Wall, rectangle: Rectangle) {
 
 export { intersects as wallIntersectsRectangle, overlaps as rectanglesOverlap };
 
+/** Shared editor placement clearance; actual movement remains the Rust engine's job. */
+export function occupantWallSegments(building: BuildingScenario): Wall[] {
+  return building.walls.flatMap((wall) =>
+    solidWallSegments(building, wall).map(([start, end]) => ({
+      ...wall,
+      start,
+      end,
+    })),
+  );
+}
+
+export function occupantGeometryError(
+  building: BuildingScenario,
+  person: Point,
+  segments = occupantWallSegments(building),
+): string | null {
+  const radius = building.agent_radius;
+  if (
+    person.x < radius ||
+    person.y < radius ||
+    person.x > building.width - radius ||
+    person.y > building.height - radius
+  )
+    return "Placed occupants need their full body inside the workspace.";
+  if (
+    segments.some(
+      (wall) => project(person, wall).distance < radius + wall.thickness / 2,
+    ) ||
+    building.obstructions.some(
+      (object) =>
+        Math.hypot(
+          person.x - clamp(person.x, object.x, object.x + object.width),
+          person.y - clamp(person.y, object.y, object.y + object.height),
+        ) < radius,
+    )
+  )
+    return "Placed occupants need clearance from walls, closed openings, windows and objects.";
+  return null;
+}
+
 /** Drafts may omit exits and occupants; simulation requests must be ready. */
 export function buildingError(
   value: unknown,
@@ -304,37 +344,10 @@ export function buildingError(
   }
   const bodies = new Map<string, Point[]>();
   const diameter = b.agent_radius * 2;
-  const segments = b.placed_occupants?.length
-    ? b.walls.flatMap((wall) =>
-        solidWallSegments(b, wall).map(([start, end]) => ({
-          ...wall,
-          start,
-          end,
-        })),
-      )
-    : [];
+  const segments = b.placed_occupants?.length ? occupantWallSegments(b) : [];
   for (const person of b.placed_occupants ?? []) {
-    if (
-      person.x < b.agent_radius ||
-      person.y < b.agent_radius ||
-      person.x > b.width - b.agent_radius ||
-      person.y > b.height - b.agent_radius
-    )
-      return "Placed occupants need their full body inside the workspace.";
-    if (
-      segments.some(
-        (wall) =>
-          project(person, wall).distance < b.agent_radius + wall.thickness / 2,
-      ) ||
-      b.obstructions.some(
-        (object) =>
-          Math.hypot(
-            person.x - clamp(person.x, object.x, object.x + object.width),
-            person.y - clamp(person.y, object.y, object.y + object.height),
-          ) < b.agent_radius,
-      )
-    )
-      return "Placed occupants need clearance from walls, closed openings, windows and objects.";
+    const geometryProblem = occupantGeometryError(b, person, segments);
+    if (geometryProblem) return geometryProblem;
     const x = Math.floor(person.x / diameter),
       y = Math.floor(person.y / diameter);
     for (let dx = -1; dx <= 1; dx++)

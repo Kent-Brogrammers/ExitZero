@@ -59,6 +59,32 @@ function canvasFixture(width: number, height = (width * 2) / 3) {
 }
 
 describe("freeform Canvas drawing", () => {
+  it("hides occupant names in label-free placement previews while retaining selection outlines", () => {
+    const { context, element } = canvasFixture(600);
+    const building = {
+      ...example,
+      placed_occupants: [
+        { id: "person", name: "Meeting attendee", x: 5, y: 5 },
+      ],
+    };
+    const selection = { kind: "placed_occupants" as const, id: "person" };
+    drawLayout(element, building, selection, undefined, 1, undefined, {
+      showLabels: false,
+    });
+    expect(
+      context.fillText.mock.calls.some(([text]) => text === "Meeting attendee"),
+    ).toBe(false);
+    expect(
+      context.arc.mock.calls.some(
+        ([x, y, radius]) =>
+          x === 5 && y === 5 && radius > building.agent_radius,
+      ),
+    ).toBe(true);
+    drawLayout(element, building, selection);
+    expect(
+      context.fillText.mock.calls.some(([text]) => text === "Meeting attendee"),
+    ).toBe(true);
+  });
   it("reveals small labels on selection/hover without changing geometry or overriding measurement switches", () => {
     const building = {
       ...example,
