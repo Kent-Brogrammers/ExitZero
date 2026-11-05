@@ -33,8 +33,11 @@ Open the printed **App** URL. Settings should show **Backend online**. To previe
 Agents that make no meaningful progress for two simulated seconds actively
 replan and try other known exits, bypassing the normal congestion commitment.
 The run does not stop for inactivity while an exit route, local escape path, or
-window approach remains available; `max_steps` still bounds every run. Once no
-such option remains, 15 seconds without meaningful movement (at least 0.1 m) or
+window approach remains available. Pending reaction timers and Curious discovery
+also keep the run active; `max_steps` still bounds every run. Modified runs scale
+progress thresholds to the occupant's effective speed so slow movement is not
+mistaken for inactivity. Once no such option remains, 15 seconds without
+meaningful movement (normally at least 0.1 m) or
 successful arrival ends the incomplete run as `movement_stagnation`, with the
 occupants still inside counted as `remaining` and no full-clearance time.
 
@@ -101,6 +104,61 @@ EXITZERO_BACKEND_URL='http://127.0.0.1:<backend-port>' npm run dev
 ```
 
 `EXITZERO_BACKEND_URL` is a launcher/proxy setting and does not enter the browser bundle. The frontend uses relative `/api` URLs by default. For a deliberately separate public API, set `VITE_API_BASE_URL` when running dev or building; Vite embeds that override into the bundle. Direct backend CORS allows HTTP loopback origins (`localhost`, `127.0.0.1`, and `[::1]`) on any valid port. Production hosting continues to honor its supplied `PORT` and serve the frontend and API together.
+
+## Agent personalities and walking speed
+
+Open **Edit → Agent personalities…** to choose which personalities can appear
+in the next evacuation. All six presets are allowed by default. Set
+**Occupants with a personality (%)** to control their frequency: the default
+is a **30% chance per occupant**, with everyone else neutral. Small populations
+may differ from exactly 30%. Selected occupants receive one allowed personality
+with equal chance. **Allow all** and **Clear all** change the allow list;
+clearing it makes everyone neutral. Click **Save changes** to apply the settings
+to future runs; individual occupants and spawn zones need no manual setup.
+
+| Personality      | Default behavior                                                                                                                                          |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Older            | Slower walking speed and acceleration.                                                                                                                    |
+| Scared           | Waits four seconds before moving, walks slowly, and more strongly avoids known hazards.                                                                   |
+| Aggressive       | Walks faster and gives other moving occupants more responsibility for yielding. Body separation and obstacle checks still apply.                          |
+| Calm             | Prefers less crowded routes and more strongly avoids known hazards.                                                                                       |
+| Limited mobility | Reduced walking speed and acceleration, independent of acquired hazard injury.                                                                            |
+| Curious          | Explores until personally seeing the emergency, then evacuates. Reports alone do not satisfy curiosity. With no emergency configured, evacuates normally. |
+
+Curious agents discover danger through their own sight rather than receiving
+its hidden location. They may remain until the step limit when vision is disabled
+or no useful exploration route is available. They still accumulate exposure,
+respect collisions, and cannot use a window to bypass the discovery requirement.
+An exit closure alone does not activate curiosity.
+
+**Walking speed variation (%)** adds a fixed, seeded difference to each person's
+walking pace; new evacuation layouts normally use **±5%**. The base pace is
+1.3 m/s, scaled by the personality, individual variation, and any acquired injury.
+Crowding can make actual movement slower. **Adjust effects** exposes the preset's
+numeric movement and routing parameters. Labels are illustrative experiment
+settings, not calibrated demographic or psychological predictions. Pursuit keeps
+its separate survivor movement settings.
+
+Click an occupant in a live run or recording to see their **personality badge**
+and **walking speed**, displayed in the selected units. **Movement details**
+contains variation, acceleration, reaction delay, and routing preferences. Live
+streams send the actual spawn assignments before movement begins; recordings
+retain those same assignments. Old recordings without modifier metadata display
+“Modifier information unavailable” rather than inferring traits from the current
+layout.
+
+The editor saves full modifier definitions in `agent_modifiers`, the allowed IDs
+in `spawn_modifier_ids`, the selection chance in `personality_fraction` (0–1),
+and the fractional speed spread in `agent_speed_variation` (0–0.2). An empty allow
+list disables automatic personalities. Raw API requests that omit the allow list
+retain legacy or explicit occupant/group assignments; automatic and explicit
+assignments cannot be combined. A separate seeded random stream preserves initial
+positions when personality settings change, and equivalent stress-test and
+optimization scenarios reuse the same assignments.
+
+See [the personality guide](docs/personalities.md) for exact preset values and
+[the shared example](shared/examples/agent-modifiers.json) for explicit group
+assignments supported by the JSON contract.
 
 ## Exact occupant placement
 
@@ -205,7 +263,7 @@ All bodies and property names use JSON and snake_case. Computation requests requ
 
 Errors have the shape `{"error":{"code":"validation_error","message":"..."}}`. Invalid scenario semantics and failed occupant placement return `422`; JSON syntax, shape, and content-type errors preserve Axum's relevant `4xx` status with code `invalid_json`. The frontend validates successful response shapes against the shared schemas and exposes `ApiError` with `status`, `code`, and `message`; network errors use status `0`.
 
-The studio uses `POST /api/simulate/live` with a `BuildingScenario` body. Its `application/x-ndjson` response emits `SimulationStreamEvent` objects, one per line: `{type: "frame", frame}` during computation, followed by `{type: "complete", result}` containing the ordinary `SimulationResult` and recording. Errors after streaming starts use `{type: "error", error: {code, message}}`. New dialogue is streamed as `{type: "chat", communication_events, agent_events}` after its corresponding frame. Frames are paced by their simulated timestamps; disconnecting cancels the worker. Clients can supply an optional `?run_id=<unique ID>` (1–64 letters, digits, hyphens or underscores). During that run, `POST /api/simulate/live/{run_id}/speed` accepts and returns `LiveSpeedControl`: `{speed: 1 | 2 | 4 | 8}`. Speed changes affect wall-clock pacing, preserving physics time steps and simulated metrics; completed or disconnected runs release their controls. The batch `/api/simulate` endpoint remains available to integrations.
+The studio uses `POST /api/simulate/live` with a `BuildingScenario` body. Its `application/x-ndjson` response emits `SimulationStreamEvent` objects, one per line: ordinary evacuation streams first send `{type: "initialized", agent_modifiers}` with the actual spawn assignments, then `{type: "frame", frame}` during computation, followed by `{type: "complete", result}` containing the ordinary `SimulationResult` and recording. Errors after streaming starts use `{type: "error", error: {code, message}}`. New dialogue is streamed as `{type: "chat", communication_events, agent_events}` after its corresponding frame. Frames are paced by their simulated timestamps; disconnecting cancels the worker. Clients can supply an optional `?run_id=<unique ID>` (1–64 letters, digits, hyphens or underscores). During that run, `POST /api/simulate/live/{run_id}/speed` accepts and returns `LiveSpeedControl`: `{speed: 1 | 2 | 4 | 8}`. Speed changes affect wall-clock pacing, preserving physics time steps and simulated metrics; completed or disconnected runs release their controls. The batch `/api/simulate` endpoint remains available to integrations.
 
 From the repository root, with both servers running, substitute the printed App URL:
 
@@ -337,11 +395,15 @@ the ordinary communication rules. Unseen windows never become escape targets.
 Window approach paths use the same learned obstacle map as normal navigation;
 physical collision checks still enforce unseen objects.
 
-Expected travel follows the remaining personal graph route, including known
-turns and hazards. Occluded route segments carry a spatially varying detour estimate
-seeded by scenario and occupant, rather than assuming straight-line travel.
-These estimates do not read hidden geometry or invent actual movement. The same
-seed reproduces decisions; discovering a blockage changes the personal graph.
+Expected travel follows the selected personal graph route, including its turns
+and learned detours, divided by the occupant's current walking-speed cap.
+Hazard, congestion, and uncertainty penalties influence route selection; they
+are not counted as extra travel seconds in the exit-versus-window comparison.
+While someone approaches or searches for a window, the simulator refreshes a
+safe normal-exit alternative from their current position every half simulated
+second (rounded up to a physics tick). It does not require them to retrace stale
+exit waypoints from before their window approach. These estimates use personal
+knowledge and do not reveal hidden geometry or invent actual movement.
 
 In ground-floor escape scenarios (including the default assumptions), occupants may search for unknown
 windows if a viewing detour plus an uncertain preparation/traversal allowance
@@ -361,6 +423,10 @@ including the approach, remaining preparation, active traversal, and each person
 already queued or assigned and approaching. Earlier assignments reserve expected
 service before their occupants physically arrive, so a nearby busy window can
 lose to a farther free one. Timing accounts for each occupant's injury speed cap.
+The growing queue can also make a normal exit preferable: occupants stop joining
+an uncompetitive window queue, and existing occupants can leave it when their
+exit alternative becomes materially faster. An active crossing finishes rather
+than jumping back indoors.
 These estimates simplify future arrivals and delays; they are not validated queue
 predictions. Failed sampled navigation justifies another escape option, not
 classifying people as trapped.
