@@ -210,6 +210,12 @@ pub struct SimulationAnalytics {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SimulationResult {
+    #[serde(
+        default,
+        deserialize_with = "super::windows::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub agent_modifiers: Option<super::AgentModifierRecording>,
     /// Whole-run congestion integrated at every physics tick. Legacy recordings
     /// omit this rather than substituting traffic counts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -272,6 +278,43 @@ impl SimulationResult {
 
     pub fn validate(&self) -> Result<(), String> {
         self.metrics.validate()?;
+        if let Some(recording) = &self.agent_modifiers {
+            super::modifiers::validate_definitions(&recording.definitions)?;
+            let known: std::collections::BTreeSet<_> =
+                recording.definitions.iter().map(|m| &m.id).collect();
+            let mut ids = std::collections::BTreeSet::new();
+            if recording.model_version != "static-modifiers-v1"
+                || recording.agents.len() != self.metrics.total_population as usize
+            {
+                return Err("invalid agent modifier recording version or population".into());
+            }
+            for agent in &recording.agents {
+                agent.resolved.validate()?;
+                let references: std::collections::BTreeSet<_> = agent.modifier_ids.iter().collect();
+                let expected_speed =
+                    1.3 * agent.resolved.speed_multiplier * agent.speed_variation_multiplier;
+                let expected_steps = (agent.resolved.reaction_delay_seconds
+                    / self.time_step_seconds)
+                    .ceil()
+                    .min(f64::from(u32::MAX)) as u32;
+                if !ids.insert(agent.id)
+                    || agent.id >= self.metrics.total_population
+                    || agent.source_id.trim().is_empty()
+                    || agent.source_id.chars().count() > 64
+                    || agent.source_ordinal.is_some_and(|n| n >= 10000)
+                    || agent.modifier_ids.len() > 64
+                    || references.len() != agent.modifier_ids.len()
+                    || references.iter().any(|id| !known.contains(id))
+                    || !agent.speed_variation_multiplier.is_finite()
+                    || !(0.8..=1.2).contains(&agent.speed_variation_multiplier)
+                    || !agent.uninjured_speed_metres_per_second.is_finite()
+                    || (agent.uninjured_speed_metres_per_second - expected_speed).abs() > 1e-9
+                    || agent.reaction_steps != expected_steps
+                {
+                    return Err("invalid recorded agent modifier assignment".into());
+                }
+            }
+        }
         if let Some(analytics) = &self.analytics {
             if let Some(counts) = &self.metrics.evacuated_by_route {
                 let window_count = analytics
@@ -581,6 +624,7 @@ impl SimulationResult {
                 let needs_subject = matches!(
                     event.kind,
                     HeadingToExit
+                        | YieldedToAgent
                         | Rerouting
                         | WindowApproach
                         | WindowQueue
@@ -598,6 +642,12 @@ impl SimulationResult {
                         .as_ref()
                         .is_some_and(|id| id.trim().is_empty() || id.chars().count() > 64)
                     || needs_subject && event.subject_id.is_none()
+                    || event.kind == YieldedToAgent
+                        && event
+                            .subject_id
+                            .as_ref()
+                            .and_then(|s| s.parse::<u32>().ok())
+                            .is_none_or(|id| id == event.agent_id || !ids.contains(&id))
                     || matches!(event.kind, HazardDiscovered | HazardSpreading)
                         && event.position.is_none()
                     || event.position.is_some_and(|p| !self.in_bounds(p.x, p.y))

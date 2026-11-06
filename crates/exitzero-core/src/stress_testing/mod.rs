@@ -265,6 +265,11 @@ mod tests {
     fn request() -> StressTestRequest {
         StressTestRequest {
             building: BuildingScenario {
+                personality_fraction: None,
+                spawn_modifier_ids: None,
+                agent_modifiers: vec![],
+                agent_speed_variation: None,
+
                 placed_occupants: vec![],
                 pursuit: None,
                 tornado_zones: vec![],
@@ -301,6 +306,8 @@ mod tests {
                     },
                 ],
                 spawn_zones: vec![SpawnZone {
+                    modifier_groups: None,
+
                     polygon: None,
                     holes: vec![],
                     id: "occupants".into(),
@@ -368,6 +375,8 @@ mod tests {
 
     fn synthetic_run(building: &BuildingScenario, metrics: SimulationMetrics) -> SimulationResult {
         SimulationResult {
+            agent_modifiers: None,
+
             congestion_samples: None,
             termination_reason: None,
             metrics,
@@ -1174,6 +1183,8 @@ pub(crate) mod real_integration {
             thickness: 0.2,
         });
         building.spawn_zones.push(crate::models::SpawnZone {
+            modifier_groups: None,
+
             polygon: None,
             holes: vec![],
             id: "right-occupant".into(),

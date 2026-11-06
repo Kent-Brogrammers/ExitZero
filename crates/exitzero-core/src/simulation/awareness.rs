@@ -375,6 +375,11 @@ fn observe_and_share(
                         math::move_toward(area.center, agent.position, footprint.exposure_radius());
                     if math::distance_to_point(agent.position, surface) <= sight
                         && geometry.has_line_of_sight(agent.position, surface)
+                    {
+                        agent.saw_emergency = true;
+                    }
+                    if math::distance_to_point(agent.position, surface) <= sight
+                        && geometry.has_line_of_sight(agent.position, surface)
                         && agent
                             .known_hazards
                             .get(&area.id)
@@ -428,13 +433,16 @@ fn observe_and_share(
             // The actual world supplies observations; only learned IDs reach
             // this person's planning geometry.
             for (index, emergency) in geometry.emergencies().iter().enumerate() {
-                if agent.known_emergencies.contains(&index) {
+                if agent.known_emergencies.contains(&index)
+                    && (!agent.curious_waiting || agent.saw_emergency)
+                {
                     continue;
                 }
                 let surface = math::move_toward(emergency.center, agent.position, emergency.radius);
                 if math::distance_to_point(agent.position, surface) <= sight
                     && geometry.has_line_of_sight(agent.position, surface)
                 {
+                    agent.saw_emergency = true;
                     informed |= agent.known_emergencies.insert(index);
                 }
             }
@@ -553,13 +561,6 @@ impl<'a> BeliefMaps<'a> {
             max_inactive: 64,
             full_shelters: BTreeSet::new(),
         }
-    }
-
-    pub(super) fn cached_geometry(&self, agent: &Agent) -> Option<&Geometry<'a>> {
-        self.current_keys
-            .get(&agent.id)
-            .and_then(|key| self.maps.get(key.as_ref()))
-            .map(|entry| &entry.geometry)
     }
 
     /// Announce a full shelter without changing anyone's remembered geometry or hazards.

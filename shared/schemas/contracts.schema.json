@@ -176,6 +176,14 @@
           "maxLength": 80,
           "pattern": "[^\\s\\u0085]",
           "description": "Optional user-facing display name. Stable object references continue to use id; names do not affect simulation."
+        },
+        "modifier_groups": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10000,
+          "items": {
+            "$ref": "#/$defs/AgentModifierGroup"
+          }
         }
       }
     },
@@ -197,6 +205,11 @@
         "max_steps"
       ],
       "properties": {
+        "personality_fraction": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
         "width": {
           "type": "number",
           "maximum": 1000,
@@ -316,6 +329,31 @@
           "items": {
             "$ref": "#/$defs/TornadoZone"
           }
+        },
+        "agent_modifiers": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/AgentModifier"
+          }
+        },
+        "agent_speed_variation": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 0.2,
+          "description": "Seeded fractional speed spread. Omitted means 0 for legacy layouts."
+        },
+        "spawn_modifier_ids": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "\\S"
+          },
+          "description": "Automatically choose one allowed modifier for each occupant at spawn. Empty disables personalities; omission retains explicit/legacy assignments."
         }
       }
     },
@@ -765,6 +803,9 @@
           "items": {
             "$ref": "#/$defs/AgentEvent"
           }
+        },
+        "agent_modifiers": {
+          "$ref": "#/$defs/AgentModifierRecording"
         }
       },
       "allOf": [
@@ -1107,7 +1148,18 @@
           "pattern": "[^\\s\\u0085]"
         },
         "x": { "type": "number", "minimum": 0, "maximum": 1000 },
-        "y": { "type": "number", "minimum": 0, "maximum": 1000 }
+        "y": { "type": "number", "minimum": 0, "maximum": 1000 },
+        "modifier_ids": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "\\S"
+          }
+        }
       }
     },
     "Obstruction": {
@@ -1542,6 +1594,19 @@
               }
             }
           }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "agent_modifiers"],
+          "properties": {
+            "type": {
+              "const": "initialized"
+            },
+            "agent_modifiers": {
+              "$ref": "#/$defs/AgentModifierRecording"
+            }
+          }
         }
       ]
     },
@@ -1969,6 +2034,7 @@
             "window_traversal",
             "exposure",
             "waiting",
+            "yielded_to_agent",
             "evacuated",
             "sheltered"
           ]
@@ -1993,6 +2059,7 @@
               "kind": {
                 "enum": [
                   "heading_to_exit",
+                  "yielded_to_agent",
                   "rerouting",
                   "window_approach",
                   "window_queue",
@@ -2128,6 +2195,231 @@
         },
         "truncated": {
           "type": "boolean"
+        }
+      }
+    },
+    "AgentModifierParameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "speed_multiplier": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 2
+        },
+        "acceleration_multiplier": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 2
+        },
+        "reaction_delay_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 30
+        },
+        "hazard_cost_multiplier": {
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 4
+        },
+        "crowd_cost_multiplier": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "reassessment_interval_multiplier": {
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 4
+        },
+        "route_switch_threshold_multiplier": {
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 4
+        },
+        "avoidance_priority_multiplier": {
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 4
+        }
+      },
+      "required": [
+        "speed_multiplier",
+        "acceleration_multiplier",
+        "reaction_delay_seconds",
+        "hazard_cost_multiplier",
+        "crowd_cost_multiplier",
+        "reassessment_interval_multiplier",
+        "route_switch_threshold_multiplier",
+        "avoidance_priority_multiplier"
+      ]
+    },
+    "AgentModifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name"],
+      "properties": {
+        "requires_emergency_discovery": { "type": "boolean" },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "\\S"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "\\S"
+        },
+        "speed_multiplier": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 2
+        },
+        "acceleration_multiplier": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 2
+        },
+        "reaction_delay_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 30
+        },
+        "hazard_cost_multiplier": {
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 4
+        },
+        "crowd_cost_multiplier": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "reassessment_interval_multiplier": {
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 4
+        },
+        "route_switch_threshold_multiplier": {
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 4
+        },
+        "avoidance_priority_multiplier": {
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 4
+        }
+      }
+    },
+    "AgentModifierGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["count", "modifier_ids"],
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "modifier_ids": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "\\S"
+          }
+        }
+      }
+    },
+    "AgentModifierAssignment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "source_id",
+        "source_ordinal",
+        "modifier_ids",
+        "resolved",
+        "speed_variation_multiplier",
+        "uninjured_speed_metres_per_second",
+        "reaction_steps"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9999
+        },
+        "source_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "\\S"
+        },
+        "source_ordinal": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 9999
+        },
+        "modifier_ids": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "\\S"
+          }
+        },
+        "resolved": {
+          "$ref": "#/$defs/AgentModifierParameters"
+        },
+        "speed_variation_multiplier": {
+          "type": "number",
+          "minimum": 0.8,
+          "maximum": 1.2
+        },
+        "uninjured_speed_metres_per_second": {
+          "type": "number",
+          "minimum": 0.104,
+          "maximum": 3.12
+        },
+        "reaction_steps": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        }
+      }
+    },
+    "AgentModifierRecording": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model_version", "definitions", "agents"],
+      "properties": {
+        "model_version": {
+          "const": "static-modifiers-v1"
+        },
+        "definitions": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/AgentModifier"
+          }
+        },
+        "agents": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10000,
+          "items": {
+            "$ref": "#/$defs/AgentModifierAssignment"
+          }
         }
       }
     }

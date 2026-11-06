@@ -9,6 +9,9 @@ import {
   syntheticResult,
 } from "./playback.fixture";
 import type { SimulationResult } from "../types/simulation";
+import { resolvedModifiers } from "../editor/agentModifiers";
+import { AgentInspector } from "./AgentInspector";
+import { formatLength } from "../utils/units";
 
 vi.mock("../editor/draw", () => ({ drawLayout: vi.fn() }));
 vi.mock("./drawPlayback", () => ({
@@ -45,6 +48,91 @@ const result: SimulationResult = {
     ],
   },
 };
+
+it("inspects recorded modifiers and reaction state without inferring personality from the current layout", async () => {
+  const definitions = [
+    {
+      id: "scared",
+      name: "Scared",
+      speed_multiplier: 0.25,
+      reaction_delay_seconds: 4,
+    },
+  ];
+  const recorded: SimulationResult = {
+    ...result,
+    agent_modifiers: {
+      model_version: "static-modifiers-v1",
+      definitions,
+      agents: [
+        {
+          id: 0,
+          source_id: "person",
+          source_ordinal: null,
+          modifier_ids: ["scared"],
+          resolved: resolvedModifiers(definitions, ["scared"]),
+          speed_variation_multiplier: 1,
+          uninjured_speed_metres_per_second: 0.325,
+          reaction_steps: 40,
+        },
+      ],
+    },
+  };
+  await act(async () =>
+    root.render(<SimulationView building={building} result={recorded} />),
+  );
+  await choose(0);
+  expect(inspector()!.textContent).toContain("Scared");
+  expect(
+    inspector()!.querySelector(".agent-personality-speed")!.textContent,
+  ).toContain("/s");
+  await act(async () => button("Reset").click());
+  expect(inspector()!.textContent).toContain("before walking");
+});
+
+it("shows live spawn personality and walking speed without waiting for a completed result", async () => {
+  const definitions = [{ id: "older", name: "Older", speed_multiplier: 0.7 }];
+  const metadata = {
+    model_version: "static-modifiers-v1" as const,
+    definitions,
+    agents: [
+      {
+        id: 0,
+        source_id: "person",
+        source_ordinal: null,
+        modifier_ids: ["older"],
+        resolved: resolvedModifiers(definitions, ["older"]),
+        speed_variation_multiplier: 1,
+        uninjured_speed_metres_per_second: 0.91,
+        reaction_steps: 0,
+      },
+    ],
+  };
+  const frame = {
+    ...result.frames[0]!,
+    agents: [{ id: 0, x: 1, y: 1, injury: 0.5 }],
+  };
+  await act(async () =>
+    root.render(
+      <AgentInspector
+        id={0}
+        building={building}
+        frame={frame}
+        modifierRecording={metadata}
+        live
+        onClose={() => {}}
+      />,
+    ),
+  );
+  expect(
+    inspector()!.querySelector(".agent-personality-badge")!.textContent,
+  ).toBe("Older");
+  expect(
+    inspector()!.querySelector(".agent-personality-speed")!.textContent,
+  ).toContain(`${formatLength(0.91 * 0.625, 2)}/s`);
+  expect(inspector()!.textContent).not.toContain(
+    "Modifier information unavailable",
+  );
+});
 
 let host: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
@@ -141,6 +229,9 @@ it("supports canvas selection and honest missing statistics in older recordings"
   );
   await act(async () => button("Reset").click());
   await clickFirstAgent();
+  expect(inspector()!.textContent).toContain(
+    "Modifier information unavailable",
+  );
   expect(inspector()!.textContent).toContain(
     "Per-agent statistics were not recorded",
   );

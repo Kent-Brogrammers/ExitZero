@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo, useRef } from "react";
 import type {
+  AgentModifierRecording,
   AnimationFrame,
   BuildingScenario,
   ChatEvent,
@@ -52,6 +53,7 @@ export function AgentInspector({
   frame,
   result,
   events = NO_EVENTS,
+  modifierRecording,
   live,
   onClose,
 }: {
@@ -60,12 +62,15 @@ export function AgentInspector({
   frame: AnimationFrame | null;
   result?: SimulationResult | null;
   events?: readonly ChatEvent[];
+  modifierRecording?: AgentModifierRecording;
   live?: boolean;
   onClose: () => void;
 }) {
   useDisplayUnits();
   const panel = useRef<HTMLElement>(null);
   useEffect(() => panel.current?.focus({ preventScroll: true }), [id]);
+  const modifiers = result?.agent_modifiers ?? modifierRecording;
+  const assignment = modifiers?.agents.find((a) => a.id === id);
   const statistics = result?.analytics?.agents.find((agent) => agent.id === id);
   const timeStep = result?.time_step_seconds ?? building.time_step_seconds;
   const step = frame?.step ?? -1;
@@ -123,6 +128,7 @@ export function AgentInspector({
     (window) =>
       window.traversing_agent_id === id || window.queue_agent_ids.includes(id),
   );
+  const injury = agent ? (agent.injury ?? 0) : (statistics?.injury ?? 0);
   const status = caught
     ? "Caught"
     : sheltered
@@ -166,6 +172,108 @@ export function AgentInspector({
         </p>
       )}
       <div className="agent-inspector-body">
+        <section
+          className="agent-personality"
+          aria-label="Personality and walking speed"
+        >
+          <span className="agent-personality-label">Personality</span>
+          {assignment ? (
+            <>
+              <div className="agent-personality-badges">
+                {assignment.modifier_ids.length ? (
+                  assignment.modifier_ids.map((id) => (
+                    <span className="agent-personality-badge" key={id}>
+                      {modifiers?.definitions.find((m) => m.id === id)?.name ??
+                        id}
+                    </span>
+                  ))
+                ) : (
+                  <span className="agent-personality-badge">Neutral</span>
+                )}
+              </div>
+              <dl className="agent-personality-speed">
+                <div>
+                  <dt>Walking speed</dt>
+                  <dd>
+                    {formatLength(
+                      assignment.uninjured_speed_metres_per_second *
+                        (1 - 0.75 * injury),
+                      2,
+                    )}
+                    /s
+                  </dd>
+                </div>
+              </dl>
+              {step >= 0 && step < assignment.reaction_steps && (
+                <p className="note">
+                  Reacting ·{" "}
+                  {((assignment.reaction_steps - step) * timeStep).toFixed(1)} s
+                  before walking.
+                </p>
+              )}
+              {(agent?.injury ?? 0) > 0 && (
+                <p className="note">
+                  Before injury:{" "}
+                  {formatLength(
+                    assignment.uninjured_speed_metres_per_second,
+                    2,
+                  )}
+                  /s.
+                </p>
+              )}
+              <details className="agent-personality-details">
+                <summary>Movement details</summary>
+                <dl className="summary-values">
+                  <div>
+                    <dt>Individual speed variation</dt>
+                    <dd>
+                      {(
+                        (assignment.speed_variation_multiplier - 1) *
+                        100
+                      ).toFixed(1)}
+                      %
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Acceleration</dt>
+                    <dd>
+                      ×{assignment.resolved.acceleration_multiplier.toFixed(2)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Reaction delay</dt>
+                    <dd>
+                      {assignment.resolved.reaction_delay_seconds.toFixed(1)} s
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Known hazard avoidance</dt>
+                    <dd>
+                      ×{assignment.resolved.hazard_cost_multiplier.toFixed(2)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Crowd avoidance</dt>
+                    <dd>
+                      ×{assignment.resolved.crowd_cost_multiplier.toFixed(2)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Avoidance priority</dt>
+                    <dd>
+                      ×
+                      {assignment.resolved.avoidance_priority_multiplier.toFixed(
+                        2,
+                      )}
+                    </dd>
+                  </div>
+                </dl>
+              </details>
+            </>
+          ) : (
+            <p className="note">Modifier information unavailable.</p>
+          )}
+        </section>
         <h4>{live ? "Latest received sample" : "At the playhead"}</h4>
         <dl className="summary-values">
           <div>

@@ -29,6 +29,24 @@ impl Heatmap {
         geometry: &Geometry<'_>,
         walking_speed: f64,
     ) {
+        self.record_with_speeds(
+            scenario,
+            before,
+            agents,
+            inactive,
+            geometry,
+            &vec![walking_speed; agents.len()],
+        );
+    }
+    pub(super) fn record_with_speeds(
+        &mut self,
+        scenario: &BuildingScenario,
+        before: &[Point],
+        agents: &[Agent],
+        inactive: &[bool],
+        geometry: &Geometry<'_>,
+        walking_speeds: &[f64],
+    ) {
         let radius = 1.0_f64.max(4.0 * scenario.agent_radius);
         let delays: Vec<_> = agents
             .iter()
@@ -40,7 +58,7 @@ impl Heatmap {
                 scenario.time_step_seconds
                     * (1.0
                         - math::distance_to_point(before[i], agent.position)
-                            / (walking_speed * scenario.time_step_seconds))
+                            / (walking_speeds[i] * scenario.time_step_seconds))
                         .clamp(0.0, 1.0)
             })
             .collect();

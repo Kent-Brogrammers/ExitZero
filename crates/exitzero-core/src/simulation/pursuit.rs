@@ -509,6 +509,8 @@ pub(super) fn run(
     }
     let remaining = total - escaped;
     let result = SimulationResult {
+        agent_modifiers: None,
+
         congestion_samples: heatmap.total(),
         metrics: SimulationMetrics {
             status: if remaining == 0 {
@@ -712,6 +714,8 @@ mod tests {
         b.pursuit.as_mut().unwrap().stalker_speed = 3.0;
         b.pursuit.as_mut().unwrap().survivor_speed = 0.1;
         b.spawn_zones.push(crate::models::SpawnZone {
+            modifier_groups: None,
+
             polygon: None,
             holes: vec![],
             id: "second".into(),

@@ -1,3 +1,4 @@
+import { AgentModifiersDialog } from "./AgentModifiers";
 import {
   formatLength,
   formatDimensions,
@@ -230,6 +231,7 @@ export function BuildingEditor({
   const selected = selections.at(-1) ?? null;
   const [propertiesOpen, setPropertiesOpen] = useState(false);
   const [hazardSettingsOpen, setHazardSettingsOpen] = useState(false);
+  const [modifiersOpen, setModifiersOpen] = useState(false);
   const [spawnPolygon, setSpawnPolygon] = useState<Point[]>([]);
   const [polygonHover, setPolygonHover] = useState<Point | null>(null);
   const [gesture, setGesture] = useState<Gesture | null>(null);
@@ -1618,6 +1620,7 @@ export function BuildingEditor({
         doors: [],
         exits: [],
         windows: [],
+        agent_speed_variation: 0.05,
         spawn_zones: [],
         placed_occupants: [],
         blocked_exit_ids: [],
@@ -1799,6 +1802,16 @@ export function BuildingEditor({
           }}
         />
       )}
+      {modifiersOpen && (
+        <AgentModifiersDialog
+          building={building}
+          onApply={(next) => !disabled && commit(next)}
+          onClose={() => {
+            setModifiersOpen(false);
+            canvas.current?.focus({ preventScroll: true });
+          }}
+        />
+      )}
       <fieldset className="editor-controls" disabled={disabled}>
         <div className="editor-workspace">
           <div className="editor-commandbar">
@@ -1836,6 +1849,7 @@ export function BuildingEditor({
               onUndo={undo}
               onRedo={redoChange}
               onDuplicate={duplicateSelectedElements}
+              onAgentModifiers={() => setModifiersOpen(true)}
               arrangeSelectionCount={selections.length}
               arrangeProblem={
                 gesture || panning || spawnPolygon.length

@@ -1,4 +1,5 @@
 {
+  "agent_speed_variation": 0.05,
   "width": 36,
   "height": 26,
   "walls": [

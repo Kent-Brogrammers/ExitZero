@@ -1,4 +1,5 @@
 import Ajv from "ajv";
+import { modifierAssignmentError } from "./agentModifiers";
 import { formatLength } from "../utils/units";
 import { solidWallSegments } from "./openings";
 import schema from "../../../shared/schemas/contracts.schema.json";
@@ -140,6 +141,8 @@ export function buildingError(
     return "Layout JSON does not match the continuous-geometry contract. Check required fields and numeric ranges.";
   }
   const b = value;
+  const modifierError = modifierAssignmentError(b);
+  if (modifierError) return modifierError;
   if (
     requireReady &&
     (!b.exits.length || (!b.spawn_zones.length && !b.placed_occupants?.length))

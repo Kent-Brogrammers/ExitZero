@@ -24,10 +24,10 @@ export function createExportRenderer(
     result.time_step_seconds,
   );
   const plain = createPlaybackRenderer(canvas, building);
-  const effects = createAgentEffects([
-    ...(result.communication_events ?? []),
-    ...(result.agent_events ?? []),
-  ]);
+  const effects = createAgentEffects(
+    [...(result.communication_events ?? []), ...(result.agent_events ?? [])],
+    result.agent_modifiers,
+  );
   const trails = createRecordedTrails(result);
   const layer = canvas.ownerDocument.createElement("canvas");
   let lastIndex = -1;

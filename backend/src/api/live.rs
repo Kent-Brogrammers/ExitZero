@@ -172,7 +172,7 @@ async fn simulate_live(
         let mut last_clock = None;
         let mut paced_seconds = 0.0;
         let result = control.run(|| {
-            simulation::simulate_live_with_chat(
+            simulation::simulate_live_with_initialization(
                 &building,
                 &mut |frame| {
                     let target = f64::from(frame.step) * building.time_step_seconds;
@@ -209,6 +209,15 @@ async fn simulate_live(
                         SimulationStreamEvent::Chat {
                             communication_events: communication_events.to_vec(),
                             agent_events: agent_events.to_vec(),
+                        },
+                    )
+                },
+                &mut |agent_modifiers| {
+                    send(
+                        &sender,
+                        &control,
+                        SimulationStreamEvent::Initialized {
+                            agent_modifiers: agent_modifiers.clone(),
                         },
                     )
                 },

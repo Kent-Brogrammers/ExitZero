@@ -1,3 +1,39 @@
+/** Static illustrative effects; omitted multiplier fields resolve to 1, delay to 0. */
+export interface AgentModifierParameters {
+  speed_multiplier: number;
+  acceleration_multiplier: number;
+  reaction_delay_seconds: number;
+  hazard_cost_multiplier: number;
+  crowd_cost_multiplier: number;
+  reassessment_interval_multiplier: number;
+  route_switch_threshold_multiplier: number;
+  avoidance_priority_multiplier: number;
+}
+export interface AgentModifier extends Partial<AgentModifierParameters> {
+  requires_emergency_discovery?: boolean;
+  id: string;
+  name: string;
+}
+export interface AgentModifierGroup {
+  count: number;
+  modifier_ids: string[];
+}
+export interface AgentModifierAssignment {
+  id: number;
+  source_id: string;
+  source_ordinal: number | null;
+  modifier_ids: string[];
+  resolved: AgentModifierParameters;
+  speed_variation_multiplier: number;
+  uninjured_speed_metres_per_second: number;
+  reaction_steps: number;
+}
+export interface AgentModifierRecording {
+  model_version: "static-modifiers-v1";
+  definitions: AgentModifier[];
+  agents: AgentModifierAssignment[];
+}
+
 // Shared JSON names stay snake_case. Review contract changes with the team.
 /** Continuous world coordinates in metres. */
 export interface Point {
@@ -62,6 +98,7 @@ export interface Obstruction {
   height: number;
 }
 export interface SpawnZone extends Obstruction {
+  modifier_groups?: AgentModifierGroup[];
   count: number;
   /** Optional simple polygon; rectangle fields are its exact bounding box. */
   polygon?: Point[];
@@ -74,6 +111,7 @@ export interface TornadoZone extends Obstruction {
 }
 /** Exact starting centre in metres. Array order assigns recorded IDs before area spawns. */
 export interface PlacedOccupant extends Point {
+  modifier_ids?: string[];
   id: string;
   name?: string;
 }
@@ -116,6 +154,12 @@ export interface ShelterArrival {
 }
 
 export interface BuildingScenario {
+  personality_fraction?: number;
+  /** Seeded automatic choice of one allowed modifier per occupant. Empty means neutral. */
+  spawn_modifier_ids?: string[];
+  agent_modifiers?: AgentModifier[];
+  /** Uniform seeded fractional spread; omitted means zero for old layouts. */
+  agent_speed_variation?: number;
   /** Optional fictional Halloween pursuit. Not combined with disasters. */
   pursuit?: PursuitConfig;
   width: number;
@@ -266,6 +310,7 @@ export interface WindowDecisionHistory {
 }
 
 export interface SimulationResult extends SimulationMetrics {
+  agent_modifiers?: AgentModifierRecording;
   termination_reason?:
     | "completed"
     | "step_limit"
@@ -315,6 +360,7 @@ export interface AgentEvent {
     | "window_traversal"
     | "exposure"
     | "waiting"
+    | "yielded_to_agent"
     | "evacuated"
     | "sheltered";
   subject_id?: string;
@@ -324,6 +370,7 @@ export interface AgentEvent {
 
 /** Newline-delimited events from POST /api/simulate/live. */
 export type SimulationStreamEvent =
+  | { type: "initialized"; agent_modifiers: AgentModifierRecording }
   | { type: "frame"; frame: AnimationFrame }
   | ({ type: "chat" } & LiveChatBatch)
   | { type: "complete"; result: SimulationResult }
@@ -331,6 +378,7 @@ export type SimulationStreamEvent =
 
 /** A running simulation has no outcome or known duration yet. */
 export interface LiveSimulation {
+  agent_modifiers?: AgentModifierRecording;
   /** Every delivered backend delay increment accumulated before React batching. */
   congestion_samples?: CongestionSample[];
   /** Recent raw observations used for transient canvas effects. */

@@ -2,6 +2,8 @@ mod analysis;
 mod awareness;
 mod building;
 mod live;
+mod modifiers;
+pub use modifiers::*;
 mod polygons;
 mod pursuit;
 mod simulation;

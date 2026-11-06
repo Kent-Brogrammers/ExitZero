@@ -3,6 +3,7 @@ use crate::models::Point;
 
 pub(super) const WALKING_SPEED: f64 = 1.3;
 pub(super) const ACCELERATION: f64 = 2.0;
+pub(super) const MAX_WALKING_SPEED: f64 = WALKING_SPEED * 2.0 * 1.2;
 const HORIZON: f64 = 1.5;
 const ZERO: Point = Point { x: 0.0, y: 0.0 };
 
@@ -21,13 +22,30 @@ pub(super) struct VelocityLimit {
     pub offset: f64,
 }
 
+/// Per-person constraints for a shared position snapshot.
+pub(super) struct MotionLimits<'a> {
+    pub velocity: &'a [Vec<VelocityLimit>],
+    pub speeds: &'a [f64],
+}
+
 pub(super) struct Motion {
     velocity: Point,
+    speed: f64,
+    acceleration: f64,
 }
 
 impl Motion {
     pub(super) fn new() -> Self {
-        Self { velocity: ZERO }
+        Self {
+            velocity: ZERO,
+            speed: WALKING_SPEED,
+            acceleration: ACCELERATION,
+        }
+    }
+
+    pub(super) fn configure(&mut self, speed: f64, acceleration: f64) {
+        self.speed = speed;
+        self.acceleration = acceleration;
     }
 
     pub(super) fn velocity(&self) -> Point {
@@ -53,7 +71,7 @@ impl Motion {
         let mut preferred = if distance <= math::EPSILON {
             ZERO
         } else {
-            scale(delta, WALKING_SPEED.min(distance / dt) / distance)
+            scale(delta, self.speed.min(distance / dt) / distance)
         };
         // A consistent passing side breaks perfectly symmetric head-on
         // encounters before the reciprocal constraints reduce both to rest.
@@ -81,12 +99,17 @@ impl Motion {
                     y: heading.x * passing.min(distance / 0.5),
                 },
             );
-            preferred = math::move_toward(ZERO, preferred, WALKING_SPEED);
+            preferred = math::move_toward(ZERO, preferred, self.speed);
         }
-        let smooth = math::move_toward(self.velocity, preferred, ACCELERATION * dt);
-        closest_velocity(smooth, limits, Some((self.velocity, ACCELERATION * dt)))
-            .or_else(|| closest_velocity(smooth, limits, None))
-            .unwrap_or(ZERO)
+        let smooth = math::move_toward(self.velocity, preferred, self.acceleration * dt);
+        closest_velocity(
+            self.speed,
+            smooth,
+            limits,
+            Some((self.velocity, self.acceleration * dt)),
+        )
+        .or_else(|| closest_velocity(self.speed, smooth, limits, None))
+        .unwrap_or(ZERO)
     }
 
     /// Recomputed every tick from common positions and intended velocities.
@@ -104,7 +127,10 @@ impl Motion {
         let static_count = limits.len();
         for other in neighbors {
             let separation = sub(other.position, from);
-            if length(separation) <= 2.0 * radius + 2.0 * WALKING_SPEED * HORIZON {
+            if length(separation)
+                <= 2.0 * radius
+                    + 2.0 * self.speed.max(WALKING_SPEED).max(length(other.velocity)) * HORIZON
+            {
                 limits.push(reciprocal_limit(
                     preferred,
                     separation,
@@ -116,13 +142,17 @@ impl Motion {
                 ));
             }
         }
-        let velocity =
-            closest_velocity(preferred, &limits, Some((self.velocity, ACCELERATION * dt)))
-                .or_else(|| closest_velocity(preferred, &limits, None))
-                // Dense, infeasible configurations still go through joint swept-disc
-                // validation. Never describe this fallback as an ORCA guarantee.
-                .or_else(|| closest_velocity(preferred, &limits[..static_count], None))
-                .unwrap_or(ZERO);
+        let velocity = closest_velocity(
+            self.speed,
+            preferred,
+            &limits,
+            Some((self.velocity, self.acceleration * dt)),
+        )
+        .or_else(|| closest_velocity(self.speed, preferred, &limits, None))
+        // Dense, infeasible configurations still go through joint swept-disc
+        // validation. Never describe this fallback as an ORCA guarantee.
+        .or_else(|| closest_velocity(self.speed, preferred, &limits[..static_count], None))
+        .unwrap_or(ZERO);
         add(from, scale(velocity, dt))
     }
 }
@@ -188,11 +218,12 @@ fn reciprocal_limit(
 /// feasible interval is clipped by earlier lines and the speed/acceleration discs.
 /// This is a two-dimensional convex solve, with deterministic constraint order.
 fn closest_velocity(
+    speed: f64,
     preferred: Point,
     limits: &[VelocityLimit],
     acceleration: Option<(Point, f64)>,
 ) -> Option<Point> {
-    let mut result = math::move_toward(ZERO, preferred, WALKING_SPEED);
+    let mut result = math::move_toward(ZERO, preferred, speed);
     if let Some((center, radius)) = acceleration {
         result = math::move_toward(center, result, radius);
     }
@@ -206,7 +237,7 @@ fn closest_velocity(
             y: limit.normal.x,
         };
         let mut interval = (f64::NEG_INFINITY, f64::INFINITY);
-        clip_disc(base, tangent, ZERO, WALKING_SPEED, &mut interval)?;
+        clip_disc(base, tangent, ZERO, speed, &mut interval)?;
         if let Some((center, radius)) = acceleration {
             clip_disc(base, tangent, center, radius, &mut interval)?;
         }
@@ -293,6 +324,33 @@ pub(super) fn coordinate_moves(
     dt: f64,
     limits: &[Vec<VelocityLimit>],
 ) {
+    coordinate_moves_with_speeds(
+        before,
+        proposed,
+        active,
+        compliance,
+        radius,
+        dt,
+        MotionLimits {
+            velocity: limits,
+            speeds: &vec![WALKING_SPEED; before.len()],
+        },
+    );
+}
+
+pub(super) fn coordinate_moves_with_speeds(
+    before: &[Point],
+    proposed: &mut [Point],
+    active: &[bool],
+    compliance: &[f64],
+    radius: f64,
+    dt: f64,
+    limits: MotionLimits<'_>,
+) {
+    let MotionLimits {
+        velocity: limits,
+        speeds,
+    } = limits;
     for iteration in 0..512 {
         let mut corrected = false;
         for i in 0..before.len() {
@@ -340,7 +398,7 @@ pub(super) fn coordinate_moves(
                         scale(sub(proposed[k], before[k]), 1.0 / dt),
                         scale(normal, correction * share / dt),
                     );
-                    if let Some(velocity) = closest_velocity(wanted, &limits[k], None) {
+                    if let Some(velocity) = closest_velocity(speeds[k], wanted, &limits[k], None) {
                         proposed[k] = add(before[k], scale(velocity, dt));
                     }
                 }
@@ -450,4 +508,33 @@ pub(super) fn injury_speed_limits(injury: f64) -> Vec<VelocityLimit> {
             }
         })
         .collect()
+}
+
+/// A nearby reciprocal avoidance constraint required yielding and the accepted
+/// motion actually changed. This records avoidance, never injury or a knockdown.
+pub(super) fn yielded_to_neighbor(
+    from: Point,
+    desired: Point,
+    accepted: Point,
+    other: Neighbor,
+    radius: f64,
+    dt: f64,
+) -> bool {
+    if other.responsibility <= 0.5
+        || math::distance_to_point(from, other.position) > 4.0 * radius
+        || length(sub(desired, accepted)) < 0.05
+    {
+        return false;
+    }
+    let limit = reciprocal_limit(
+        desired,
+        sub(other.position, from),
+        sub(desired, other.velocity),
+        2.0 * radius + 1e-5,
+        dt,
+        other.horizon.max(dt),
+        other.responsibility,
+    );
+    dot(limit.normal, desired) < limit.offset - 1e-6
+        && dot(limit.normal, accepted) > dot(limit.normal, desired) + 1e-6
 }

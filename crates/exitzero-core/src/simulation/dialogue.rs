@@ -130,6 +130,10 @@ impl Dialogue {
                 last.initialized = true;
                 continue;
             }
+            // Exploration targets are not exits; report normal exit intent only after discovery.
+            if agent.curious_waiting {
+                continue;
+            }
             let goal = routes[i].as_ref().map(|route| route.exit_id.clone());
             if !last.initialized || goal != last.goal || last.window.is_some() {
                 let kind = if goal.is_none() {

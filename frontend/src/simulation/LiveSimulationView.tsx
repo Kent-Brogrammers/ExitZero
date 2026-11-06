@@ -129,8 +129,11 @@ export function LiveSimulationView({
 
   const effects = useRef(createAgentEffects([]));
   useEffect(() => {
-    effects.current = createAgentEffects(live.effect_events ?? []);
-  }, [live.effect_events]);
+    effects.current = createAgentEffects(
+      live.effect_events ?? [],
+      live.agent_modifiers,
+    );
+  }, [live.effect_events, live.agent_modifiers]);
   const heatLayer = useRef<HTMLCanvasElement | null>(null);
   const latest = useRef<{
     frame: AnimationFrame | null;
@@ -286,6 +289,7 @@ export function LiveSimulationView({
               building={building}
               frame={frame}
               events={live.effect_events}
+              modifierRecording={live.agent_modifiers}
               live
               onClose={() => {
                 setSelectedId(null);
