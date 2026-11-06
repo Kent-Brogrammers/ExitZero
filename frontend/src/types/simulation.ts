@@ -360,6 +360,7 @@ export interface AgentEvent {
     | "window_traversal"
     | "exposure"
     | "waiting"
+    | "yielded_to_agent"
     | "evacuated"
     | "sheltered";
   subject_id?: string;

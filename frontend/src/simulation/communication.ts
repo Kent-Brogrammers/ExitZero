@@ -249,6 +249,9 @@ export function communicationMessage(
       ? ` near ${objectName(building, { kind: "exits", id: nearExit.id })}`
       : " over there";
     const messages: Record<AgentEvent["kind"], string[]> = {
+      yielded_to_agent: [
+        `I'm yielding to Agent ${Number(event.subject_id) + 1}.`,
+      ],
       heading_to_exit: [`I'm going for ${label}!`, `Let's try ${label}.`],
       hazard_discovered: [
         `There's ${danger}${place}! Stay back.`,

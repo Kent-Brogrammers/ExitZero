@@ -381,6 +381,18 @@ fn aggressive_priority_changes_yielding_without_overlapping_bodies() {
     building.placed_occupants[1].modifier_ids = vec!["assertive".into()];
     let assertive = simulate(&building).unwrap();
     check_caps(&building, &assertive);
+    assert!(
+        assertive
+            .agent_events
+            .as_ref()
+            .unwrap()
+            .iter()
+            .any(
+                |e| e.kind == exitzero::models::AgentEventKind::YieldedToAgent
+                    && e.subject_id.as_deref() == Some("1")
+            ),
+        "record actual yielding to the aggressive occupant"
+    );
     assert_eq!(assertive.metrics.evacuated, 2);
     let first = |r: &SimulationResult| {
         r.analytics

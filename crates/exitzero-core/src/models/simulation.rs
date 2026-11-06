@@ -624,6 +624,7 @@ impl SimulationResult {
                 let needs_subject = matches!(
                     event.kind,
                     HeadingToExit
+                        | YieldedToAgent
                         | Rerouting
                         | WindowApproach
                         | WindowQueue
@@ -641,6 +642,12 @@ impl SimulationResult {
                         .as_ref()
                         .is_some_and(|id| id.trim().is_empty() || id.chars().count() > 64)
                     || needs_subject && event.subject_id.is_none()
+                    || event.kind == YieldedToAgent
+                        && event
+                            .subject_id
+                            .as_ref()
+                            .and_then(|s| s.parse::<u32>().ok())
+                            .is_none_or(|id| id == event.agent_id || !ids.contains(&id))
                     || matches!(event.kind, HazardDiscovered | HazardSpreading)
                         && event.position.is_none()
                     || event.position.is_some_and(|p| !self.in_bounds(p.x, p.y))

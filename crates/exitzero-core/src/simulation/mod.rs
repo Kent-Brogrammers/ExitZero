@@ -249,6 +249,7 @@ fn run(
     let mut last_resolved_population = 0;
     let mut communication_events = Vec::new();
     let mut dialogue = dialogue::Dialogue::new(agents.len());
+    let mut last_yield = BTreeMap::<(usize, usize), u32>::new();
     let modified_run = agents.iter().any(Agent::modified);
 
     // Bound animation output by sampling ticks, retaining initial/final frames.
@@ -1200,6 +1201,62 @@ fn run(
         motion::resolve_collisions(&before, &mut proposed, &active, scenario.agent_radius);
         #[cfg(test)]
         tests::assert_accepted_moves(scenario, &geometry, &before, &proposed, &active, &windows);
+        let aggressive: Vec<_> = agents
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| a.modifiers.resolved.avoidance_priority_multiplier > 1.0)
+            .map(|(i, _)| i)
+            .collect();
+        let mut yield_events = Vec::new();
+        for i in 0..agents.len() {
+            if evacuated[i] || agents[i].reacting(step) {
+                continue;
+            }
+            for &j in &aggressive {
+                let priority = agents[j].modifiers.resolved.avoidance_priority_multiplier;
+                let own = agents[i].modifiers.resolved.avoidance_priority_multiplier;
+                if i == j
+                    || evacuated[j]
+                    || priority <= 1.0
+                    || priority <= own
+                    || math::distance_to_point(before[j], proposed[j]) < 1e-6
+                {
+                    continue;
+                }
+                if last_yield.get(&(i, j)).is_some_and(|last| {
+                    f64::from(step.saturating_sub(*last)) * scenario.time_step_seconds < 1.0
+                }) {
+                    continue;
+                }
+                let accepted = Point {
+                    x: (proposed[i].x - before[i].x) / scenario.time_step_seconds,
+                    y: (proposed[i].y - before[i].y) / scenario.time_step_seconds,
+                };
+                if motion::yielded_to_neighbor(
+                    before[i],
+                    intents[i],
+                    accepted,
+                    motion::Neighbor {
+                        position: before[j],
+                        velocity: intents[j],
+                        responsibility: priority / (priority + own),
+                        horizon: 1.5,
+                    },
+                    scenario.agent_radius,
+                    scenario.time_step_seconds,
+                ) {
+                    last_yield.insert((i, j), step);
+                    yield_events.push(crate::models::AgentEvent {
+                        step: step + 1,
+                        agent_id: agents[i].id,
+                        kind: crate::models::AgentEventKind::YieldedToAgent,
+                        subject_id: Some(agents[j].id.to_string()),
+                        position: Some(proposed[i]),
+                        hazard_kind: None,
+                    });
+                }
+            }
+        }
         let previous_hazard = world.prepare_hazards(step + 1);
         let mut leaving = Vec::new();
         for i in 0..agents.len() {
@@ -1309,6 +1366,7 @@ fn run(
             &reference_speeds,
         );
         step += 1;
+        dialogue.events.extend(yield_events);
         control::step(step, scenario.max_steps);
         // Include exit arrivals in traffic before removing evacuated agents.
         record_traffic(scenario, &agents, &evacuated, &mut traffic);

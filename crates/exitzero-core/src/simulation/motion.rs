@@ -509,3 +509,32 @@ pub(super) fn injury_speed_limits(injury: f64) -> Vec<VelocityLimit> {
         })
         .collect()
 }
+
+/// A nearby reciprocal avoidance constraint required yielding and the accepted
+/// motion actually changed. This records avoidance, never injury or a knockdown.
+pub(super) fn yielded_to_neighbor(
+    from: Point,
+    desired: Point,
+    accepted: Point,
+    other: Neighbor,
+    radius: f64,
+    dt: f64,
+) -> bool {
+    if other.responsibility <= 0.5
+        || math::distance_to_point(from, other.position) > 4.0 * radius
+        || length(sub(desired, accepted)) < 0.05
+    {
+        return false;
+    }
+    let limit = reciprocal_limit(
+        desired,
+        sub(other.position, from),
+        sub(desired, other.velocity),
+        2.0 * radius + 1e-5,
+        dt,
+        other.horizon.max(dt),
+        other.responsibility,
+    );
+    dot(limit.normal, desired) < limit.offset - 1e-6
+        && dot(limit.normal, accepted) > dot(limit.normal, desired) + 1e-6
+}

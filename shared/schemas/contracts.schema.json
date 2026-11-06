@@ -2034,6 +2034,7 @@
             "window_traversal",
             "exposure",
             "waiting",
+            "yielded_to_agent",
             "evacuated",
             "sheltered"
           ]
@@ -2058,6 +2059,7 @@
               "kind": {
                 "enum": [
                   "heading_to_exit",
+                  "yielded_to_agent",
                   "rerouting",
                   "window_approach",
                   "window_queue",

@@ -156,6 +156,14 @@ assignments cannot be combined. A separate seeded random stream preserves initia
 positions when personality settings change, and equivalent stress-test and
 optimization scenarios reuse the same assignments.
 
+Canvas cues identify personalities during live runs, replay, and exports: Curious
+occupants have a gold question mark, Scared occupants a purple tint, and Aggressive
+occupants orange chevrons. Recorded yielding interactions flash orange between
+the people involved, labeled **Priority** and **Yield**. These show actual avoidance,
+not knockdowns or injury; injury body colors remain visible. Calm occupants have
+teal rings and mobility presets muted rings. Reduced-motion preferences suppress
+the spawn bounce and expanding pulses.
+
 See [the personality guide](docs/personalities.md) for exact preset values and
 [the shared example](shared/examples/agent-modifiers.json) for explicit group
 assignments supported by the JSON contract.

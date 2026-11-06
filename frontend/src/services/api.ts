@@ -101,15 +101,20 @@ function checkChat(
         event.subject_id,
       ]);
       const subject = event.subject_id ?? "";
-      const validSubject = event.kind.startsWith("window_")
-        ? windows.has(subject)
-        : event.kind === "sheltered"
-          ? shelters.has(subject)
-          : event.kind === "evacuated"
-            ? exits.has(subject) || windows.has(subject)
-            : event.kind === "heading_to_exit" || event.kind === "rerouting"
-              ? exits.has(subject) || shelters.has(subject)
-              : event.subject_id === undefined;
+      const validSubject =
+        event.kind === "yielded_to_agent"
+          ? /^\d+$/.test(subject) &&
+            ids.has(Number(subject)) &&
+            Number(subject) !== event.agent_id
+          : event.kind.startsWith("window_")
+            ? windows.has(subject)
+            : event.kind === "sheltered"
+              ? shelters.has(subject)
+              : event.kind === "evacuated"
+                ? exits.has(subject) || windows.has(subject)
+                : event.kind === "heading_to_exit" || event.kind === "rerouting"
+                  ? exits.has(subject) || shelters.has(subject)
+                  : event.subject_id === undefined;
       if (
         event.step < previous ||
         event.step > lastStep ||
