@@ -6,6 +6,11 @@ use std::collections::BTreeMap;
 
 fn room() -> BuildingScenario {
     BuildingScenario {
+        personality_fraction: None,
+        spawn_modifier_ids: None,
+        agent_modifiers: vec![],
+        agent_speed_variation: None,
+
         placed_occupants: vec![],
         pursuit: None,
         tornado_zones: vec![],
@@ -184,8 +189,8 @@ fn expected_exit_time_follows_the_learned_detour_instead_of_straight_line_distan
         &mut beliefs,
     )[0];
     assert!(
-        expected >= exact,
-        "occluded estimates include the learned detour"
+        (expected - exact).abs() < 1e-9,
+        "elapsed time follows the learned detour without counting routing penalties as seconds"
     );
     assert!(expected > direct + 1.0);
 }
@@ -778,6 +783,8 @@ fn disconnecting_a_live_view_stops_the_simulation() {
 
 fn pinned_zone(id: &str, center_x: f64, center_y: f64) -> SpawnZone {
     SpawnZone {
+        modifier_groups: None,
+
         polygon: None,
         holes: vec![],
         name: None,
@@ -1102,6 +1109,8 @@ fn inset_exit_keeps_waiting_agents_inside_the_room() {
         wall.end.y += 2.0;
     }
     scenario.spawn_zones = vec![SpawnZone {
+        modifier_groups: None,
+
         polygon: None,
         holes: vec![],
         name: None,
@@ -1430,6 +1439,8 @@ fn crowded_open_room_keeps_flowing_across_seeds() {
         for seed in 0..4 {
             let mut scenario = room();
             scenario.spawn_zones = vec![SpawnZone {
+                modifier_groups: None,
+
                 polygon: None,
                 holes: vec![],
                 name: None,
@@ -2039,6 +2050,8 @@ fn a_thirty_person_two_exit_crowd_clears_without_repeated_route_reversals() {
             width: 4.0,
         });
         scenario.spawn_zones = vec![SpawnZone {
+            modifier_groups: None,
+
             polygon: None,
             holes: vec![],
             id: "crowd".into(),
@@ -2395,6 +2408,8 @@ fn legacy_shelters_use_fifty_admissions_and_custom_limits_survive_json() {
     scenario.tornado_zones[0].width = 9.0;
     scenario.tornado_zones[0].height = 5.0;
     scenario.spawn_zones = vec![SpawnZone {
+        modifier_groups: None,
+
         polygon: None,
         holes: vec![],
         id: "crowd".into(),

@@ -20,6 +20,7 @@ interface EditorUtilityRailProps {
   onUndo: () => void;
   onRedo: () => void;
   onDuplicate: () => void;
+  onAgentModifiers?: () => void;
   onArrange?: () => void;
   arrangeProblem?: string | null;
   arrangeSelectionCount?: number;
@@ -181,6 +182,18 @@ export function EditorUtilityRail(props: EditorUtilityRailProps) {
                 {label}
               </button>
             ))}
+            {props.onAgentModifiers && (
+              <button
+                type="button"
+                className="studio-control"
+                onClick={() => {
+                  close();
+                  props.onAgentModifiers?.();
+                }}
+              >
+                Agent personalities…
+              </button>
+            )}
             {props.onArrange && (
               <>
                 <button

@@ -459,22 +459,12 @@ impl<'a> Windows<'a> {
     }
 
     fn travel_seconds(&self, agent: &Agent, waypoints: &[Point]) -> f64 {
-        let estimate = self.beliefs.cached_geometry(agent).map_or_else(
-            super::congestion::CrowdForecast::default,
-            |map| {
-                super::congestion::CrowdForecast::default().with_discovery(
-                    self.scenario,
-                    agent,
-                    map,
-                )
-            },
-        );
         navigation::route_cost(
             agent.position,
             waypoints,
-            &estimate,
+            &super::congestion::CrowdForecast::default(),
             self.scenario.agent_radius,
-        ) / (super::motion::WALKING_SPEED * (1.0 - 0.75 * agent.injury))
+        ) / agent.speed()
     }
 
     /// Predict serial service, including people still approaching this window.
@@ -494,7 +484,7 @@ impl<'a> Windows<'a> {
             .unwrap();
         let dt = self.scenario.time_step_seconds;
         let traversal = |member: usize| {
-            let speed = super::motion::WALKING_SPEED * (1.0 - 0.75 * agents[member].injury);
+            let speed = agents[member].speed();
             ((escape.traversal_seconds / dt).ceil().max(1.0) * dt)
                 .max(math::distance_to_point(s.approach, s.landing) / speed)
         };
@@ -550,7 +540,7 @@ impl<'a> Windows<'a> {
             _ => 0.0,
         };
         if let Some(member) = s.traverser {
-            let speed = super::motion::WALKING_SPEED * (1.0 - 0.75 * agents[member].injury);
+            let speed = agents[member].speed();
             let remaining = math::distance_to_point(agents[member].position, s.landing) / speed;
             available = available.max(
                 remaining.max(
@@ -635,6 +625,12 @@ impl<'a> Windows<'a> {
         exit_seconds: &[f64],
         geometry: &Geometry<'_>,
     ) {
+        let inactive: Vec<_> = evacuated
+            .iter()
+            .zip(agents)
+            .map(|(gone, a)| *gone || a.curious_waiting)
+            .collect();
+        let evacuated = inactive.as_slice();
         let fallback: Vec<_> = exit_seconds.iter().map(|s| !s.is_finite()).collect();
         self.update_inner(
             step,
@@ -647,7 +643,11 @@ impl<'a> Windows<'a> {
         let new_tick = self.last_search_step != Some(step);
         self.last_search_step = Some(step);
         for (i, agent) in agents.iter().enumerate() {
-            if evacuated[i] || self.approaches[i].is_some() || !self.can_consider() {
+            if evacuated[i]
+                || agent.reacting(step)
+                || self.approaches[i].is_some()
+                || !self.can_consider()
+            {
                 self.searches[i] = None;
                 continue;
             }
@@ -720,7 +720,7 @@ impl<'a> Windows<'a> {
                     &route.waypoints,
                     &forecast,
                     self.scenario.agent_radius,
-                ) / (super::motion::WALKING_SPEED * (1.0 - 0.75 * agent.injury));
+                ) / agent.speed();
                 if travel + prior_service < exit_seconds[i] * 0.85 {
                     self.searches[i] = Some(Search {
                         route,
@@ -817,6 +817,7 @@ impl<'a> Windows<'a> {
         let mut attempted = false;
         for i in 0..agents.len() {
             if evacuated[i]
+                || agents[i].reacting(step)
                 || (exit_seconds.is_none() && !fallback[i])
                 || self.approaches[i].is_some()
             {
@@ -891,10 +892,27 @@ impl<'a> Windows<'a> {
             } else {
                 self.beliefs.geometry_for_agent(&agents[i])
             };
+            let forecast = super::congestion::CrowdForecast::for_geometry(map).with_discovery(
+                self.scenario,
+                &agents[i],
+                map,
+            );
             let a = self.approaches[i].as_mut().unwrap();
             for future in (a.cursor + 1..a.route.waypoints.len()).rev() {
                 if map.can_move(agents[i].position, a.route.waypoints[future])
                     && map.avoids_known_danger(agents[i].position, a.route.waypoints[future])
+                    && (!agents[i].modified()
+                        || super::navigation::route_cost(
+                            agents[i].position,
+                            &[a.route.waypoints[future]],
+                            &forecast,
+                            self.scenario.agent_radius,
+                        ) <= super::navigation::route_cost(
+                            agents[i].position,
+                            &a.route.waypoints[a.cursor..=future],
+                            &forecast,
+                            self.scenario.agent_radius,
+                        ) + math::EPSILON)
                 {
                     a.cursor = future;
                     break;
@@ -1335,6 +1353,39 @@ mod tests {
         // Four seconds of active service remain, then our own one-second crossing.
         let active = windows.escape_seconds(0, 0, 1, &route, &people);
         assert!((active - 5.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn finite_exit_time_limits_recruitment_and_releases_the_back_of_a_window_queue() {
+        let mut b = layout();
+        b.windows.truncate(1);
+        b.awareness.sight_range_metres = 100.0;
+        let geometry = Geometry::new(&b);
+        let people: Vec<_> = (0..6)
+            .map(|id| informed(id, 9.6999, 6.0 + f64::from(id) * 0.5))
+            .collect();
+        let mut limited = Windows::new(&b, &[], BTreeSet::new(), people.len(), &geometry);
+        limited.choose(0, &people, &[false; 6], &[20.0; 6], &geometry);
+        let assigned = (0..people.len())
+            .filter(|&i| limited.using_window(i))
+            .count();
+        assert!(
+            assigned > 0 && assigned < people.len(),
+            "the serial queue must eventually lose to the available exit"
+        );
+
+        let mut waiting = Windows::new(&b, &[], BTreeSet::new(), people.len(), &geometry);
+        waiting.choose(0, &people, &[false; 6], &[100.0; 6], &geometry);
+        assert!(waiting.using_window(5));
+        waiting.choose(1, &people, &[false; 6], &[12.0; 6], &geometry);
+        assert!(
+            !waiting.using_window(5),
+            "an assigned occupant must abandon a much slower queue"
+        );
+        assert!(
+            waiting.traversing(0),
+            "an active crossing must finish rather than teleporting back"
+        );
     }
 
     #[test]

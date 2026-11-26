@@ -201,3 +201,38 @@ it("refuses to overwrite a newer building while a preview is open", async () => 
   expect(change).not.toHaveBeenCalled();
   expect(newer.seed).toBe(99);
 });
+
+it("keeps personality settings and table placement independently usable with separate undo steps", async () => {
+  await mount();
+  const original = JSON.stringify(latest);
+  await selectObject();
+  await click("Edit");
+  await click("Agent personalities…");
+  expect(
+    host.querySelector<HTMLDialogElement>(".agent-modifiers-dialog")?.open,
+  ).toBe(true);
+  expect(dialog()).toBeNull();
+  await click("Clear all");
+  await click("Save changes");
+  expect(host.querySelector(".agent-modifiers-dialog")).toBeNull();
+  expect(latest.spawn_modifier_ids).toEqual([]);
+  const configured = JSON.stringify(latest);
+
+  await click("Place people around object…");
+  expect(dialog()?.open).toBe(true);
+  await setCount("4");
+  await click("Add people");
+  expect(latest.placed_occupants).toHaveLength(4);
+  expect(latest.spawn_modifier_ids).toEqual([]);
+  expect(buildingError(latest)).toBeNull();
+  const populated = JSON.stringify(latest);
+
+  await click("Undo");
+  expect(JSON.stringify(latest)).toBe(configured);
+  await click("Undo");
+  expect(JSON.stringify(latest)).toBe(original);
+  await click("Redo");
+  expect(JSON.stringify(latest)).toBe(configured);
+  await click("Redo");
+  expect(JSON.stringify(latest)).toBe(populated);
+});

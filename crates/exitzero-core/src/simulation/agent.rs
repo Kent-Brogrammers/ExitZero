@@ -4,7 +4,10 @@ use crate::models::{BuildingScenario, Point};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) struct Agent {
+    pub saw_emergency: bool,
+    pub curious_waiting: bool,
     pub id: u32,
+    pub modifiers: crate::models::AgentModifierAssignment,
     pub position: Point,
     /// Missing entries mean assumed open, never privileged access to the world.
     pub knowledge: BTreeMap<String, Observation>,
@@ -21,9 +24,32 @@ pub(super) struct Agent {
 }
 
 impl Agent {
+    pub(super) fn speed(&self) -> f64 {
+        self.modifiers.uninjured_speed_metres_per_second
+            * (1.0 - 0.75 * self.injury.clamp(0.0, 1.0))
+    }
+    pub(super) fn reacting(&self, step: u32) -> bool {
+        step < self.modifiers.reaction_steps
+    }
+    pub(super) fn modified(&self) -> bool {
+        self.modifiers.resolved != Default::default()
+            || self.modifiers.speed_variation_multiplier != 1.0
+    }
     pub(super) fn new(id: u32, position: Point) -> Self {
         Self {
+            saw_emergency: false,
+            curious_waiting: false,
             id,
+            modifiers: crate::models::AgentModifierAssignment {
+                id,
+                source_id: id.to_string(),
+                source_ordinal: None,
+                modifier_ids: vec![],
+                resolved: Default::default(),
+                speed_variation_multiplier: 1.0,
+                uninjured_speed_metres_per_second: super::motion::WALKING_SPEED,
+                reaction_steps: 0,
+            },
             position,
             knowledge: BTreeMap::new(),
             known_emergencies: BTreeSet::new(),
@@ -79,10 +105,19 @@ pub(super) fn spawn_agents(
                 occupant.id
             )));
         }
-        spawned.push(Agent::new(spawned.len() as u32, position));
+        let mut agent = Agent::new(spawned.len() as u32, position);
+        agent.modifiers = super::modifiers::assignment(
+            scenario,
+            agent.id,
+            &occupant.id,
+            None,
+            &occupant.modifier_ids,
+        );
+        spawned.push(agent);
     }
 
     for zone in &scenario.spawn_zones {
+        let assignments = super::modifiers::zone_assignments(scenario, zone);
         // Sample the bounding box; accept only discs inside the actual region and outside holes.
         let min_x = zone.x + radius;
         let min_y = zone.y + radius;
@@ -117,7 +152,15 @@ pub(super) fn spawn_agents(
                     occupant + 1, zone.count, zone.id,
                 ))
             })?;
-            spawned.push(Agent::new(spawned.len() as u32, position));
+            let mut agent = Agent::new(spawned.len() as u32, position);
+            agent.modifiers = super::modifiers::assignment(
+                scenario,
+                agent.id,
+                &zone.id,
+                Some(occupant),
+                &assignments[occupant as usize],
+            );
+            spawned.push(agent);
         }
     }
 
@@ -126,7 +169,7 @@ pub(super) fn spawn_agents(
 }
 
 // SplitMix64: repeatable simulation sampling, not security randomness.
-fn random_unit(state: &mut u64) -> f64 {
+pub(super) fn random_unit(state: &mut u64) -> f64 {
     *state = state.wrapping_add(0x9e3779b97f4a7c15);
     let mut value = *state;
     value = (value ^ (value >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);

@@ -175,10 +175,13 @@ function Playback({
       displayOptions,
     );
     const palette = canvasPalette(element);
-    const effects = createAgentEffects([
-      ...(recording?.communication_events ?? []),
-      ...(recording?.agent_events ?? []),
-    ]);
+    const effects = createAgentEffects(
+      [
+        ...(recording?.communication_events ?? []),
+        ...(recording?.agent_events ?? []),
+      ],
+      recording?.agent_modifiers,
+    );
     const trailSampler =
       recording && displayOptions.showTraffic
         ? createRecordedTrails(recording)

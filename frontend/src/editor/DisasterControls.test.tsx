@@ -177,7 +177,9 @@ it("uses a compact native radio group with one selected mode and feet-only dista
     expect(html).toContain("<legend>Scenario</legend>");
     expect(html.match(/type="radio"/g)).toHaveLength(4);
     expect(html.match(/checked=""/g)).toHaveLength(1);
-    expect(html).not.toContain("<select");
+    expect(
+      html.match(/<fieldset class="scenario-picker">.*?<\/fieldset>/s)?.[0],
+    ).not.toContain("<select");
     expect(html).not.toContain("(m)");
     if (kind) {
       expect(html).toContain("Hazard radius (ft)");

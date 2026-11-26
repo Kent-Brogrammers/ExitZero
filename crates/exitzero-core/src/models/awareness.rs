@@ -83,6 +83,7 @@ pub enum AgentEventKind {
     WindowTraversal,
     Exposure,
     Waiting,
+    YieldedToAgent,
     Evacuated,
     Sheltered,
 }

@@ -1,0 +1,184 @@
+{
+  "width": 30,
+  "height": 20,
+  "walls": [
+    {
+      "id": "north",
+      "start": {
+        "x": 2,
+        "y": 2
+      },
+      "end": {
+        "x": 28,
+        "y": 2
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "east_wall",
+      "start": {
+        "x": 28,
+        "y": 2
+      },
+      "end": {
+        "x": 28,
+        "y": 18
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "south",
+      "start": {
+        "x": 28,
+        "y": 18
+      },
+      "end": {
+        "x": 2,
+        "y": 18
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "west_wall",
+      "start": {
+        "x": 2,
+        "y": 18
+      },
+      "end": {
+        "x": 2,
+        "y": 2
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "partition",
+      "start": {
+        "x": 15,
+        "y": 2
+      },
+      "end": {
+        "x": 15,
+        "y": 18
+      },
+      "thickness": 0.2
+    },
+    {
+      "id": "angled",
+      "start": {
+        "x": 6.5,
+        "y": 11
+      },
+      "end": {
+        "x": 11,
+        "y": 15.5
+      },
+      "thickness": 0.2
+    }
+  ],
+  "doors": [
+    {
+      "id": "door_north",
+      "wall_id": "partition",
+      "offset": 3,
+      "width": 1.4
+    },
+    {
+      "id": "door_south",
+      "wall_id": "partition",
+      "offset": 11,
+      "width": 1.4
+    }
+  ],
+  "exits": [
+    {
+      "id": "west",
+      "wall_id": "west_wall",
+      "offset": 7,
+      "width": 1.6
+    },
+    {
+      "id": "east",
+      "wall_id": "east_wall",
+      "offset": 7,
+      "width": 1.6
+    }
+  ],
+  "spawn_zones": [
+    {
+      "id": "spawn_west",
+      "x": 5,
+      "y": 5,
+      "width": 5,
+      "height": 3,
+      "count": 18,
+      "modifier_groups": [
+        {
+          "count": 10,
+          "modifier_ids": []
+        },
+        {
+          "count": 4,
+          "modifier_ids": ["older"]
+        },
+        {
+          "count": 2,
+          "modifier_ids": ["scared"]
+        },
+        {
+          "count": 2,
+          "modifier_ids": ["older", "scared"]
+        }
+      ]
+    },
+    {
+      "id": "spawn_east",
+      "x": 20,
+      "y": 12,
+      "width": 4,
+      "height": 3,
+      "count": 16,
+      "modifier_groups": [
+        {
+          "count": 12,
+          "modifier_ids": []
+        },
+        {
+          "count": 4,
+          "modifier_ids": ["aggressive"]
+        }
+      ]
+    }
+  ],
+  "blocked_exit_ids": [],
+  "obstructions": [],
+  "agent_radius": 0.25,
+  "time_step_seconds": 0.1,
+  "seed": 42,
+  "max_steps": 1000,
+  "agent_speed_variation": 0.05,
+  "agent_modifiers": [
+    {
+      "id": "older",
+      "name": "Older",
+      "speed_multiplier": 0.7,
+      "acceleration_multiplier": 0.65
+    },
+    {
+      "id": "scared",
+      "name": "Scared",
+      "speed_multiplier": 0.25,
+      "acceleration_multiplier": 0.4,
+      "reaction_delay_seconds": 4,
+      "hazard_cost_multiplier": 2,
+      "route_switch_threshold_multiplier": 0.65
+    },
+    {
+      "id": "aggressive",
+      "name": "Aggressive",
+      "speed_multiplier": 1.15,
+      "crowd_cost_multiplier": 0.25,
+      "reassessment_interval_multiplier": 0.6,
+      "avoidance_priority_multiplier": 3
+    }
+  ]
+}

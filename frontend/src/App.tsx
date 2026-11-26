@@ -1,3 +1,4 @@
+import { withAutomaticModifiers } from "./editor/agentModifiers";
 import { halloweenPreset } from "./editor/presets";
 import { useDisplayUnits } from "./utils/useDisplayUnits";
 import type { ReplayTarget } from "./simulation/replayTarget";
@@ -84,8 +85,10 @@ export default function App() {
   }, []);
 
   const [building, setBuilding] = useState<BuildingScenario>(() =>
-    withWindowEscapeDefaults(
-      structuredClone(defaultOffice as BuildingScenario),
+    withAutomaticModifiers(
+      withWindowEscapeDefaults(
+        structuredClone(defaultOffice as BuildingScenario),
+      ),
     ),
   );
   const [halloweenMusic, setHalloweenMusic] = useState(false);
@@ -173,11 +176,15 @@ export default function App() {
     name: string,
     action: "edit" | "simulate",
     source?: UserTemplate,
+    preserveModifierSettings = false,
   ) {
     if (busy || !canReplace(name)) return false;
     // Pass this same independent copy to run(), without waiting for React state.
     setHalloweenMusic(!source && next === halloweenPreset.building);
-    const selected = withWindowEscapeDefaults(structuredClone(next));
+    const restored = withWindowEscapeDefaults(structuredClone(next));
+    const selected = preserveModifierSettings
+      ? restored
+      : withAutomaticModifiers(restored);
     setBuilding(selected);
     setBaseline(null);
     setActiveLayout(source?.kind === "layout" ? structuredClone(source) : null);
@@ -199,7 +206,7 @@ export default function App() {
     return true;
   }
   function changeBuilding(next: BuildingScenario) {
-    next = withWindowEscapeDefaults(next);
+    next = withAutomaticModifiers(withWindowEscapeDefaults(next));
     const namesOnly =
       JSON.stringify(withoutObjectNames(building)) ===
       JSON.stringify(withoutObjectNames(next));
@@ -387,6 +394,7 @@ export default function App() {
           "your recovered draft",
           "edit",
           draft.sourceLayout,
+          true,
         )
       )
         return false;
@@ -488,6 +496,14 @@ export default function App() {
       );
       return;
     }
+    const usesEditableLayout = scenario === building;
+    if (action !== "watch") {
+      const configured = withAutomaticModifiers(scenario);
+      if (configured !== scenario) {
+        if (scenario === building) setBuilding(configured);
+        scenario = configured;
+      }
+    }
     setBusy(true);
     setLive(null);
     setMessage("Sending request…");
@@ -518,7 +534,7 @@ export default function App() {
       if (action === "simulate") {
         setScenarioReplay(null);
         setViewOriginal(false);
-        if (officeDemo && scenario === building) setOfficeDemo("live");
+        if (officeDemo && usesEditableLayout) setOfficeDemo("live");
         setResult(null);
         setStressResult(null);
         setStressJobId(null);
@@ -586,6 +602,12 @@ export default function App() {
             );
           },
           id,
+          (agent_modifiers) => {
+            if (!controller.signal.aborted)
+              setLive((previous) =>
+                previous ? { ...previous, agent_modifiers } : previous,
+              );
+          },
         );
         acceptCompletion();
         setResult(recording);

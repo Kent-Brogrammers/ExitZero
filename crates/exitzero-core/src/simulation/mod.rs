@@ -23,6 +23,7 @@ mod evolution;
 mod geometry;
 mod heatmap;
 mod math;
+mod modifiers;
 mod motion;
 mod navigation;
 mod perception;
@@ -69,7 +70,7 @@ pub fn simulate_with_emergencies(
     scenario: &BuildingScenario,
     emergencies: &[Emergency],
 ) -> Result<SimulationResult, SimulationError> {
-    run(scenario, emergencies, None, None)
+    run(scenario, emergencies, None, None, None)
 }
 
 /// Observe actual physics frames before completion. Returning false cancels the
@@ -78,7 +79,7 @@ pub fn simulate_live(
     scenario: &BuildingScenario,
     on_frame: &mut dyn FnMut(&AnimationFrame) -> bool,
 ) -> Result<SimulationResult, SimulationError> {
-    run(scenario, &[], Some(on_frame), None)
+    run(scenario, &[], Some(on_frame), None, None)
 }
 
 type ChatObserver<'a> = dyn FnMut(&[CommunicationEvent], &[AgentEvent]) -> bool + 'a;
@@ -90,14 +91,33 @@ pub fn simulate_live_with_chat(
     on_frame: &mut dyn FnMut(&AnimationFrame) -> bool,
     on_chat: &mut ChatObserver<'_>,
 ) -> Result<SimulationResult, SimulationError> {
-    run(scenario, &[], Some(on_frame), Some(on_chat))
+    run(scenario, &[], Some(on_frame), Some(on_chat), None)
 }
+
+/// Report the actual immutable spawn assignments once, before the first live frame.
+pub fn simulate_live_with_initialization(
+    scenario: &BuildingScenario,
+    on_frame: &mut dyn FnMut(&AnimationFrame) -> bool,
+    on_chat: &mut ChatObserver<'_>,
+    on_initialized: &mut dyn FnMut(&crate::models::AgentModifierRecording) -> bool,
+) -> Result<SimulationResult, SimulationError> {
+    run(
+        scenario,
+        &[],
+        Some(on_frame),
+        Some(on_chat),
+        Some(on_initialized),
+    )
+}
+
+type InitializationObserver<'a> = dyn FnMut(&crate::models::AgentModifierRecording) -> bool + 'a;
 
 fn run(
     scenario: &BuildingScenario,
     emergencies: &[Emergency],
     mut on_frame: Option<&mut dyn FnMut(&AnimationFrame) -> bool>,
     mut on_chat: Option<&mut ChatObserver<'_>>,
+    mut on_initialized: Option<&mut InitializationObserver<'_>>,
 ) -> Result<SimulationResult, SimulationError> {
     control::checkpoint()?;
     control::step(0, scenario.max_steps);
@@ -139,6 +159,24 @@ fn run(
             geometry::Geometry::with_blocked_openings(scenario, emergencies, world.blocked());
     }
     agent::spawn_agents(&mut agents, scenario, &geometry)?;
+    for a in &mut agents {
+        a.curious_waiting = (scenario.disaster.is_some() || !emergencies.is_empty())
+            && a.modifiers.modifier_ids.iter().any(|id| {
+                scenario
+                    .agent_modifiers
+                    .iter()
+                    .any(|m| &m.id == id && m.requires_emergency_discovery)
+            });
+    }
+    let mut curious_paths: Vec<Option<navigation::Route>> =
+        (0..agents.len()).map(|_| None).collect();
+    let mut curious_visited = vec![Vec::new(); agents.len()];
+
+    if let Some(emit) = &mut on_initialized
+        && !emit(&modifiers::recording(scenario, &agents))
+    {
+        return Err(SimulationError::Cancelled);
+    }
 
     let mut beliefs = awareness::BeliefMaps::new(scenario, emergencies);
     for agent in &mut agents {
@@ -211,7 +249,8 @@ fn run(
     let mut last_resolved_population = 0;
     let mut communication_events = Vec::new();
     let mut dialogue = dialogue::Dialogue::new(agents.len());
-    let movement_budget = motion::WALKING_SPEED * scenario.time_step_seconds;
+    let mut last_yield = BTreeMap::<(usize, usize), u32>::new();
+    let modified_run = agents.iter().any(Agent::modified);
 
     // Bound animation output by sampling ticks, retaining initial/final frames.
     // Physics and traffic still update every tick.
@@ -301,7 +340,7 @@ fn run(
             );
         }
         let now = f64::from(step) * scenario.time_step_seconds;
-        let (changed_beliefs, information_changed) = awareness::update_knowledge(
+        let (mut changed_beliefs, information_changed) = awareness::update_knowledge(
             &mut agents,
             &evacuated,
             &world,
@@ -317,6 +356,14 @@ fn run(
                 });
             },
         );
+        for i in 0..agents.len() {
+            if agents[i].curious_waiting && agents[i].saw_emergency {
+                agents[i].curious_waiting = false;
+                routes[i] = None;
+                changed_beliefs[i] = true;
+                windows.cancel(i);
+            }
+        }
         for i in 0..agents.len() {
             control::checkpoint()?;
             let versions: Vec<_> = agents[i]
@@ -419,6 +466,26 @@ fn run(
             routed_disaster[i] = versions;
             last_disaster_replan[i] = now;
         }
+        // A window approach leaves the old exit waypoints behind. Compare against
+        // a fresh safe exit route from the current position, using personal knowledge.
+        let comparison_ticks = (0.5 / scenario.time_step_seconds).ceil().max(1.0) as u32;
+        if step.is_multiple_of(comparison_ticks) {
+            for i in 0..agents.len() {
+                if evacuated[i] || !windows.controls(i) {
+                    continue;
+                }
+                let (map, navigation) = beliefs.for_agent(&agents[i]);
+                let forecast = congestion::CrowdForecast::for_geometry(map)
+                    .with_discovery(scenario, &agents[i], map);
+                routes[i] = navigation.find_safe_route_with_forecast(
+                    agents[i].position,
+                    map,
+                    &forecast,
+                    scenario.agent_radius,
+                );
+                next_waypoint[i] = 0;
+            }
+        }
         let exit_seconds = expected_exit_seconds(
             scenario,
             &agents,
@@ -481,6 +548,10 @@ fn run(
                 .iter()
                 .enumerate()
                 .any(|(i, route)| !evacuated[i] && route.is_some())
+            && !agents
+                .iter()
+                .enumerate()
+                .any(|(i, a)| !evacuated[i] && (a.reacting(step) || a.curious_waiting))
             && !world.has_pending_changes()
             && !information_changed
             && scenario.disaster.is_none()
@@ -494,6 +565,24 @@ fn run(
             break (SimulationStatus::Timeout, TerminationReason::StepLimit);
         }
 
+        let movement_speeds: Vec<_> = agents
+            .iter()
+            .map(|a| if a.reacting(step) { 0.0 } else { a.speed() })
+            .collect();
+        let movement_budgets: Vec<_> = movement_speeds
+            .iter()
+            .map(|speed| speed * scenario.time_step_seconds)
+            .collect();
+        for (controller, agent) in motion.iter_mut().zip(&agents).filter(|_| modified_run) {
+            controller.configure(
+                if agent.reacting(step) {
+                    0.0
+                } else {
+                    agent.speed()
+                },
+                motion::ACCELERATION * agent.modifiers.resolved.acceleration_multiplier,
+            );
+        }
         let before: Vec<Point> = agents.iter().map(|agent| agent.position).collect();
         let previous_velocities: Vec<_> = motion.iter().map(motion::Motion::velocity).collect();
         // Reassess moving agents too, using only currently visible people.
@@ -542,7 +631,15 @@ fn run(
                 && stalled_ticks[i].is_multiple_of(retry_ticks))
                 || (without_progress >= retry_ticks
                     && without_progress.is_multiple_of(retry_ticks));
-            let periodic = (u64::from(step) + i as u64).is_multiple_of(u64::from(retry_ticks));
+            let reassessment_ticks = (f64::from(retry_ticks)
+                * agents[i]
+                    .modifiers
+                    .resolved
+                    .reassessment_interval_multiplier)
+                .ceil()
+                .max(1.0) as u32;
+            let periodic =
+                (u64::from(step) + i as u64).is_multiple_of(u64::from(reassessment_ticks));
             if !lost_sight && !stalled && !periodic {
                 continue;
             }
@@ -595,7 +692,7 @@ fn run(
                     true
                 } else {
                     let current = routes[i].as_ref().unwrap();
-                    commitments[i].consider(
+                    commitments[i].consider_with_threshold(
                         now,
                         before[i],
                         congestion::RouteEstimate {
@@ -609,6 +706,10 @@ fn run(
                             cost,
                         },
                         scenario.agent_radius,
+                        agents[i]
+                            .modifiers
+                            .resolved
+                            .route_switch_threshold_multiplier,
                     )
                 };
                 if accept {
@@ -695,7 +796,13 @@ fn run(
                         return false;
                     }
                     let other = math::distance_to_point(before[j], arrival_targets[j].unwrap());
-                    other < distance || (other == distance && agents[j].id < agents[i].id)
+                    other < distance
+                        || (other == distance
+                            && (agents[j].modifiers.resolved.avoidance_priority_multiplier
+                                > agents[i].modifiers.resolved.avoidance_priority_multiplier
+                                || (agents[j].modifiers.resolved.avoidance_priority_multiplier
+                                    == agents[i].modifiers.resolved.avoidance_priority_multiplier
+                                    && agents[j].id < agents[i].id)))
                 })
             })
             .collect();
@@ -708,7 +815,52 @@ fn run(
         // tick, including the very first one. All people see the same snapshot.
         for i in 0..agents.len() {
             control::checkpoint()?;
-            if evacuated[i] {
+            if evacuated[i] || agents[i].reacting(step) {
+                continue;
+            }
+            if agents[i].curious_waiting {
+                windows.cancel(i);
+                if curious_paths[i].as_ref().is_some_and(|r| {
+                    r.waypoints.is_empty()
+                        || math::distance_to_point(before[i], *r.waypoints.last().unwrap()) < 0.1
+                }) {
+                    curious_visited[i].push(before[i]);
+                    curious_paths[i] = None;
+                }
+                if curious_paths[i].is_none() || stalled_ticks[i] >= retry_ticks {
+                    let architecture = beliefs.architecture.clone();
+                    let (map, navigation) = beliefs.for_agent(&agents[i]);
+                    curious_paths[i] = discovery::search_route(
+                        scenario,
+                        &agents[i],
+                        map,
+                        navigation,
+                        &curious_visited[i],
+                        &architecture,
+                    );
+                    stalled_ticks[i] = 0;
+                }
+                if let Some(r) = &mut curious_paths[i] {
+                    while r.waypoints.len() > 1
+                        && math::distance_to_point(before[i], r.waypoints[0]) < 0.15
+                    {
+                        r.waypoints.remove(0);
+                    }
+                }
+                routes[i] = curious_paths[i].clone();
+                next_waypoint[i] = 0;
+                if let Some(r) = &routes[i] {
+                    let mut target = r.waypoints[0];
+                    for &p in &r.waypoints {
+                        if math::distance_to_point(before[i], p) > 0.1 {
+                            target = p;
+                            break;
+                        }
+                    }
+                    targets[i] = Some(target);
+                    velocity_limits[i] =
+                        geometry.velocity_limits(before[i], scenario.time_step_seconds);
+                }
                 continue;
             }
             if windows.controls(i) {
@@ -721,7 +873,7 @@ fn run(
                     before[i],
                     scenario.time_step_seconds,
                 ));
-                if agents[i].injury > 0.0 {
+                if !modified_run && agents[i].injury > 0.0 {
                     velocity_limits[i].extend(motion::injury_speed_limits(agents[i].injury));
                 }
                 continue;
@@ -731,7 +883,7 @@ fn run(
                     targets[i] = Some(waypoints[next_escape_waypoint[i]]);
                     velocity_limits[i] =
                         geometry.velocity_limits(before[i], scenario.time_step_seconds);
-                    if agents[i].injury > 0.0 {
+                    if !modified_run && agents[i].injury > 0.0 {
                         velocity_limits[i].extend(motion::injury_speed_limits(agents[i].injury));
                     }
                 }
@@ -785,7 +937,7 @@ fn run(
             let waypoint = route.waypoints[next_waypoint[i]];
             targets[i] = Some(waypoint);
             velocity_limits[i] = geometry.velocity_limits(before[i], scenario.time_step_seconds);
-            if agents[i].injury > 0.0 {
+            if !modified_run && agents[i].injury > 0.0 {
                 velocity_limits[i].extend(motion::injury_speed_limits(agents[i].injury));
             }
             if geometry.can_move(before[i], *route.waypoints.last().unwrap()) {
@@ -809,8 +961,12 @@ fn run(
                 .map(|(j, &position)| motion::Neighbor {
                     position,
                     velocity: previous_velocities[j],
-                    responsibility: if routes[j].is_some() || escape_routes[j].is_some() {
-                        0.5
+                    responsibility: if !agents[j].reacting(step)
+                        && (routes[j].is_some() || escape_routes[j].is_some())
+                    {
+                        agents[j].modifiers.resolved.avoidance_priority_multiplier
+                            / (agents[i].modifiers.resolved.avoidance_priority_multiplier
+                                + agents[j].modifiers.resolved.avoidance_priority_multiplier)
                     } else {
                         1.0
                     },
@@ -840,12 +996,11 @@ fn run(
             };
             if windows.controls(i) {
                 let neighbors = previous_neighbors(i);
-                let budget =
-                    windows.movement_budget(i, movement_budget * (1.0 - 0.75 * agents[i].injury));
+                let budget = windows.movement_budget(i, movement_budgets[i]);
                 let candidate = if windows.traversing(i)
                     || (windows.has_priority(i)
                         && math::distance_to_point(before[i], waypoint)
-                            <= 2.0 * scenario.agent_radius + movement_budget
+                            <= 2.0 * scenario.agent_radius + movement_budgets[i]
                         && geometry.can_move(before[i], waypoint))
                 {
                     // Climbing follows the real checked side-to-side segment;
@@ -892,7 +1047,9 @@ fn run(
                 .map(|(j, &position)| motion::Neighbor {
                     position,
                     velocity: intents[j],
-                    responsibility: if routes[j].is_none() && escape_routes[j].is_none() {
+                    responsibility: if agents[j].reacting(step)
+                        || (routes[j].is_none() && escape_routes[j].is_none())
+                    {
                         1.0
                     } else if same_lane(i, j) && arrival_priority[i] {
                         0.05
@@ -907,13 +1064,20 @@ fn run(
                     {
                         // Interior passages can serve agents heading to different exits.
                         // Break reciprocal symmetry near a shared waypoint as well.
-                        if agents[i].id < agents[j].id {
+                        if agents[i].modifiers.resolved.avoidance_priority_multiplier
+                            > agents[j].modifiers.resolved.avoidance_priority_multiplier
+                            || (agents[i].modifiers.resolved.avoidance_priority_multiplier
+                                == agents[j].modifiers.resolved.avoidance_priority_multiplier
+                                && agents[i].id < agents[j].id)
+                        {
                             0.05
                         } else {
                             0.95
                         }
                     } else {
-                        0.5
+                        agents[j].modifiers.resolved.avoidance_priority_multiplier
+                            / (agents[i].modifiers.resolved.avoidance_priority_multiplier
+                                + agents[j].modifiers.resolved.avoidance_priority_multiplier)
                     },
                     horizon: if route.is_some_and(|route| {
                         routes[j]
@@ -938,15 +1102,18 @@ fn run(
                 &neighbors,
                 velocity_limits[i].clone(),
             );
-            if arrival_priority[i]
+            if !agents[i].curious_waiting
+                && arrival_priority[i]
                 && route.is_some_and(|route| next_waypoint[i] + 1 == route.waypoints.len())
                 && math::distance_to_point(before[i], exit)
-                    <= 2.0 * scenario.agent_radius + movement_budget
+                    <= 2.0 * scenario.agent_radius + movement_budgets[i]
                 && geometry.can_move(before[i], exit)
             {
                 let speed = (previous_velocities[i].x.hypot(previous_velocities[i].y)
-                    + motion::ACCELERATION * scenario.time_step_seconds)
-                    .min(motion::WALKING_SPEED * (1.0 - 0.75 * agents[i].injury));
+                    + motion::ACCELERATION
+                        * agents[i].modifiers.resolved.acceleration_multiplier
+                        * scenario.time_step_seconds)
+                    .min(agents[i].speed());
                 candidate = math::move_toward(before[i], exit, speed * scenario.time_step_seconds);
             }
             if math::distance_to_point(candidate, waypoint) < 1e-8 {
@@ -970,7 +1137,7 @@ fn run(
                     if math::distance_to_point(
                         before[i],
                         *routes[i].as_ref().unwrap().waypoints.last().unwrap(),
-                    ) <= movement_budget * 0.2
+                    ) <= movement_budgets[i] * 0.2
                     {
                         0.0
                     } else {
@@ -981,17 +1148,29 @@ fn run(
                 }
             })
             .collect();
-        motion::coordinate_moves(
+        let compliance: Vec<_> = compliance
+            .iter()
+            .enumerate()
+            .map(|(i, value)| value / agents[i].modifiers.resolved.avoidance_priority_multiplier)
+            .collect();
+        motion::coordinate_moves_with_speeds(
             &before,
             &mut proposed,
             &active,
             &compliance,
             scenario.agent_radius,
             scenario.time_step_seconds,
-            &velocity_limits,
+            motion::MotionLimits {
+                velocity: &velocity_limits,
+                speeds: &movement_speeds,
+            },
         );
         for i in 0..agents.len() {
             control::checkpoint()?;
+            if modified_run && math::distance_to_point(before[i], proposed[i]) > movement_budgets[i]
+            {
+                proposed[i] = math::move_toward(before[i], proposed[i], movement_budgets[i]);
+            }
             proposed[i].x = proposed[i].x.clamp(0.0, scenario.width);
             proposed[i].y = proposed[i].y.clamp(0.0, scenario.height);
             let enters_fire_core = !windows.traversing(i)
@@ -1007,8 +1186,7 @@ fn run(
                 proposed[i] = before[i];
             }
             if windows.controls(i) {
-                let budget =
-                    windows.movement_budget(i, movement_budget * (1.0 - 0.75 * agents[i].injury));
+                let budget = windows.movement_budget(i, movement_budgets[i]);
                 if math::distance_to_point(before[i], proposed[i]) > budget + 1e-8 {
                     proposed[i] = math::move_toward(before[i], proposed[i], budget);
                     if !windows
@@ -1023,6 +1201,62 @@ fn run(
         motion::resolve_collisions(&before, &mut proposed, &active, scenario.agent_radius);
         #[cfg(test)]
         tests::assert_accepted_moves(scenario, &geometry, &before, &proposed, &active, &windows);
+        let aggressive: Vec<_> = agents
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| a.modifiers.resolved.avoidance_priority_multiplier > 1.0)
+            .map(|(i, _)| i)
+            .collect();
+        let mut yield_events = Vec::new();
+        for i in 0..agents.len() {
+            if evacuated[i] || agents[i].reacting(step) {
+                continue;
+            }
+            for &j in &aggressive {
+                let priority = agents[j].modifiers.resolved.avoidance_priority_multiplier;
+                let own = agents[i].modifiers.resolved.avoidance_priority_multiplier;
+                if i == j
+                    || evacuated[j]
+                    || priority <= 1.0
+                    || priority <= own
+                    || math::distance_to_point(before[j], proposed[j]) < 1e-6
+                {
+                    continue;
+                }
+                if last_yield.get(&(i, j)).is_some_and(|last| {
+                    f64::from(step.saturating_sub(*last)) * scenario.time_step_seconds < 1.0
+                }) {
+                    continue;
+                }
+                let accepted = Point {
+                    x: (proposed[i].x - before[i].x) / scenario.time_step_seconds,
+                    y: (proposed[i].y - before[i].y) / scenario.time_step_seconds,
+                };
+                if motion::yielded_to_neighbor(
+                    before[i],
+                    intents[i],
+                    accepted,
+                    motion::Neighbor {
+                        position: before[j],
+                        velocity: intents[j],
+                        responsibility: priority / (priority + own),
+                        horizon: 1.5,
+                    },
+                    scenario.agent_radius,
+                    scenario.time_step_seconds,
+                ) {
+                    last_yield.insert((i, j), step);
+                    yield_events.push(crate::models::AgentEvent {
+                        step: step + 1,
+                        agent_id: agents[i].id,
+                        kind: crate::models::AgentEventKind::YieldedToAgent,
+                        subject_id: Some(agents[j].id.to_string()),
+                        position: Some(proposed[i]),
+                        hazard_kind: None,
+                    });
+                }
+            }
+        }
         let previous_hazard = world.prepare_hazards(step + 1);
         let mut leaving = Vec::new();
         for i in 0..agents.len() {
@@ -1051,11 +1285,14 @@ fn run(
                 statistics[i].waiting_steps += 1;
             }
             if math::distance_to_point(proposed[i], waypoint)
-                < math::distance_to_point(before[i], waypoint) - movement_budget * 0.05
+                < math::distance_to_point(before[i], waypoint) - movement_budgets[i] * 0.05
             {
                 stalled_ticks[i] = 0;
             } else {
                 stalled_ticks[i] += 1;
+            }
+            if agents[i].curious_waiting {
+                continue;
             }
             if windows.controls(i) {
                 if windows.searching(i)
@@ -1098,15 +1335,38 @@ fn run(
             }
         }
 
-        heatmap.record(
+        let crowd_inactive: Vec<_> = (0..agents.len())
+            .map(|i| {
+                evacuated[i]
+                    || (modified_run
+                        && (agents[i].reacting(step)
+                            || (windows.using_window(i)
+                                && !windows.traversing(i)
+                                && targets[i].is_some_and(|target| {
+                                    math::distance_to_point(before[i], target) <= math::EPSILON
+                                }))))
+            })
+            .collect();
+        let reference_speeds: Vec<_> = agents
+            .iter()
+            .map(|a| {
+                if modified_run {
+                    a.speed()
+                } else {
+                    motion::WALKING_SPEED
+                }
+            })
+            .collect();
+        heatmap.record_with_speeds(
             scenario,
             &before,
             &agents,
-            &evacuated,
+            &crowd_inactive,
             &geometry,
-            motion::WALKING_SPEED,
+            &reference_speeds,
         );
         step += 1;
+        dialogue.events.extend(yield_events);
         control::step(step, scenario.max_steps);
         // Include exit arrivals in traffic before removing evacuated agents.
         record_traffic(scenario, &agents, &evacuated, &mut traffic);
@@ -1230,7 +1490,11 @@ fn run(
         for (i, agent) in agents.iter().enumerate() {
             if !evacuated[i]
                 && math::distance_to_point(movement_anchors[i], agent.position)
-                    >= MEANINGFUL_MOVEMENT_METRES
+                    >= if modified_run {
+                        MEANINGFUL_MOVEMENT_METRES.min(agent.speed() * 0.1)
+                    } else {
+                        MEANINGFUL_MOVEMENT_METRES
+                    }
             {
                 meaningful_movement = true;
                 movement_anchors[i] = agent.position;
@@ -1258,6 +1522,10 @@ fn run(
                 .enumerate()
                 .any(|(i, route)| !evacuated[i] && route.is_some());
         if !has_destination
+            && !agents
+                .iter()
+                .enumerate()
+                .any(|(i, a)| !evacuated[i] && (a.reacting(step) || a.curious_waiting))
             && f64::from(step - last_movement_step) * scenario.time_step_seconds
                 >= STAGNATION_SECONDS
         {
@@ -1316,6 +1584,7 @@ fn run(
     analytics.window_decisions = Some(windows.take_decisions());
     control::checkpoint()?;
     Ok(SimulationResult {
+        agent_modifiers: Some(modifiers::recording(scenario, &agents)),
         congestion_samples: heatmap.total(),
         metrics: SimulationMetrics {
             sheltered: sheltered_count,
@@ -1379,14 +1648,12 @@ fn expected_exit_seconds(
             {
                 return f64::INFINITY;
             }
-            let forecast =
-                congestion::CrowdForecast::for_geometry(map).with_discovery(scenario, agent, map);
             navigation::route_cost(
                 agent.position,
                 &route.waypoints[cursors[i]..],
-                &forecast,
+                &congestion::CrowdForecast::default(),
                 scenario.agent_radius,
-            ) / (motion::WALKING_SPEED * (1.0 - 0.75 * agent.injury))
+            ) / agent.speed()
         })
         .collect()
 }

@@ -35,6 +35,7 @@ impl Ord for SearchState {
 }
 
 /// A route ends at a body-clear position anywhere along its exit opening.
+#[derive(Clone)]
 pub(super) struct Route {
     /// A gas crossing accepted only after a search for a clear route failed.
     pub risk_allowed: bool,

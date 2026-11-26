@@ -20,6 +20,9 @@ pub struct LiveSpeedControl {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SimulationStreamEvent {
+    Initialized {
+        agent_modifiers: super::AgentModifierRecording,
+    },
     Frame {
         frame: AnimationFrame,
     },

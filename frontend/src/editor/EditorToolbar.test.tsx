@@ -14,6 +14,7 @@ const onClear = vi.fn();
 const onExportImage = vi.fn();
 const onFocusSelection = vi.fn();
 const onPreviousView = vi.fn();
+const onAgentModifiers = vi.fn();
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal(
@@ -30,6 +31,7 @@ beforeEach(() => {
   onExportImage.mockReset();
   onFocusSelection.mockReset();
   onPreviousView.mockReset();
+  onAgentModifiers.mockReset();
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -70,6 +72,7 @@ async function menus(
   await act(async () =>
     root.render(
       <EditorUtilityRail
+        onAgentModifiers={onAgentModifiers}
         disabled={disabled}
         canUndo
         canRedo={false}
@@ -218,4 +221,14 @@ it("restores stair insertion, gates shelter insertion, and guards unavailable ed
   expect(onDelete).toHaveBeenCalledOnce();
   await click("Clear Plan");
   expect(onClear).toHaveBeenCalledOnce();
+});
+
+it("opens personality settings from Edit without requiring a selection", async () => {
+  await menus();
+  await click("Edit");
+  await click("Agent personalities…");
+  expect(onAgentModifiers).toHaveBeenCalledOnce();
+  expect(
+    host.querySelector('[aria-label="Edit"]')?.getAttribute("aria-expanded"),
+  ).not.toBe("true");
 });

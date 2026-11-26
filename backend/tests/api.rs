@@ -73,6 +73,10 @@ async fn live_route_delivers_frames_before_the_final_recording() {
     let mut building: BuildingScenario = serde_json::from_value(building()).unwrap();
     building.max_steps = 2;
     building.time_step_seconds = 0.01;
+    building.agent_modifiers =
+        serde_json::from_value(json!([{"id":"slow","name":"Slow","speed_multiplier":0.5}]))
+            .unwrap();
+    building.spawn_modifier_ids = Some(vec!["slow".into()]);
     let request = Request::post("/api/simulate/live")
         .header("content-type", "application/json")
         .body(Body::from(serde_json::to_vec(&building).unwrap()))
@@ -86,8 +90,11 @@ async fn live_route_delivers_frames_before_the_final_recording() {
         .unwrap()
         .unwrap();
     let event: Value = serde_json::from_slice(&first).unwrap();
-    assert_eq!(event["type"], "frame");
-    assert_eq!(event["frame"]["step"], 0);
+    assert_eq!(event["type"], "initialized");
+    assert_eq!(
+        event["agent_modifiers"]["agents"].as_array().unwrap().len(),
+        building.population() as usize
+    );
     // The API remains responsive while a live simulation owns a worker.
     assert_eq!(self::request("/api/health", None).await.0, StatusCode::OK);
     let mut bytes = first.to_vec();
@@ -104,12 +111,17 @@ async fn live_route_delivers_frames_before_the_final_recording() {
             .iter()
             .map(|event| event["type"].as_str().unwrap())
             .collect::<Vec<_>>(),
-        vec!["frame", "frame", "chat", "complete"]
+        vec!["initialized", "frame", "frame", "chat", "complete"]
     );
-    assert_eq!(events[1]["frame"]["step"], 2);
+    assert_eq!(events[1]["frame"]["step"], 0);
+    assert_eq!(events[2]["frame"]["step"], 2);
     let result: SimulationResult =
         serde_json::from_value(events.last().unwrap()["result"].clone()).unwrap();
     result.validate().unwrap();
+    assert_eq!(
+        events[0]["agent_modifiers"],
+        serde_json::to_value(&result.agent_modifiers).unwrap()
+    );
     let expected: Value =
         serde_json::from_slice(&serde_json::to_vec(&simulate(&building).unwrap()).unwrap())
             .unwrap();

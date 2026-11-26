@@ -178,7 +178,7 @@ async fn production_router_keeps_batch_and_live_simulation_working() {
     .unwrap();
     assert_eq!(
         serde_json::from_slice::<Value>(&first).unwrap()["type"],
-        "frame"
+        "initialized"
     );
     let mut recording = first.to_vec();
     while let Some(chunk) = poll_fn(|cx| Pin::new(&mut stream).poll_next(cx)).await {
