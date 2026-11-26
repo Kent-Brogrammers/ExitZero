@@ -324,13 +324,15 @@ export function drawLayout(
           Math.PI * 2,
         );
         ctx.stroke();
-        ctx.font = `${11 * px}px system-ui`;
-        ctx.fillStyle = palette.wall;
-        ctx.fillText(
-          occupant.name ?? `Occupant ${index + 1}`,
-          occupant.x + building.agent_radius + 6 * px,
-          occupant.y - 6 * px,
-        );
+        if (options?.showLabels !== false) {
+          ctx.font = `${11 * px}px system-ui`;
+          ctx.fillStyle = palette.wall;
+          ctx.fillText(
+            occupant.name ?? `Occupant ${index + 1}`,
+            occupant.x + building.agent_radius + 6 * px,
+            occupant.y - 6 * px,
+          );
+        }
       }
     }
   }

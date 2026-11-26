@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import example from "../../../shared/examples/building.json";
-import { AgentModifiersDialog } from "./AgentModifiers";
+import { AgentModifiersDialog } from "./AgentModifiersDialog";
 import { buildingError } from "./geometry";
 import { modifierPresets } from "./agentModifiers";
 import type { BuildingScenario } from "../types/simulation";

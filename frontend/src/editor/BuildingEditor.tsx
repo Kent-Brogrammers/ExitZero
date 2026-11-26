@@ -1,4 +1,4 @@
-import { AgentModifiersDialog } from "./AgentModifiers";
+import { AgentModifiersDialog } from "./AgentModifiersDialog";
 import {
   formatLength,
   formatDimensions,
@@ -95,6 +95,10 @@ import { drawLayout } from "./draw";
 import { CanvasScale } from "./CanvasScale";
 import { ArrangeDialog, type ArrangeSource } from "./ArrangeDialog";
 import { arrangeProblem } from "./arrange";
+import {
+  OccupantLayoutDialog,
+  type OccupantLayoutSource,
+} from "./OccupantLayoutDialog";
 import { nearestWallSnap, wallSnapTargets } from "./snapping";
 import { measurementVisibility } from "./measurements";
 import { constrainWallEnd, isOnLockedWallAngle } from "./wallAngles";
@@ -219,6 +223,8 @@ export function BuildingEditor({
   const [arrangeSource, setArrangeSource] = useState<ArrangeSource | null>(
     null,
   );
+  const [occupantLayout, setOccupantLayout] =
+    useState<OccupantLayoutSource | null>(null);
   const propertiesButton = useRef<HTMLButtonElement>(null);
   const savedLayout = useRef(JSON.stringify(building));
   const [furnitureSymbols, setFurnitureSymbols] = useState(
@@ -253,6 +259,21 @@ export function BuildingEditor({
     selected?.kind === "spawn_zones"
       ? roomFillZones(building, selected.id)
       : [];
+  const canPopulateObject =
+    !disabled &&
+    !gesture &&
+    !panning &&
+    !spawnPolygon.length &&
+    selections.length === 1 &&
+    selected?.kind === "obstructions";
+  function openOccupantLayout() {
+    if (!canPopulateObject || !selected) return;
+    setOccupantLayout({
+      building,
+      objectId: selected.id,
+      furniture: new Map(furnitureSymbols),
+    });
+  }
 
   useEffect(() => {
     const update = () =>
@@ -1802,6 +1823,34 @@ export function BuildingEditor({
           }}
         />
       )}
+      {occupantLayout && (
+        <OccupantLayoutDialog
+          source={occupantLayout}
+          stale={disabled || occupantLayout.building !== building}
+          onClose={() => {
+            setOccupantLayout(null);
+            canvas.current?.focus({ preventScroll: true });
+          }}
+          onApply={(result) => {
+            if (
+              disabled ||
+              occupantLayout.building !== building ||
+              result.error
+            )
+              return false;
+            if (!commit(result.building, false, result.selections))
+              return false;
+            setTool("select");
+            setPanMode(false);
+            setCursor(null);
+            setPropertiesOpen(false);
+            setNotice(
+              `Added ${result.selections.length} individual occupants · Undo removes this placement.`,
+            );
+            return true;
+          }}
+        />
+      )}
       {modifiersOpen && (
         <AgentModifiersDialog
           building={building}
@@ -1948,6 +1997,8 @@ export function BuildingEditor({
             <EditorDrawingRail
               tool={tool}
               disabled={disabled}
+              onOccupantLayout={openOccupantLayout}
+              canPopulateObject={canPopulateObject}
               onTool={changeTool}
               onOpenPanel={() => setPropertiesOpen(false)}
               historyControls={
@@ -2428,6 +2479,14 @@ export function BuildingEditor({
                 )}
                 {selected.kind === "obstructions" && (
                   <>
+                    <button
+                      type="button"
+                      className="studio-control"
+                      disabled={!canPopulateObject}
+                      onClick={openOccupantLayout}
+                    >
+                      Place people around object…
+                    </button>
                     <label className="number-field">
                       Drawing style
                       <select
