@@ -29,6 +29,10 @@ interface EditorUtilityRailProps {
   onNew: () => void;
   onImport: () => void;
   onImportDxf: () => void;
+  onImportImage?: () => void;
+  onOpenProject?: () => void;
+  onSaveProject?: () => void;
+  projectBusy?: boolean;
   onExport: () => void;
   onExportImage?: () => void;
   canFocusSelection?: boolean;
@@ -37,6 +41,7 @@ interface EditorUtilityRailProps {
   onPreviousView?: () => void;
   onProperties: () => void;
   canvasControls: ReactNode;
+  tracingControls?: ReactNode;
   drafting: DraftingPreferences;
   onDrafting: (p: DraftingPreferences) => void;
 }
@@ -83,6 +88,33 @@ export function EditorUtilityRail(props: EditorUtilityRailProps) {
       >
         {(close) => (
           <div className="file-actions">
+            {props.onOpenProject && props.onSaveProject && (
+              <>
+                <button
+                  type="button"
+                  className="studio-control"
+                  disabled={props.projectBusy}
+                  onClick={() => {
+                    close();
+                    props.onOpenProject?.();
+                  }}
+                >
+                  Open Project…
+                </button>
+                <button
+                  type="button"
+                  className="studio-control"
+                  disabled={props.projectBusy}
+                  onClick={() => {
+                    close();
+                    props.onSaveProject?.();
+                  }}
+                >
+                  Save Project
+                </button>
+                <hr />
+              </>
+            )}
             {props.saveActions && (
               <>
                 {(
@@ -113,6 +145,9 @@ export function EditorUtilityRail(props: EditorUtilityRailProps) {
                 ["New Layout", props.onNew],
                 ["Import JSON", props.onImport],
                 ["Import DXF", props.onImportDxf],
+                ...(props.onImportImage
+                  ? [["Import image…", props.onImportImage] as const]
+                  : []),
                 ["Export JSON", props.onExport],
               ] as const
             ).map(([label, action]) => (
@@ -329,6 +364,11 @@ export function EditorUtilityRail(props: EditorUtilityRailProps) {
           </>
         )}
       </StudioPopover>
+      {props.tracingControls && (
+        <StudioPopover label="Tracing image" disabled={props.disabled}>
+          {() => props.tracingControls}
+        </StudioPopover>
+      )}
       {props.scenarioControls}
       <button
         type="button"

@@ -17,6 +17,7 @@ type Mode = "edit" | "simulation";
 interface BuildingWorkspaceProps {
   building: BuildingScenario;
   onChange: (building: BuildingScenario) => void;
+  onOpenProject?: (building: BuildingScenario) => void;
   result: SimulationResult | null;
   live?: LiveSimulation | null;
   replayTarget?: ReplayTarget | null;
@@ -42,6 +43,7 @@ interface BuildingWorkspaceProps {
 export function BuildingWorkspace({
   building,
   onChange,
+  onOpenProject,
   result,
   live,
   disabled,
@@ -96,6 +98,7 @@ export function BuildingWorkspace({
           editorRef={editorRef}
           building={building}
           onChange={onChange}
+          onOpenProject={onOpenProject}
           disabled={disabled}
           savedLayoutJson={savedLayoutJson}
           onSaved={onSaved}
