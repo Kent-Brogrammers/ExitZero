@@ -19,7 +19,7 @@ export function furnitureKind(tool: string): FurnitureKind | null {
     ? (kind as FurnitureKind)
     : null;
 }
-/** All enabled presets are honest full rectangular blockers. Symbol identity is session-only. */
+/** Full rectangular blockers; optional symbols are saved separately in project files. */
 export function addFurniture(
   building: BuildingScenario,
   kind: FurnitureKind,

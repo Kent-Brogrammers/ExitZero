@@ -102,6 +102,16 @@ import {
 import { nearestWallSnap, wallSnapTargets } from "./snapping";
 import { measurementVisibility } from "./measurements";
 import { constrainWallEnd, isOnLockedWallAngle } from "./wallAngles";
+import { TracingImageDialog } from "./TracingImageDialog";
+import {
+  drawTracingReference,
+  fitTracingConfig,
+  tracingBounds,
+  type TracingReference,
+} from "./tracing";
+import { useTracingReference } from "./useTracingReference";
+import { useProjectFiles } from "./useProjectFiles";
+import type { OpenedProject } from "./projectFile";
 import "./BuildingEditor.css";
 
 type EditorSnapshot = {
@@ -133,6 +143,7 @@ export interface BuildingEditorHandle {
 interface BuildingEditorProps {
   building: BuildingScenario;
   onChange: (building: BuildingScenario) => void;
+  onOpenProject?: (building: BuildingScenario) => void;
   disabled?: boolean;
   savedLayoutJson?: string;
   onSaved?: (building: BuildingScenario, reason?: "export" | "replace") => void;
@@ -184,6 +195,7 @@ function NumberField({
 export function BuildingEditor({
   building,
   onChange,
+  onOpenProject,
   disabled = false,
   savedLayoutJson,
   onSaved,
@@ -192,6 +204,14 @@ export function BuildingEditor({
 }: BuildingEditorProps) {
   const theme = useStudioTheme();
   const units = useDisplayUnits();
+  const tracing = useTracingReference(building);
+  const reference = tracing.reference;
+  const [tracingDialog, setTracingDialog] = useState<TracingReference | null>(
+    null,
+  );
+  const [loadingImage, setLoadingImage] = useState(false);
+  const tracingInput = useRef<HTMLInputElement>(null),
+    imageRequest = useRef(0);
   const [drafting, setDrafting] = useDraftingPreferences();
   const editor = useRef<HTMLElement>(null);
   const [expandedView, setExpandedView] = useState(false);
@@ -247,6 +267,23 @@ export function BuildingEditor({
   const [notice, setNotice] = useState("");
   const [history, setHistory] = useState<EditorSnapshot[]>([]);
   const [redo, setRedo] = useState<EditorSnapshot[]>([]);
+  const projectFiles = useProjectFiles({
+    building,
+    reference,
+    furniture: furnitureSymbols,
+    disabled:
+      disabled || loadingImage || !!gesture || panning || !!spawnPolygon.length,
+    referenceProblem: tracing.exportProblem,
+    loadImage: tracing.load,
+    releaseImage: tracing.release,
+    onOpen: openProject,
+    onSaved: () => {
+      savedLayout.current = JSON.stringify(building);
+      onSaved?.(building, "export");
+    },
+    onError: setError,
+    onNotice: setNotice,
+  });
   const [cursor, setCursor] = useState<Point | null>(null);
   const snapTargets = useMemo(
     () => wallSnapTargets(building.walls),
@@ -259,6 +296,71 @@ export function BuildingEditor({
     selected?.kind === "spawn_zones"
       ? roomFillZones(building, selected.id)
       : [];
+  useEffect(
+    () => () => {
+      imageRequest.current++;
+    },
+    [],
+  );
+  async function importTracingImage(file?: File) {
+    if (!file) return;
+    const request = ++imageRequest.current;
+    setLoadingImage(true);
+    setError("");
+    setNotice("Opening tracing image…");
+    try {
+      const asset = await tracing.load(file, file.name);
+      if (request !== imageRequest.current) {
+        tracing.release(asset);
+        return;
+      }
+      const config = fitTracingConfig(asset, building);
+      const next = { asset, config };
+      const bounds = tracingBounds(asset, config);
+      if (
+        !reference &&
+        !clearPlan(Math.max(1, bounds.width), Math.max(1, bounds.height))
+      ) {
+        tracing.release(asset);
+        setNotice("");
+        return;
+      }
+      tracing.update(next);
+      setTool("wall");
+      setPropertiesOpen(false);
+      setPanMode(false);
+      setGesture(null);
+      selectElement(null);
+      if (canvas.current) {
+        const rect = canvas.current.getBoundingClientRect();
+        const view = focusSelectionCamera(
+          rect.width,
+          rect.height,
+          building,
+          bounds,
+        );
+        if (view) setCamera(view);
+      }
+      setNotice(
+        "Image ready. Drag to draw walls over it. Its size is fitted, not measured; optional size and opacity controls are in Tracing image.",
+      );
+    } catch (reason) {
+      if (
+        request === imageRequest.current &&
+        !(reason instanceof DOMException && reason.name === "AbortError")
+      ) {
+        setError(
+          reason instanceof Error
+            ? reason.message
+            : "Could not open this image.",
+        );
+        setNotice("");
+      }
+    } finally {
+      if (request === imageRequest.current) setLoadingImage(false);
+      if (tracingInput.current) tracingInput.current.value = "";
+    }
+  }
   const canPopulateObject =
     !disabled &&
     !gesture &&
@@ -574,10 +676,16 @@ export function BuildingEditor({
     };
   }, []);
   function fitPlan() {
+    const image = reference?.config.visible
+      ? tracingBounds(reference.asset, reference.config)
+      : null;
     setCamera({
       zoom: 1,
       pan: { x: 0, y: 0 },
-      extent: { width: building.width, height: building.height },
+      extent: {
+        width: Math.max(building.width, image ? image.x + image.width : 0),
+        height: Math.max(building.height, image ? image.y + image.height : 0),
+      },
     });
   }
   const canNavigateView =
@@ -1073,6 +1181,9 @@ export function BuildingEditor({
           camera,
           grid: drafting,
           furniture: furnitureSymbols,
+          background: reference
+            ? (ctx) => drawTracingReference(ctx, reference)
+            : undefined,
           showLabels: tool === "select" && !gesture,
           showDimensions: tool === "select" && !gesture,
           snapTarget: activeSnap,
@@ -1109,6 +1220,7 @@ export function BuildingEditor({
     activeSnap,
     cursor,
     hoveredId,
+    reference,
   ]);
 
   function pointerDown(event: PointerEvent<HTMLCanvasElement>) {
@@ -1608,7 +1720,11 @@ export function BuildingEditor({
     setError("");
     restore(next);
   }
-  function replaceLayout(next: BuildingScenario, label: string) {
+  function replaceLayout(
+    next: BuildingScenario,
+    label: string,
+    keepReference = false,
+  ) {
     if (
       JSON.stringify(building) !== (savedLayoutJson ?? savedLayout.current) &&
       !window.confirm(
@@ -1617,6 +1733,7 @@ export function BuildingEditor({
     )
       return false;
     if (commit(next)) {
+      if (!keepReference) tracing.detach();
       setPreviousView(null);
       curveGroups.current.clear();
       setFurnitureSymbols(new Map());
@@ -1633,10 +1750,12 @@ export function BuildingEditor({
     }
     return false;
   }
-  function clearPlan() {
+  function clearPlan(width = building.width, height = building.height) {
     return replaceLayout(
       {
         ...building,
+        width,
+        height,
         walls: [],
         doors: [],
         exits: [],
@@ -1654,7 +1773,56 @@ export function BuildingEditor({
         window_escape_context: undefined,
       },
       "an empty layout",
+      true,
     );
+  }
+  function openProject(
+    project: OpenedProject,
+    nextReference: TracingReference | null,
+  ) {
+    if (
+      !window.confirm(
+        "Open this project and replace the current drawing and tracing image? Save Project first to keep a copy. Existing browser saves will stay available.",
+      )
+    )
+      return false;
+    // Opening a document is a fresh history boundary; importing must not reclassify
+    // its openings, remove valid room fills, or apply current spawn defaults.
+    tracing.replaceFor(project.building, nextReference);
+    setHistory([]);
+    setRedo([]);
+    setPreviousView(null);
+    curveGroups.current.clear();
+    setFurnitureSymbols(new Map(project.furniture));
+    selectElement(null);
+    setGesture(null);
+    setSpawnPolygon([]);
+    setPolygonHover(null);
+    setRoomDraft(null);
+    setTool("select");
+    setPropertiesOpen(false);
+    setPanMode(false);
+    savedLayout.current = JSON.stringify(project.building);
+    (onOpenProject ?? onChange)(project.building);
+    onSaved?.(project.building, "replace");
+    const bounds = nextReference
+      ? tracingBounds(nextReference.asset, nextReference.config)
+      : null;
+    setCamera({
+      zoom: 1,
+      pan: { x: 0, y: 0 },
+      extent: {
+        width: Math.max(
+          project.building.width,
+          bounds ? bounds.x + bounds.width : 0,
+        ),
+        height: Math.max(
+          project.building.height,
+          bounds ? bounds.y + bounds.height : 0,
+        ),
+      },
+    });
+    return true;
   }
   function exportLayout() {
     savedLayout.current = JSON.stringify(building);
@@ -1791,6 +1959,33 @@ export function BuildingEditor({
           }}
         />
       )}
+      {tracingDialog && (
+        <TracingImageDialog
+          source={tracingDialog}
+          disabled={disabled}
+          onClose={() => {
+            tracing.release(tracingDialog.asset);
+            setTracingDialog(null);
+            canvas.current?.focus({ preventScroll: true });
+          }}
+          onApply={(next) => {
+            tracing.update(next);
+            if (canvas.current && next.config.visible) {
+              const rect = canvas.current.getBoundingClientRect();
+              const nextView = focusSelectionCamera(
+                rect.width,
+                rect.height,
+                building,
+                tracingBounds(next.asset, next.config),
+              );
+              if (nextView) setCamera(nextView);
+            }
+            setNotice(
+              "Tracing image updated. Your drawn walls and objects are unchanged.",
+            );
+          }}
+        />
+      )}
       <DxfImport
         base={building}
         disabled={disabled}
@@ -1922,9 +2117,15 @@ export function BuildingEditor({
               }}
               onDelete={deleteSelected}
               onTool={changeTool}
-              onNew={clearPlan}
+              onNew={() => clearPlan()}
               onImport={() => importInput.current?.click()}
               onImportDxf={() => dxfDialog.current?.showModal()}
+              onOpenProject={() => projectFiles.input.current?.click()}
+              onSaveProject={() => void projectFiles.save()}
+              projectBusy={projectFiles.busy}
+              onImportImage={() => {
+                if (!loadingImage) tracingInput.current?.click();
+              }}
               onExport={exportLayout}
               canFocusSelection={canFocusSelection}
               onFocusSelection={focusSelection}
@@ -1993,6 +2194,67 @@ export function BuildingEditor({
               }
               drafting={drafting}
               onDrafting={setDrafting}
+              tracingControls={
+                (reference || tracing.storageProblem) && (
+                  <div className="tracing-view-controls">
+                    {reference && (
+                      <>
+                        <p>{reference.asset.name} · Locked tracing reference</p>
+                        <label className="drafting-toggle">
+                          <input
+                            type="checkbox"
+                            checked={reference.config.visible}
+                            onChange={(event) =>
+                              tracing.update({
+                                ...reference,
+                                config: {
+                                  ...reference.config,
+                                  visible: event.currentTarget.checked,
+                                },
+                              })
+                            }
+                          />
+                          Show tracing image
+                        </label>
+                        <div className="file-actions">
+                          <button
+                            type="button"
+                            className="studio-control"
+                            onClick={() =>
+                              setTracingDialog({
+                                asset: reference.asset,
+                                config: reference.config,
+                              })
+                            }
+                          >
+                            Image settings…
+                          </button>
+                          <button
+                            type="button"
+                            className="studio-control"
+                            onClick={() => tracingInput.current?.click()}
+                            disabled={loadingImage}
+                          >
+                            Replace tracing image…
+                          </button>
+                          <button
+                            type="button"
+                            className="studio-control"
+                            onClick={() => tracing.remove()}
+                          >
+                            Remove tracing image
+                          </button>
+                        </div>
+                      </>
+                    )}
+                    {tracing.storageMessage && (
+                      <p role={tracing.storageProblem ? "alert" : "status"}>
+                        {tracing.storageMessage}
+                      </p>
+                    )}
+                  </div>
+                )
+              }
             />
             <EditorDrawingRail
               tool={tool}
@@ -2018,6 +2280,27 @@ export function BuildingEditor({
               accept=".json,application/json"
               aria-label="Import layout JSON"
               onChange={(event) => void importLayout(event.target.files?.[0])}
+            />
+            <input
+              ref={projectFiles.input}
+              hidden
+              type="file"
+              accept=".exitzero,application/json"
+              aria-label="Open ExitZero project"
+              disabled={disabled || projectFiles.busy}
+              onChange={(event) =>
+                void projectFiles.open(event.currentTarget.files?.[0])
+              }
+            />
+            <input
+              ref={tracingInput}
+              hidden
+              type="file"
+              accept="image/png,image/jpeg,.png,.jpg,.jpeg"
+              aria-label="Import tracing image"
+              onChange={(event) =>
+                void importTracingImage(event.target.files?.[0])
+              }
             />
           </div>
           <div className="editor-stage">

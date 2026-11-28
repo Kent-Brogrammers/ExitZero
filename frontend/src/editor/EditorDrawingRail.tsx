@@ -256,7 +256,7 @@ export function EditorDrawingRail({
             </div>
             <p className="shape-note">
               Furniture blocks its full rectangular footprint. JSON retains
-              names and geometry; drawing styles last this session.
+              names and geometry; Save Project also preserves drawing styles.
             </p>
           </>
         )}

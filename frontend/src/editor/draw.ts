@@ -56,6 +56,8 @@ export function drawLayout(
     camera?: CanvasCamera;
     grid?: DraftingPreferences;
     furniture?: ReadonlyMap<string, FurnitureKind>;
+    /** Drafting reference beneath all geometry, separate from traffic underlays. */
+    background?: (ctx: CanvasRenderingContext2D) => void;
     underlay?: (ctx: CanvasRenderingContext2D) => void;
     showDimensions?: boolean;
     showLabels?: boolean;
@@ -95,6 +97,11 @@ export function drawLayout(
   ctx.setTransform(scale, 0, 0, scale, x, y);
   ctx.fillStyle = palette.surface;
   ctx.fillRect(0, 0, building.width, building.height);
+  if (options?.background) {
+    ctx.save();
+    options.background(ctx);
+    ctx.restore();
+  }
   // Traffic overlays cover spawn fills; their outlines and labels stay legible.
   if (options?.underlay) {
     ctx.fillStyle = palette.spawn;

@@ -324,13 +324,48 @@ The example is a 30×20 m workspace with angled and straight walls, two exits, t
 - Choose **Openings → Door** or **Window** and click near a wall. A door with an enclosed room on one side and exterior space on the other automatically becomes an exit. Close the wall perimeter first; the workspace edge does not define the exterior. Interior doors remain doors, and wall/opening edits refresh classifications while preserving IDs and blocked states. Adjust width and offset in Properties.
 - Under **People**, choose **Draw Polygon** and click corners, then click the first corner or press Enter to finish. Escape cancels. **Draw Zone** draws rectangles; **Fill Room** creates one polygon matching the room boundary, with holes for enclosed inner rooms. **Place occupant** sets an exact position. Select a region to edit its count, move it, or scale its bounds. Furniture and walls remain excluded by Rust placement checks.
 - Editing, deleting, or adding walls that affect an automatic room fill removes that fill. Use **Fill Room** again for the updated room, or Undo to restore the original walls and fill together. Manual spawn zones and unaffected room fills remain in place.
-- **Objects** contains rectangular blockers and furniture styles. All furniture, including chairs, blocks its full rectangle; symbol styles last this session.
+- **Objects** contains rectangular blockers and furniture styles. All furniture, including chairs, blocks its full rectangle. Save Project preserves the symbols; building-only JSON and browser layout saves retain the blocking geometry.
 - **Insert → Stair area** draws a walkable single-floor marker. **Tornado shelter zone** is available there when the selected scenario is Tornado; existing zones remain editable in other modes.
 - **View** groups grid visibility/spacing, snapping, measurement labels, drawing-area size, and fullscreen.
 - Use **Select / move** to drag elements. Drag a selected wall's endpoint to reshape it. Moving a wall carries its openings with it; deleting a wall removes its openings and stale blocked-exit references.
 - Use the element dropdown and numeric inspector for precise coordinates and dimensions. Select an exit to toggle whether it is blocked. Invalid edits are rejected with an explanation.
 - **Undo/Redo** restores up to 50 edits. Canvas keyboard shortcuts: Delete/Backspace removes the selection, Escape cancels a gesture/selection, and Ctrl/Cmd+Z undoes (Shift redoes).
 - **File → New Layout** creates an empty draft. File also provides named browser saves, saved layouts, template saving, JSON import/export, and DXF import. **Load example building** remains on the welcome screen. JSON imports must be under 2 MB; export keeps a portable backup. Draft layouts can be saved before exits and occupants are added.
+
+**File → Import image…** puts a PNG/JPEG floor plan straight onto the drawing
+area as a locked background. The first image starts a fresh drawing; the usual
+unsaved-work confirmation and Undo protect the previous layout. The image is
+fitted to the drawing area, with its proportions preserved. Trace it using the
+existing wall, opening, people, and object tools. No setup points are required.
+**Tracing image** provides visibility, opacity, size, position, replacement,
+and removal controls. The fitted size is approximate; optionally enter the
+image's actual width for accurate measurements. Changing image settings does
+not rescale existing drawn geometry. Clearing the plan keeps the reference.
+The image and settings are stored separately in this browser and restored
+when the matching layout is reopened. They are not included in building JSON,
+simulation requests, or exported floor-plan images. **Save Project** includes
+the image for use in another browser. Use flat, undistorted plans: image sizing preserves
+the original proportions, without perspective correction, rotation, automatic recognition,
+or PDF support. Images must be at most 10 MB, 20 megapixels, and 8,192 pixels
+per side.
+
+**File → Save Project** downloads a portable `.exitzero` file containing the
+building, its emergency/occupant settings, furniture drawing styles, and the
+optional tracing image with its visibility, size, position, and opacity. Image
+sizing retains its fitted/custom distinction; a fitted image is still approximate.
+**Open Project…** validates the entire file and decodes its image before asking
+to replace the current workspace. Cancellation or an invalid file leaves the
+current project intact. Opening starts a fresh Undo history and clears previous
+simulation results and comparisons; existing browser saves remain available.
+Save Project first to keep a copy of the current workspace.
+
+Version 1 is a JSON envelope limited to 20 MB, including a building of at most
+2 MB and an optional PNG/JPEG of at most 10 MB. It does not include recordings,
+Undo history, curve-editing groups, or global preferences such as units and grid
+settings. Building JSON import/export and named local saves remain separate
+options. Only the unchanged building contract is sent to Rust; the image and
+furniture symbols do not change simulation behavior. No account or cloud storage
+is involved.
 
 API requests use the current edited layout. Computation buttons remain disabled until it has exits, occupants, and valid geometry. Run Simulation records actual movement; Analytics shows its metrics and a world-coordinate heatmap of accumulated crowd delay. Stress Test compares independently modified layouts against its own baseline.
 

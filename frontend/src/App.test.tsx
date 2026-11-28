@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import exampleJson from "./editor/presets/corporate-office.json";
 import { halloweenPreset } from "./editor/presets";
 import { withWindowEscapeDefaults } from "./editor/openings";
+import { serializeProject } from "./editor/projectFile";
 import App from "./App";
 import { api } from "./services/api";
 import { storeLayout } from "./templates/layouts";
@@ -167,6 +168,62 @@ describe("draft recovery", () => {
     expect(localStorage.getItem(DRAFT_STORAGE_KEY)).toBeNull();
     expect(document.body.textContent).not.toContain("Restore your draft?");
     expect(api.simulateLive).not.toHaveBeenCalled();
+  });
+});
+
+describe("portable project integration", () => {
+  async function openProject(building: BuildingScenario) {
+    const text = await serializeProject(building, null, new Map());
+    const input = document.querySelector<HTMLInputElement>(
+      '[aria-label="Open ExitZero project"]',
+    )!;
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: [new File([text], "project.exitzero")],
+    });
+    await act(async () =>
+      input.dispatchEvent(new Event("change", { bubbles: true })),
+    );
+  }
+  it("preserves imported model settings exactly, clears old results and keeps normal Undo editing", async () => {
+    vi.mocked(api.simulateLive).mockResolvedValue(recording);
+    vi.stubGlobal(
+      "confirm",
+      vi.fn(() => true),
+    );
+    await mount();
+    await click("Run Simulation");
+    expect(workspace().result).toEqual(recording);
+    await click("Edit");
+    const imported = structuredClone(example);
+    delete imported.agent_modifiers;
+    delete imported.window_escape_context;
+    await openProject(imported);
+    expect(workspace()).toEqual({
+      building: imported,
+      result: null,
+      live: null,
+    });
+    expect(button("Undo").disabled).toBe(true);
+    await click("Clear Plan");
+    expect(workspace().building.agent_modifiers).toBeUndefined();
+    await click("Undo");
+    expect(workspace().building).toEqual(imported);
+    expect(workspace().result).toBeNull();
+  });
+  it("keeps the current layout, history and results when opening is cancelled", async () => {
+    vi.mocked(api.simulateLive).mockResolvedValue(recording);
+    vi.stubGlobal(
+      "confirm",
+      vi.fn(() => false),
+    );
+    await mount();
+    await click("Run Simulation");
+    await click("Edit");
+    const previous = structuredClone(workspace());
+    await openProject({ ...example, seed: 120 });
+    expect(workspace()).toEqual(previous);
+    expect(document.body.textContent).not.toContain("Project opened");
   });
 });
 

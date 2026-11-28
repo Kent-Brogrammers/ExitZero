@@ -59,6 +59,26 @@ function canvasFixture(width: number, height = (width * 2) / 3) {
 }
 
 describe("freeform Canvas drawing", () => {
+  it("draws tracing backgrounds beneath traffic and geometry without changing their world transform", () => {
+    const { context, element } = canvasFixture(600);
+    const background = vi.fn((ctx: CanvasRenderingContext2D) => {
+      expect(ctx).toBe(context);
+      expect(context.setTransform).toHaveBeenLastCalledWith(40, 0, 0, 40, 0, 0);
+      ctx.fillRect(3, 3, 1, 1);
+    });
+    const underlay = vi.fn();
+    drawLayout(element, example, null, undefined, 2, undefined, {
+      background,
+      underlay,
+    });
+    expect(background.mock.invocationCallOrder[0]).toBeLessThan(
+      underlay.mock.invocationCallOrder[0]!,
+    );
+    expect(underlay.mock.invocationCallOrder[0]).toBeLessThan(
+      context.stroke.mock.invocationCallOrder[0]!,
+    );
+    expect(context.fillRect).toHaveBeenCalledWith(3, 3, 1, 1);
+  });
   it("hides occupant names in label-free placement previews while retaining selection outlines", () => {
     const { context, element } = canvasFixture(600);
     const building = {

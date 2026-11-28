@@ -98,6 +98,7 @@ export default function App() {
   );
   const [layoutRevision, setLayoutRevision] = useState(0);
   const editor = useRef<BuildingEditorHandle | null>(null);
+  const preserveProjectSettings = useRef(false);
   const [activeLayout, setActiveLayout] = useState<UserTemplate | null>(null);
   const [saveMode, setSaveMode] = useState<
     "save" | "saveAs" | "template" | null
@@ -179,6 +180,7 @@ export default function App() {
     preserveModifierSettings = false,
   ) {
     if (busy || !canReplace(name)) return false;
+    preserveProjectSettings.current = false;
     // Pass this same independent copy to run(), without waiting for React state.
     setHalloweenMusic(!source && next === halloweenPreset.building);
     const restored = withWindowEscapeDefaults(structuredClone(next));
@@ -206,7 +208,8 @@ export default function App() {
     return true;
   }
   function changeBuilding(next: BuildingScenario) {
-    next = withAutomaticModifiers(withWindowEscapeDefaults(next));
+    if (!preserveProjectSettings.current)
+      next = withAutomaticModifiers(withWindowEscapeDefaults(next));
     const namesOnly =
       JSON.stringify(withoutObjectNames(building)) ===
       JSON.stringify(withoutObjectNames(next));
@@ -226,6 +229,25 @@ export default function App() {
     setViewOriginal(false);
     setOptimization(null);
     if (officeDemo) setOfficeDemo("edited");
+    setMessage("");
+  }
+  function openProjectBuilding(next: BuildingScenario) {
+    // Portable projects preserve their saved model settings exactly, including
+    // legacy neutral populations. No current automatic defaults are injected.
+    preserveProjectSettings.current = true;
+    setBuilding(next);
+    setBaseline(null);
+    setResult(null);
+    setStressResult(null);
+    setStressJobId(null);
+    setScenarioReplay(null);
+    setViewOriginal(false);
+    setOptimization(null);
+    setReplayTarget(null);
+    setOfficeDemo(null);
+    setLive(null);
+    setHalloweenMusic(false);
+    previousWorkspace.current = null;
     setMessage("");
   }
   const [connection, setConnection] = useState<
@@ -1114,6 +1136,7 @@ export default function App() {
               editorRef={editor}
               building={building}
               onChange={changeBuilding}
+              onOpenProject={openProjectBuilding}
               result={result}
               live={live}
               onLiveSpeedChange={changeLiveSpeed}
